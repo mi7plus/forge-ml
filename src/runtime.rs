@@ -35,10 +35,17 @@ pub struct VariableMeta {
     pub type_name: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TableData {
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<String>>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Telemetry {
     Metric { name: String, value: f64 },
     Vector { name: String, values: Vec<f64> },
+    Table { name: String, data: TableData },
 }
 
 pub struct RuntimeHandle {
@@ -195,9 +202,43 @@ fn parse_telemetry(output: &str) -> Vec<Telemetry> {
                     values,
                 });
             }
+            if let Some(payload) = line.trim().strip_prefix("forge_table:") {
+                let (name, json) = payload.split_once('=')?;
+                let value: serde_json::Value = serde_json::from_str(json.trim()).ok()?;
+                let columns = value
+                    .get("columns")?
+                    .as_array()?
+                    .iter()
+                    .map(json_cell)
+                    .collect::<Vec<_>>();
+                let rows = value
+                    .get("rows")?
+                    .as_array()?
+                    .iter()
+                    .map(|row| {
+                        row.as_array()
+                            .map(|cells| cells.iter().map(json_cell).collect())
+                    })
+                    .collect::<Option<Vec<Vec<String>>>>()?;
+                if columns.is_empty() || rows.iter().any(|row| row.len() != columns.len()) {
+                    return None;
+                }
+                return Some(Telemetry::Table {
+                    name: name.trim().to_owned(),
+                    data: TableData { columns, rows },
+                });
+            }
             None
         })
         .collect()
+}
+
+fn json_cell(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(value) => value.clone(),
+        serde_json::Value::Null => String::new(),
+        other => other.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -214,5 +255,26 @@ mod tests {
         assert!(
             matches!(&values[1], Telemetry::Vector { name, values } if name == "w" && values == &[1.0, 2.0, 3.0])
         );
+    }
+
+    #[test]
+    fn parses_rectangular_table_telemetry() {
+        let values = parse_telemetry(
+            r#"forge_table:samples={"columns":["feature","label"],"rows":[[1.25,"cat"],[2.5,"dog"]]}"#,
+        );
+        assert_eq!(values.len(), 1);
+        assert!(matches!(
+            &values[0],
+            Telemetry::Table { name, data }
+                if name == "samples"
+                    && data.columns == ["feature", "label"]
+                    && data.rows[1] == ["2.5", "dog"]
+        ));
+    }
+
+    #[test]
+    fn rejects_ragged_table_telemetry() {
+        let values = parse_telemetry(r#"forge_table:bad={"columns":["x","y"],"rows":[[1],[2,3]]}"#);
+        assert!(values.is_empty());
     }
 }

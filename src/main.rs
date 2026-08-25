@@ -10,7 +10,7 @@ use egui_code_editor::{CodeEditor, ColorTheme, Syntax};
 use egui_plot::{Bar, BarChart, Line, Plot, PlotPoints};
 use lsp::{Diagnostic as LspDiagnostic, LspCommand, LspEvent, LspHandle};
 use project::{FileNode, Project};
-use runtime::{CellResult, RuntimeHandle, Telemetry, VariableMeta};
+use runtime::{CellResult, RuntimeHandle, TableData, Telemetry, VariableMeta};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -32,6 +32,10 @@ fn default_explorer_height() -> f32 {
 
 fn default_editor_font_size() -> f32 {
     14.0
+}
+
+fn default_dataset_pane_height() -> f32 {
+    280.0
 }
 
 fn default_true() -> bool {
@@ -108,7 +112,7 @@ struct CellRecord {
     elapsed_ms: Option<u128>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct ExperimentRun {
     name: String,
     metrics: HashMap<String, Vec<[f64; 2]>>,
@@ -159,6 +163,24 @@ struct SessionState {
     editor_font_size: f32,
     #[serde(default = "default_true")]
     caret_blink: bool,
+    #[serde(default)]
+    saved_runs: Vec<ExperimentRun>,
+    #[serde(default = "default_experiment_name")]
+    experiment_name: String,
+    #[serde(default = "default_comparison_metric")]
+    comparison_metric: String,
+    #[serde(default = "default_true")]
+    dataset_viewer_docked: bool,
+    #[serde(default = "default_dataset_pane_height")]
+    dataset_pane_height: f32,
+}
+
+fn default_experiment_name() -> String {
+    "run_1".to_owned()
+}
+
+fn default_comparison_metric() -> String {
+    "loss".to_owned()
 }
 
 struct ForgeApp {
@@ -174,6 +196,11 @@ struct ForgeApp {
     variables: Vec<VariableMeta>,
     metrics: HashMap<String, Vec<[f64; 2]>>,
     vectors: HashMap<String, Vec<f64>>,
+    tables: HashMap<String, TableData>,
+    open_dataset: Option<String>,
+    dataset_filter: String,
+    dataset_viewer_docked: bool,
+    dataset_pane_height: f32,
     inspector_tab: InspectorTab,
     diagnostics: DiagnosticsHandle,
     diagnostic_lines: Vec<String>,
@@ -294,6 +321,11 @@ impl ForgeApp {
             variables: Vec::new(),
             metrics: HashMap::new(),
             vectors: HashMap::new(),
+            tables: HashMap::new(),
+            open_dataset: None,
+            dataset_filter: String::new(),
+            dataset_viewer_docked: session.dataset_viewer_docked,
+            dataset_pane_height: session.dataset_pane_height,
             inspector_tab: InspectorTab::Variables,
             diagnostics: DiagnosticsHandle::spawn(),
             diagnostic_lines: vec!["Run diagnostics to check the current Cargo project.".to_owned()],
@@ -324,9 +356,9 @@ impl ForgeApp {
             replace_query: String::new(),
             pending_editor_selection: None,
             run_all_after_reset: false,
-            experiment_name: "run_1".to_owned(),
-            saved_runs: Vec::new(),
-            comparison_metric: "loss".to_owned(),
+            experiment_name: session.experiment_name,
+            saved_runs: session.saved_runs,
+            comparison_metric: session.comparison_metric,
             project_search_query: String::new(),
             project_search_case_sensitive: false,
             project_search_results: Vec::new(),
@@ -349,9 +381,11 @@ impl ForgeApp {
 
     fn cells(&self) -> Vec<(String, String)> {
         if !is_notebook_document(&self.active().content) {
-            return (!self.active().content.trim().is_empty())
-                .then(|| vec![(self.active().title.clone(), self.active().content.clone())])
-                .unwrap_or_default();
+            return if self.active().content.trim().is_empty() {
+                Vec::new()
+            } else {
+                vec![(self.active().title.clone(), self.active().content.clone())]
+            };
         }
         self.active()
             .content
@@ -1296,6 +1330,9 @@ impl ForgeApp {
                             Telemetry::Vector { name, values } => {
                                 self.vectors.insert(name, values);
                             }
+                            Telemetry::Table { name, data } => {
+                                self.tables.insert(name, data);
+                            }
                         }
                     }
                     if cell_id != CONSOLE_CELL_ID {
@@ -1325,6 +1362,8 @@ impl ForgeApp {
                     self.variables.clear();
                     self.metrics.clear();
                     self.vectors.clear();
+                    self.tables.clear();
+                    self.open_dataset = None;
                     self.cell_records.clear();
                     self.console = "Runtime state cleared.".to_owned();
                     if std::mem::take(&mut self.run_all_after_reset) {
@@ -2007,29 +2046,99 @@ impl ForgeApp {
         self.last_lsp_hash = 0;
     }
 
+    fn right_sidebar(&mut self, ui: &mut egui::Ui) {
+        if !self.dataset_viewer_docked || self.open_dataset.is_none() {
+            self.inspector(ui);
+            return;
+        }
+
+        let available_height = ui.available_height();
+        let divider_height = 12.0;
+        let min_pane_height = 120.0;
+        let max_dataset_height =
+            (available_height - min_pane_height - divider_height).max(min_pane_height);
+        self.dataset_pane_height = self
+            .dataset_pane_height
+            .clamp(min_pane_height, max_dataset_height);
+        let inspector_height =
+            (available_height - self.dataset_pane_height - divider_height).max(min_pane_height);
+
+        let (inspector_rect, _) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width(), inspector_height),
+            egui::Sense::hover(),
+        );
+        let mut inspector_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .id_salt("right_inspector_top")
+                .max_rect(inspector_rect)
+                .layout(egui::Layout::top_down(egui::Align::Min)),
+        );
+        inspector_ui.set_clip_rect(inspector_rect);
+        self.inspector(&mut inspector_ui);
+
+        let (divider_rect, divider) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width(), divider_height),
+            egui::Sense::drag(),
+        );
+        if divider.hovered() || divider.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+        }
+        if divider.dragged() {
+            self.dataset_pane_height = (self.dataset_pane_height
+                - ui.input(|input| input.pointer.delta().y))
+            .clamp(min_pane_height, max_dataset_height);
+            ui.ctx().request_repaint();
+        }
+        let divider_color = if divider.hovered() || divider.dragged() {
+            CYAN
+        } else {
+            theme_colors(self.dark_mode).border
+        };
+        if divider.hovered() || divider.dragged() {
+            ui.painter().rect_filled(
+                divider_rect,
+                2.0,
+                CYAN.gamma_multiply(if self.dark_mode { 0.14 } else { 0.09 }),
+            );
+        }
+        ui.painter().line_segment(
+            [divider_rect.left_center(), divider_rect.right_center()],
+            Stroke::new(if divider.dragged() { 2.0 } else { 1.0 }, divider_color),
+        );
+
+        let (dataset_rect, _) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width(), ui.available_height()),
+            egui::Sense::hover(),
+        );
+        let mut dataset_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .id_salt("right_dataset_bottom")
+                .max_rect(dataset_rect)
+                .layout(egui::Layout::top_down(egui::Align::Min)),
+        );
+        dataset_ui.set_clip_rect(dataset_rect);
+        self.docked_dataset_viewer(&mut dataset_ui);
+    }
+
     fn inspector(&mut self, ui: &mut egui::Ui) {
-        egui::ScrollArea::horizontal()
-            .id_salt("inspector_tab_strip")
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    for (tab, label) in [
-                        (InspectorTab::Variables, "Variables"),
-                        (InspectorTab::Data, "Data"),
-                        (InspectorTab::Charts, "Plots"),
-                        (InspectorTab::Experiments, "Runs"),
-                        (InspectorTab::Search, "Search"),
-                        (InspectorTab::Help, "Help"),
-                        (InspectorTab::Problems, "Problems"),
-                    ] {
-                        if ui
-                            .selectable_label(self.inspector_tab == tab, label)
-                            .clicked()
-                        {
-                            self.inspector_tab = tab;
-                        }
-                    }
-                });
-            });
+        ui.horizontal_wrapped(|ui| {
+            for (tab, label) in [
+                (InspectorTab::Variables, "Variables"),
+                (InspectorTab::Data, "Data"),
+                (InspectorTab::Charts, "Plots"),
+                (InspectorTab::Experiments, "Runs"),
+                (InspectorTab::Search, "Search"),
+                (InspectorTab::Help, "Help"),
+                (InspectorTab::Problems, "Problems"),
+            ] {
+                if ui
+                    .selectable_label(self.inspector_tab == tab, label)
+                    .clicked()
+                {
+                    self.inspector_tab = tab;
+                }
+            }
+        });
         ui.separator();
         ui.add_space(7.0);
         match self.inspector_tab {
@@ -2117,7 +2226,7 @@ impl ForgeApp {
                 ui.label("Execute `//# %%` cells in a persistent Evcxr session. Variables created by successful cells remain available to later cells and console commands.");
                 ui.separator();
                 ui.label(RichText::new("Telemetry").strong().color(CYAN));
-                ui.code("println!(\"forge_metric:loss={}\", loss);\nprintln!(\"forge_vector:w=1,2,3\");");
+                ui.code("println!(\"forge_metric:loss={}\", loss);\nprintln!(\"forge_vector:w=1,2,3\");\nprintln!(r#\"forge_table:samples={{\\\"columns\\\":[\\\"x\\\",\\\"label\\\"],\\\"rows\\\":[[1.0,\\\"cat\\\"]]}}\"#);");
                 ui.separator();
                 ui.label(RichText::new("Shortcuts").strong().color(CYAN));
                 ui.label("Shift+Enter  Run cell\nCtrl+Shift+Enter  Run all\nCtrl+Space  Show completions\nCtrl+S  Save file\nCtrl+N  New file\nCtrl+F  Find and replace\nCtrl+Shift+F  Find in project");
@@ -2186,12 +2295,14 @@ impl ForgeApp {
     }
 
     fn data_inspector(&mut self, ui: &mut egui::Ui) {
-        if self.vectors.is_empty() {
+        if self.vectors.is_empty() && self.tables.is_empty() {
             ui.label(
-                RichText::new("Emit `forge_vector:name=1,2,3` to inspect array-like data.")
-                    .monospace()
-                    .size(10.0)
-                    .color(MUTED),
+                RichText::new(
+                    "Emit `forge_vector:name=1,2,3` or `forge_table:name={...}` to inspect data.",
+                )
+                .monospace()
+                .size(10.0)
+                .color(MUTED),
             );
             return;
         }
@@ -2201,19 +2312,85 @@ impl ForgeApp {
             .clicked()
         {
             self.vectors.clear();
+            self.tables.clear();
+            self.open_dataset = None;
             self.console = "Cleared all live datasets.".to_owned();
             return;
         }
-        let mut dataset_to_delete = None;
+        let mut dataset_to_delete: Option<(bool, String)> = None;
         egui::ScrollArea::vertical()
             .id_salt("data_inspector_vectors")
             .show(ui, |ui| {
+                let mut table_names = self.tables.keys().cloned().collect::<Vec<_>>();
+                table_names.sort();
+                for name in table_names {
+                    let data = &self.tables[&name];
+                    ui.horizontal(|ui| {
+                        if ui
+                            .button(RichText::new(&name).strong().color(CYAN))
+                            .on_hover_text("Open in the data viewer")
+                            .clicked()
+                        {
+                            self.open_dataset = Some(format!("table:{name}"));
+                            self.dataset_filter.clear();
+                        }
+                        ui.label(
+                            RichText::new(format!(
+                                "{} rows × {} columns",
+                                data.rows.len(),
+                                data.columns.len()
+                            ))
+                            .size(10.0)
+                            .color(MUTED),
+                        );
+                        if compact_icon_button(
+                            ui,
+                            egui_phosphor_icons::icons::TRASH,
+                            "Delete this dataset",
+                        )
+                        .clicked()
+                        {
+                            dataset_to_delete = Some((true, name.clone()));
+                        }
+                    });
+                    egui::Grid::new(format!("table_preview_{name}"))
+                        .striped(true)
+                        .show(ui, |ui| {
+                            ui.label(RichText::new("#").strong().color(MUTED));
+                            for column in &data.columns {
+                                ui.label(RichText::new(column).strong());
+                            }
+                            ui.end_row();
+                            for (index, row) in data.rows.iter().take(5).enumerate() {
+                                ui.label(RichText::new(index.to_string()).monospace().color(MUTED));
+                                for value in row {
+                                    ui.label(RichText::new(value).monospace().size(10.0));
+                                }
+                                ui.end_row();
+                            }
+                        });
+                    if data.rows.len() > 5 {
+                        ui.label(
+                            RichText::new("Open the dataset to view and filter all rows.")
+                                .size(9.0)
+                                .color(MUTED),
+                        );
+                    }
+                    ui.separator();
+                }
                 for (name, values) in &self.vectors {
                     let min = values.iter().copied().reduce(f64::min).unwrap_or(0.0);
                     let max = values.iter().copied().reduce(f64::max).unwrap_or(0.0);
                     let mean = values.iter().sum::<f64>() / values.len().max(1) as f64;
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new(name).strong().color(CYAN));
+                        if ui
+                            .button(RichText::new(name).strong().color(CYAN))
+                            .on_hover_text("Open in the data viewer")
+                            .clicked()
+                        {
+                            self.open_dataset = Some(format!("vector:{name}"));
+                            self.dataset_filter.clear();
+                        }
                         if compact_icon_button(
                             ui,
                             egui_phosphor_icons::icons::TRASH,
@@ -2221,7 +2398,7 @@ impl ForgeApp {
                         )
                         .clicked()
                         {
-                            dataset_to_delete = Some(name.clone());
+                            dataset_to_delete = Some((false, name.clone()));
                         }
                     });
                     egui::Grid::new(format!("data_summary_{name}"))
@@ -2277,9 +2454,92 @@ impl ForgeApp {
                     ui.separator();
                 }
             });
-        if let Some(name) = dataset_to_delete {
-            self.vectors.remove(&name);
+        if let Some((is_table, name)) = dataset_to_delete {
+            if is_table {
+                self.tables.remove(&name);
+            } else {
+                self.vectors.remove(&name);
+            }
             self.console = format!("Deleted dataset `{name}`.");
+        }
+    }
+
+    fn selected_dataset(&self) -> Option<(String, TableData)> {
+        let selection = self.open_dataset.as_ref()?;
+        let (kind, name) = selection.split_once(':').unwrap_or(("", selection));
+        let data = match kind {
+            "table" => self.tables.get(name).cloned(),
+            "vector" => self.vectors.get(name).map(|values| TableData {
+                columns: vec!["value".to_owned()],
+                rows: values.iter().map(|value| vec![value.to_string()]).collect(),
+            }),
+            _ => None,
+        }?;
+        Some((name.to_owned(), data))
+    }
+
+    fn docked_dataset_viewer(&mut self, ui: &mut egui::Ui) {
+        let Some((name, data)) = self.selected_dataset() else {
+            self.open_dataset = None;
+            return;
+        };
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new("DATA VIEWER")
+                    .size(10.0)
+                    .strong()
+                    .color(MUTED),
+            );
+            if ui.small_button("Close").clicked() {
+                self.open_dataset = None;
+                self.dataset_filter.clear();
+            }
+            ui.label(RichText::new(&name).strong().color(CYAN));
+            if ui
+                .small_button("Undock")
+                .on_hover_text("Move this viewer to a floating window")
+                .clicked()
+            {
+                self.dataset_viewer_docked = false;
+            }
+        });
+        draw_dataset_table(ui, &data, &mut self.dataset_filter, "docked");
+    }
+
+    fn dataset_window(&mut self, ctx: &egui::Context) {
+        if self.dataset_viewer_docked {
+            return;
+        }
+        let Some((name, data)) = self.selected_dataset() else {
+            self.open_dataset = None;
+            return;
+        };
+        let mut open = true;
+        let mut dock = false;
+        egui::Window::new(format!("Data viewer — {name}"))
+            .id(egui::Id::new("forge_dataset_viewer"))
+            .open(&mut open)
+            .default_size([760.0, 520.0])
+            .min_size([420.0, 260.0])
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    if ui
+                        .small_button("Dock right")
+                        .on_hover_text("Return this viewer to the Data panel")
+                        .clicked()
+                    {
+                        dock = true;
+                    }
+                });
+                draw_dataset_table(ui, &data, &mut self.dataset_filter, "floating");
+            });
+        if dock {
+            self.dataset_viewer_docked = true;
+        }
+        if !open {
+            self.open_dataset = None;
+            self.dataset_filter.clear();
         }
     }
 
@@ -2689,7 +2949,7 @@ impl eframe::App for ForgeApp {
                 theme_colors(self.dark_mode).surface,
                 self.dark_mode,
             ))
-            .show(ui, |ui| self.inspector(ui));
+            .show(ui, |ui| self.right_sidebar(ui));
         Panel::bottom("console")
             .resizable(true)
             .show_separator_line(false)
@@ -2795,17 +3055,14 @@ impl eframe::App for ForgeApp {
                 }
                 let ctrl_held = ui.input(|input| input.modifiers.ctrl);
                 let hovered_offset = if output.response.hovered() {
-                    ui.ctx()
-                        .pointer_hover_pos()
-                        .map(|pointer| {
-                            let raw_offset = output
-                                .galley
-                                .cursor_from_pos(pointer - output.galley_pos)
-                                .index
-                                .0;
-                            word_start_at(&self.tabs[self.active_tab].content, raw_offset)
-                        })
-                        .flatten()
+                    ui.ctx().pointer_hover_pos().and_then(|pointer| {
+                        let raw_offset = output
+                            .galley
+                            .cursor_from_pos(pointer - output.galley_pos)
+                            .index
+                            .0;
+                        word_start_at(&self.tabs[self.active_tab].content, raw_offset)
+                    })
                 } else {
                     None
                 };
@@ -2932,6 +3189,7 @@ impl eframe::App for ForgeApp {
         self.delete_confirmation(ui.ctx());
         self.unsaved_confirmation(ui.ctx());
         self.settings_window(ui.ctx());
+        self.dataset_window(ui.ctx());
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
@@ -2948,8 +3206,81 @@ impl eframe::App for ForgeApp {
             recent_projects: self.recent_projects.clone(),
             editor_font_size: self.editor_font_size,
             caret_blink: self.caret_blink,
+            saved_runs: self.saved_runs.clone(),
+            experiment_name: self.experiment_name.clone(),
+            comparison_metric: self.comparison_metric.clone(),
+            dataset_viewer_docked: self.dataset_viewer_docked,
+            dataset_pane_height: self.dataset_pane_height,
         };
         eframe::set_value(storage, STORAGE_KEY, &state);
+    }
+}
+
+fn draw_dataset_table(ui: &mut egui::Ui, data: &TableData, filter: &mut String, id_salt: &str) {
+    ui.horizontal(|ui| {
+        ui.label(format!(
+            "{} rows × {} columns",
+            data.rows.len(),
+            data.columns.len()
+        ));
+        ui.separator();
+        ui.label("Filter");
+        ui.add(
+            egui::TextEdit::singleline(filter)
+                .desired_width(180.0)
+                .hint_text("Search values..."),
+        );
+        if ui.small_button("Clear").clicked() {
+            filter.clear();
+        }
+    });
+    ui.separator();
+    let needle = filter.to_lowercase();
+    let matching_rows = data
+        .rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| {
+            needle.is_empty()
+                || row
+                    .iter()
+                    .any(|value| value.to_lowercase().contains(&needle))
+        })
+        .take(10_000)
+        .collect::<Vec<_>>();
+    egui::ScrollArea::both()
+        .id_salt(("dataset_table_scroll", id_salt))
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            egui::Grid::new(("dataset_viewer_grid", id_salt))
+                .striped(true)
+                .min_col_width(90.0)
+                .show(ui, |ui| {
+                    ui.label(RichText::new("#").strong().color(MUTED));
+                    for column in &data.columns {
+                        ui.label(RichText::new(column).strong().color(CYAN));
+                    }
+                    ui.end_row();
+                    for (index, row) in &matching_rows {
+                        ui.label(
+                            RichText::new(index.to_string())
+                                .monospace()
+                                .size(10.0)
+                                .color(MUTED),
+                        );
+                        for value in *row {
+                            ui.label(RichText::new(value).monospace().size(10.0));
+                        }
+                        ui.end_row();
+                    }
+                });
+        });
+    if matching_rows.len() == 10_000 {
+        ui.label(
+            RichText::new("Showing the first 10,000 matching rows.")
+                .size(9.0)
+                .color(MUTED),
+        );
     }
 }
 
@@ -3583,6 +3914,40 @@ fn configure_style(ctx: &egui::Context, dark: bool) {
 #[cfg(test)]
 mod editor_tests {
     use super::*;
+
+    #[test]
+    fn restores_experiment_snapshots_and_defaults_legacy_sessions() {
+        let legacy: SessionState =
+            serde_json::from_str(r#"{"project_root":null,"open_files":[],"active_file":null}"#)
+                .unwrap();
+        assert!(legacy.saved_runs.is_empty());
+        assert_eq!(legacy.experiment_name, "run_1");
+        assert_eq!(legacy.comparison_metric, "loss");
+        assert!(legacy.dataset_viewer_docked);
+        assert_eq!(legacy.dataset_pane_height, default_dataset_pane_height());
+
+        let mut metrics = HashMap::new();
+        metrics.insert("loss".to_owned(), vec![[0.0, 1.0], [1.0, 0.5]]);
+        let state = SessionState {
+            saved_runs: vec![ExperimentRun {
+                name: "baseline".to_owned(),
+                metrics,
+                vectors: HashMap::new(),
+                execution_count: 2,
+            }],
+            experiment_name: "next_run".to_owned(),
+            comparison_metric: "accuracy".to_owned(),
+            ..SessionState::default()
+        };
+        let restored: SessionState =
+            serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+        assert_eq!(restored.saved_runs.len(), 1);
+        assert_eq!(restored.saved_runs[0].name, "baseline");
+        assert_eq!(restored.saved_runs[0].metrics["loss"][1], [1.0, 0.5]);
+        assert_eq!(restored.saved_runs[0].execution_count, 2);
+        assert_eq!(restored.experiment_name, "next_run");
+        assert_eq!(restored.comparison_metric, "accuracy");
+    }
 
     #[test]
     fn wraps_notebooks_for_rust_analyzer_and_preserves_offsets() {

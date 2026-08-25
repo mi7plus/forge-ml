@@ -4,6 +4,8 @@ Forge ML is an experimental desktop compute studio for interactive Rust machine-
 
 Its workspace follows the scientific-IDE model popularized by Spyder: an editor-centered layout surrounded by project, outline, variable, plot, help, diagnostics, console, and history panes.
 
+See the [development plan](DEVELOPMENT_PLAN.md) for the target architecture and full product scope, and the [roadmap](ROADMAP.md) for implementation status and upcoming milestones.
+
 ## Current prototype
 
 - Persistent Evcxr session running away from the UI thread
@@ -20,7 +22,8 @@ Its workspace follows the scientific-IDE model popularized by Spyder: an editor-
 - Persistent appearance settings for theme, editor font size, and caret blinking
 - Background Cargo diagnostics in the Problems inspector
 - Telemetry-driven line charts and vector bar visualizations
-- Deletable live datasets, plots, and saved experiment runs
+- Spyder-style dataset viewer in an adjustable bottom-right pane, with undocking, row filtering, and two-dimensional tables
+- Deletable live datasets and plots, with experiment snapshots and comparison settings persisted across launches
 - Project and Outline navigation tabs
 - Project-wide search with clickable line and column results
 - Clickable source outline for functions, structs, enums, traits, implementations, and modules
@@ -45,9 +48,10 @@ Cells can publish visualization data through stdout:
 ```rust
 println!("forge_metric:loss={}", loss);
 println!("forge_vector:weights=0.2,0.7,1.1,1.8");
+println!(r#"forge_table:samples={{"columns":["x","label"],"rows":[[0.2,"cat"],[0.7,"dog"]]}}"#);
 ```
 
-Metrics appear as live line charts, while vectors appear as bar plots in the Charts inspector.
+Metrics appear as live line charts, while vectors appear as bar plots in the Charts inspector. Vectors and tables appear in Data; click a dataset name to open the full table viewer.
 
 ## Run on Windows
 
