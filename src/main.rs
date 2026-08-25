@@ -95,6 +95,12 @@ enum CellState {
     Failed,
 }
 
+#[derive(Clone, Copy)]
+enum EditorHistoryCommand {
+    Undo,
+    Redo,
+}
+
 #[derive(Default)]
 struct CellRecord {
     state: Option<CellState>,
@@ -210,10 +216,14 @@ struct ForgeApp {
     caret_blink: bool,
     completion_popup_open: bool,
     last_file_poll: Instant,
+    pending_editor_history: Option<EditorHistoryCommand>,
 }
 
 impl ForgeApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        let mut fonts = egui::FontDefinitions::default();
+        egui_phosphor_icons::add_fonts(&mut fonts);
+        cc.egui_ctx.set_fonts(fonts);
         let session = cc
             .storage
             .and_then(|storage| eframe::get_value::<SessionState>(storage, STORAGE_KEY))
@@ -326,6 +336,7 @@ impl ForgeApp {
             caret_blink,
             completion_popup_open: false,
             last_file_poll: Instant::now(),
+            pending_editor_history: None,
         }
     }
 
@@ -1130,7 +1141,7 @@ impl ForgeApp {
                 continue;
             };
             let Ok(content) = std::fs::read_to_string(&path) else {
-                if !tab.external_change_pending {
+                if tab.disk_hash.is_some() && !tab.external_change_pending {
                     tab.external_change_pending = true;
                     conflicted.push(format!("{} is no longer readable on disk", tab.title));
                 }
@@ -1171,6 +1182,78 @@ impl ForgeApp {
                 .collect::<Vec<_>>()
                 .join(", ");
             self.console = format!("Reloaded external changes: {names}");
+        }
+    }
+
+    fn external_change_banner(&mut self, ui: &mut egui::Ui) {
+        if !self.active().external_change_pending {
+            return;
+        }
+        let path_label = self
+            .active()
+            .path
+            .as_deref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| self.active().title.clone());
+        let mut reload = false;
+        let mut keep = false;
+        Frame::new()
+            .fill(theme_colors(self.dark_mode).raised)
+            .stroke(Stroke::new(1.0, RED))
+            .inner_margin(Margin::symmetric(10, 7))
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(
+                        RichText::new("External change conflict")
+                            .strong()
+                            .color(RED),
+                    );
+                    ui.label(RichText::new(path_label).monospace().size(10.0));
+                    reload = ui
+                        .button("Reload from disk")
+                        .on_hover_text("Discard unsaved Forge edits and load the disk version")
+                        .clicked();
+                    keep = ui
+                        .button("Keep Forge version")
+                        .on_hover_text("Keep the editor content and dismiss this disk change")
+                        .clicked();
+                });
+            });
+        if reload {
+            let Some(path) = self.active().path.clone() else {
+                return;
+            };
+            match std::fs::read_to_string(&path) {
+                Ok(content) => {
+                    let hash = content_hash(&content);
+                    let tab = self.active_mut();
+                    tab.content = content;
+                    tab.dirty = false;
+                    tab.disk_hash = Some(hash);
+                    tab.external_change_pending = false;
+                    self.selected_cell = 0;
+                    self.cell_records.clear();
+                    self.pending_editor_selection = None;
+                    self.last_lsp_hash = 0;
+                    self.console = format!("Reloaded {} from disk.", path.display());
+                }
+                Err(error) => {
+                    self.console = format!("Could not reload {}: {error}", path.display());
+                }
+            }
+        } else if keep {
+            let disk_hash = self
+                .active()
+                .path
+                .as_deref()
+                .and_then(|path| std::fs::read_to_string(path).ok())
+                .map(|content| content_hash(&content));
+            let title = self.active().title.clone();
+            let tab = self.active_mut();
+            tab.disk_hash = disk_hash;
+            tab.external_change_pending = false;
+            tab.dirty = true;
+            self.console = format!("Kept the Forge version of {title}.");
         }
     }
 
@@ -1373,7 +1456,14 @@ impl ForgeApp {
                 }
             });
             ui.menu_button("Edit", |ui| {
-                ui.label("Editor commands use standard system shortcuts.");
+                if ui.button("Undo   Ctrl+Z").clicked() {
+                    self.pending_editor_history = Some(EditorHistoryCommand::Undo);
+                    ui.close();
+                }
+                if ui.button("Redo   Ctrl+Y / Ctrl+Shift+Z").clicked() {
+                    self.pending_editor_history = Some(EditorHistoryCommand::Redo);
+                    ui.close();
+                }
             });
             ui.menu_button("Search", |ui| {
                 if ui.button("Find in files   Ctrl+Shift+F").clicked() {
@@ -1443,72 +1533,89 @@ impl ForgeApp {
 
     fn top_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            if ui.button("Open").on_hover_text("Open project").clicked() {
+            use egui_phosphor_icons::icons;
+            if toolbar_icon_button(ui, icons::FOLDER_OPEN, "Open project").clicked() {
                 self.open_project();
             }
-            if ui.button("Save").on_hover_text("Save file").clicked() {
+            if toolbar_icon_button(ui, icons::FLOPPY_DISK, "Save file (Ctrl+S)").clicked() {
                 self.save_active();
             }
-            ui.separator();
-            if ui
-                .button("Check")
-                .on_hover_text("Run code analysis")
-                .clicked()
+            if toolbar_icon_button(
+                ui,
+                icons::ARROW_COUNTER_CLOCKWISE,
+                "Undo editor change (Ctrl+Z)",
+            )
+            .clicked()
             {
+                self.pending_editor_history = Some(EditorHistoryCommand::Undo);
+            }
+            if toolbar_icon_button(
+                ui,
+                icons::ARROW_CLOCKWISE,
+                "Redo editor change (Ctrl+Y / Ctrl+Shift+Z)",
+            )
+            .clicked()
+            {
+                self.pending_editor_history = Some(EditorHistoryCommand::Redo);
+            }
+            ui.separator();
+            if toolbar_icon_button(ui, icons::CHECK_CIRCLE, "Run code analysis").clicked() {
                 self.run_diagnostics();
             }
-            if ui
-                .button("Complete")
-                .on_hover_text("Request rust-analyzer completions at the cursor")
-                .clicked()
+            if toolbar_icon_button(
+                ui,
+                icons::MAGIC_WAND,
+                "Request rust-analyzer completions at the cursor",
+            )
+            .clicked()
             {
                 self.request_lsp("complete");
             }
-            if ui
-                .button("Hover")
-                .on_hover_text("Show type and documentation at the cursor")
+            if toolbar_icon_button(ui, icons::INFO, "Show type and documentation at the cursor")
                 .clicked()
             {
                 self.request_lsp("hover");
             }
-            if ui
-                .button("Go to")
-                .on_hover_text("Open the definition at the cursor")
-                .clicked()
+            if toolbar_icon_button(
+                ui,
+                icons::ARROW_SQUARE_OUT,
+                "Open the definition at the cursor",
+            )
+            .clicked()
             {
                 self.request_lsp("definition");
             }
             ui.separator();
             let ready = !matches!(self.run_state, RunState::Running(_) | RunState::Booting);
-            if ui
-                .add_enabled(ready, egui::Button::new("Run cell"))
-                .clicked()
+            if enabled_toolbar_icon_button(
+                ui,
+                ready,
+                icons::PLAY,
+                "Run selected cell (Shift+Enter)",
+            )
+            .clicked()
             {
                 self.enqueue_cells([self.selected_cell]);
             }
-            if ui
-                .add_enabled(ready, egui::Button::new("Run above"))
+            if enabled_toolbar_icon_button(ui, ready, icons::ARROW_LINE_UP, "Run cells above")
                 .clicked()
             {
                 self.enqueue_cells(0..=self.selected_cell);
             }
-            if ui
-                .add_enabled(ready, egui::Button::new("Run all"))
-                .clicked()
-            {
+            if enabled_toolbar_icon_button(ui, ready, icons::PLAYLIST, "Run all cells").clicked() {
                 self.enqueue_cells(0..self.cells().len());
             }
-            if ui.button("Reset").clicked() {
+            if toolbar_icon_button(ui, icons::ARROWS_CLOCKWISE, "Reset Rust runtime").clicked() {
                 let _ = self.runtime.reset();
                 self.run_state = RunState::Booting;
             }
-            if ui
-                .add_enabled(
-                    matches!(self.run_state, RunState::Running(_)),
-                    egui::Button::new("Stop"),
-                )
-                .on_hover_text("Stop execution and restart the Rust runtime")
-                .clicked()
+            if enabled_toolbar_icon_button(
+                ui,
+                matches!(self.run_state, RunState::Running(_)),
+                icons::STOP,
+                "Stop execution and restart the Rust runtime",
+            )
+            .clicked()
             {
                 self.stop_execution();
             }
@@ -1701,39 +1808,20 @@ impl ForgeApp {
                 .color(MUTED),
         );
         ui.horizontal(|ui| {
-            if ui
-                .small_button("+")
-                .on_hover_text("Insert cell after")
-                .clicked()
-            {
+            use egui_phosphor_icons::icons;
+            if compact_icon_button(ui, icons::PLUS, "Insert cell after").clicked() {
                 self.insert_cell_after();
             }
-            if ui
-                .small_button("Up")
-                .on_hover_text("Move cell up")
-                .clicked()
-            {
+            if compact_icon_button(ui, icons::ARROW_UP, "Move cell up").clicked() {
                 self.move_selected_cell(-1);
             }
-            if ui
-                .small_button("Down")
-                .on_hover_text("Move cell down")
-                .clicked()
-            {
+            if compact_icon_button(ui, icons::ARROW_DOWN, "Move cell down").clicked() {
                 self.move_selected_cell(1);
             }
-            if ui
-                .small_button("Delete")
-                .on_hover_text("Delete selected cell")
-                .clicked()
-            {
+            if compact_icon_button(ui, icons::TRASH, "Delete selected cell").clicked() {
                 self.delete_selected_cell();
             }
-            if ui
-                .small_button("Clear")
-                .on_hover_text("Clear cell outputs")
-                .clicked()
-            {
+            if compact_icon_button(ui, icons::BROOM, "Clear cell outputs").clicked() {
                 self.cell_records.clear();
                 self.console = "Cell outputs cleared.".to_owned();
             }
@@ -1864,7 +1952,14 @@ impl ForgeApp {
                         {
                             select = Some(index);
                         }
-                        if index == self.active_tab && ui.small_button("x").clicked() {
+                        if index == self.active_tab
+                            && compact_icon_button(
+                                ui,
+                                egui_phosphor_icons::icons::X,
+                                "Close editor tab",
+                            )
+                            .clicked()
+                        {
                             close = Some(index);
                         }
                         ui.separator();
@@ -1879,6 +1974,37 @@ impl ForgeApp {
         if let Some(index) = close {
             self.close_tab(index);
         }
+    }
+
+    fn apply_pending_editor_history(&mut self, ui: &mut egui::Ui) {
+        let Some(command) = self.pending_editor_history.take() else {
+            return;
+        };
+        let id = ui.make_persistent_id(format!("editor_{}", self.active_tab));
+        let Some(mut state) = egui::text_edit::TextEditState::load(ui.ctx(), id) else {
+            return;
+        };
+        let cursor = state.cursor.char_range().unwrap_or_else(|| {
+            egui::text::CCursorRange::one(egui::text::CCursor::new(self.cursor_offset))
+        });
+        let mut undoer = state.undoer();
+        let current = (cursor, self.active().content.clone());
+        let restored = match command {
+            EditorHistoryCommand::Undo => undoer.undo(&current),
+            EditorHistoryCommand::Redo => undoer.redo(&current),
+        }
+        .cloned();
+        let Some((cursor, content)) = restored else {
+            return;
+        };
+        state.set_undoer(undoer);
+        state.cursor.set_char_range(Some(cursor));
+        state.store(ui.ctx(), id);
+        self.cursor_offset = cursor.primary.index.into();
+        self.active_mut().content = content;
+        self.active_mut().dirty = true;
+        self.cell_records.clear();
+        self.last_lsp_hash = 0;
     }
 
     fn inspector(&mut self, ui: &mut egui::Ui) {
@@ -2088,10 +2214,12 @@ impl ForgeApp {
                     let mean = values.iter().sum::<f64>() / values.len().max(1) as f64;
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(name).strong().color(CYAN));
-                        if ui
-                            .small_button("Delete")
-                            .on_hover_text("Delete this dataset and its plot")
-                            .clicked()
+                        if compact_icon_button(
+                            ui,
+                            egui_phosphor_icons::icons::TRASH,
+                            "Delete this dataset and its plot",
+                        )
+                        .clicked()
                         {
                             dataset_to_delete = Some(name.clone());
                         }
@@ -2283,10 +2411,12 @@ impl ForgeApp {
                             ui.label(final_value);
                             ui.label(values.map_or(0, Vec::len).to_string());
                             ui.label(run.execution_count.to_string());
-                            if ui
-                                .small_button("Delete")
-                                .on_hover_text("Delete this saved run")
-                                .clicked()
+                            if compact_icon_button(
+                                ui,
+                                egui_phosphor_icons::icons::TRASH,
+                                "Delete this saved run",
+                            )
+                            .clicked()
                             {
                                 run_to_delete = Some(index);
                             }
@@ -2338,10 +2468,12 @@ impl ForgeApp {
         for (name, values) in &self.metrics {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(name).strong().color(EMBER));
-                if ui
-                    .small_button("Delete")
-                    .on_hover_text("Delete this metric plot")
-                    .clicked()
+                if compact_icon_button(
+                    ui,
+                    egui_phosphor_icons::icons::TRASH,
+                    "Delete this metric plot",
+                )
+                .clicked()
                 {
                     metric_to_delete = Some(name.clone());
                 }
@@ -2362,10 +2494,12 @@ impl ForgeApp {
         for (name, values) in &self.vectors {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(name).strong().color(CYAN));
-                if ui
-                    .small_button("Delete")
-                    .on_hover_text("Delete this dataset and its plot")
-                    .clicked()
+                if compact_icon_button(
+                    ui,
+                    egui_phosphor_icons::icons::TRASH,
+                    "Delete this dataset and its plot",
+                )
+                .clicked()
                 {
                     vector_to_delete = Some(name.clone());
                 }
@@ -2408,13 +2542,15 @@ impl ForgeApp {
             {
                 ui.label(RichText::new(format!("{ms} ms")).size(10.0).color(CYAN));
             }
-            if ui
-                .small_button("Clear")
-                .on_hover_text(match self.console_tab {
+            if compact_icon_button(
+                ui,
+                egui_phosphor_icons::icons::BROOM,
+                match self.console_tab {
                     ConsoleTab::Console => "Clear the visible console output",
                     ConsoleTab::History => "Clear the command history",
-                })
-                .clicked()
+                },
+            )
+            .clicked()
             {
                 match self.console_tab {
                     ConsoleTab::Console => {
@@ -2569,6 +2705,8 @@ impl eframe::App for ForgeApp {
             ))
             .show(ui, |ui| {
                 self.editor_tabs(ui);
+                self.external_change_banner(ui);
+                self.apply_pending_editor_history(ui);
                 if self.find_visible {
                     let mut next = false;
                     let mut replace = false;
@@ -2588,7 +2726,13 @@ impl eframe::App for ForgeApp {
                                 && ui.input(|input| input.key_pressed(egui::Key::Enter)));
                         replace = ui.button("Replace").clicked();
                         replace_all = ui.button("All").clicked();
-                        if ui.small_button("x").clicked() {
+                        if compact_icon_button(
+                            ui,
+                            egui_phosphor_icons::icons::X,
+                            "Close find and replace",
+                        )
+                        .clicked()
+                        {
                             self.find_visible = false;
                         }
                     });
@@ -2741,13 +2885,25 @@ impl eframe::App for ForgeApp {
                 }
                 if let Some((start, end)) = self.pending_editor_selection.take() {
                     let mut state = output.state.clone();
+                    let target_cursor = egui::text::CCursor::new(start);
                     state
                         .cursor
                         .set_char_range(Some(egui::text::CCursorRange::two(
-                            egui::text::CCursor::new(start),
+                            target_cursor,
                             egui::text::CCursor::new(end),
                         )));
                     state.store(ui.ctx(), output.response.id);
+                    let caret = output.galley.pos_from_cursor(target_cursor);
+                    let scroll_id =
+                        ui.make_persistent_id(format!("editor_{}_outer_scroll", self.active_tab));
+                    if let Some(mut scroll_state) =
+                        egui::scroll_area::State::load(ui.ctx(), scroll_id)
+                    {
+                        let viewport_height = ui.available_height().max(120.0);
+                        scroll_state.offset.y =
+                            (caret.center().y - viewport_height * 0.45).max(0.0);
+                        scroll_state.store(ui.ctx(), scroll_id);
+                    }
                     output.response.request_focus();
                     ui.ctx().request_repaint();
                 }
@@ -3317,6 +3473,41 @@ fn console_panel_frame(dark: bool) -> Frame {
         .fill(theme_colors(dark).surface)
         .inner_margin(Margin::same(12))
 }
+
+fn toolbar_icon_button(
+    ui: &mut egui::Ui,
+    icon: egui_phosphor_icons::Icon,
+    tooltip: &str,
+) -> egui::Response {
+    enabled_toolbar_icon_button(ui, true, icon, tooltip)
+}
+
+fn enabled_toolbar_icon_button(
+    ui: &mut egui::Ui,
+    enabled: bool,
+    icon: egui_phosphor_icons::Icon,
+    tooltip: &str,
+) -> egui::Response {
+    ui.add_enabled(
+        enabled,
+        egui::Button::new(icon.regular().size(17.0)).min_size(egui::vec2(30.0, 28.0)),
+    )
+    .on_hover_text(tooltip)
+}
+
+fn compact_icon_button(
+    ui: &mut egui::Ui,
+    icon: egui_phosphor_icons::Icon,
+    tooltip: &str,
+) -> egui::Response {
+    ui.add(
+        egui::Button::new(icon.regular().size(13.0))
+            .small()
+            .min_size(egui::vec2(22.0, 20.0)),
+    )
+    .on_hover_text(tooltip)
+}
+
 fn status_row(ui: &mut egui::Ui, label: &str, value: &str, color: Color32) {
     ui.horizontal(|ui| {
         ui.label(RichText::new(label).size(11.0).color(MUTED));

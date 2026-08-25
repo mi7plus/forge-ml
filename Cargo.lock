@@ -1153,6 +1153,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "egui_phosphor_icons"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d467f933bf6185c309f21d1eb32d329ba3b7b7aa0bfc616956ada1a3d9523870"
+dependencies = [
+ "egui",
+]
+
+[[package]]
 name = "egui_plot"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1455,11 +1464,12 @@ checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
 name = "forge_ide"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "eframe",
  "egui",
  "egui_code_editor",
+ "egui_phosphor_icons",
  "egui_plot",
  "evcxr",
  "rfd",
