@@ -205,6 +205,7 @@ struct ForgeApp {
     settings_open: bool,
     editor_font_size: f32,
     caret_blink: bool,
+    completion_popup_open: bool,
 }
 
 impl ForgeApp {
@@ -317,6 +318,7 @@ impl ForgeApp {
             settings_open: false,
             editor_font_size,
             caret_blink,
+            completion_popup_open: false,
         }
     }
 
@@ -820,6 +822,7 @@ impl ForgeApp {
         self.cursor_offset = offset;
         self.pending_editor_selection = Some((offset, offset));
         self.completions.clear();
+        self.completion_popup_open = false;
         self.lsp_status = format!("Inserted {completion}.");
     }
 
@@ -1045,10 +1048,11 @@ impl ForgeApp {
         }
         self.last_lsp_hash = hash;
         self.document_version += 1;
+        let (text, _) = lsp_document(&self.active().content);
         self.lsp.send(LspCommand::Sync {
             root,
             path,
-            text: self.active().content.clone(),
+            text,
             version: self.document_version,
         });
     }
@@ -1058,22 +1062,23 @@ impl ForgeApp {
             self.lsp_status = "Save this buffer before requesting language features.".to_owned();
             return;
         };
-        let text = self.active().content.clone();
+        let (text, prefix_chars) = lsp_document(&self.active().content);
+        let char_offset = self.cursor_offset + prefix_chars;
         let command = match action {
             "complete" => LspCommand::Complete {
                 path,
                 text,
-                char_offset: self.cursor_offset,
+                char_offset,
             },
             "hover" => LspCommand::Hover {
                 path,
                 text,
-                char_offset: self.cursor_offset,
+                char_offset,
             },
             _ => LspCommand::Definition {
                 path,
                 text,
-                char_offset: self.cursor_offset,
+                char_offset,
             },
         };
         self.lsp.send(command);
@@ -1086,10 +1091,11 @@ impl ForgeApp {
         if path.extension().and_then(|value| value.to_str()) != Some("rs") {
             return;
         }
+        let (text, prefix_chars) = lsp_document(&self.active().content);
         self.lsp.send(LspCommand::ProbeDefinition {
             path,
-            text: self.active().content.clone(),
-            char_offset,
+            text,
+            char_offset: char_offset + prefix_chars,
         });
     }
 
@@ -1180,12 +1186,19 @@ impl ForgeApp {
         while let Some(event) = self.lsp.try_recv() {
             match event {
                 LspEvent::Status(status) => self.lsp_status = status,
-                LspEvent::Diagnostics { path, items } => {
+                LspEvent::Diagnostics { path, mut items } => {
+                    if self.tabs.iter().any(|tab| {
+                        tab.path.as_ref() == Some(&path) && is_notebook_document(&tab.content)
+                    }) {
+                        for diagnostic in &mut items {
+                            diagnostic.line = diagnostic.line.saturating_sub(1);
+                        }
+                    }
                     self.lsp_diagnostics.insert(path, items);
                 }
                 LspEvent::Completions(items) => {
                     self.completions = items;
-                    self.inspector_tab = InspectorTab::Help;
+                    self.completion_popup_open = !self.completions.is_empty();
                     self.lsp_status = "Completion results ready.".to_owned();
                 }
                 LspEvent::Hover(text) => {
@@ -1194,13 +1207,34 @@ impl ForgeApp {
                     self.lsp_status = "Hover information ready.".to_owned();
                 }
                 LspEvent::Definition { path, line } => {
-                    self.navigate_to(path.clone(), line, 0);
-                    self.console = format!("Definition: {}:{}", path.display(), line + 1);
+                    let notebook = self
+                        .tabs
+                        .iter()
+                        .find(|tab| tab.path.as_ref() == Some(&path))
+                        .map(|tab| is_notebook_document(&tab.content))
+                        .or_else(|| {
+                            std::fs::read_to_string(&path)
+                                .ok()
+                                .map(|text| is_notebook_document(&text))
+                        })
+                        .unwrap_or(false);
+                    let editor_line = if notebook {
+                        line.saturating_sub(1)
+                    } else {
+                        line
+                    };
+                    self.navigate_to(path.clone(), editor_line, 0);
+                    self.console = format!("Definition: {}:{}", path.display(), editor_line + 1);
                 }
                 LspEvent::DefinitionProbe {
                     char_offset,
                     navigable,
                 } => {
+                    let char_offset = if is_notebook_document(&self.active().content) {
+                        char_offset.saturating_sub(notebook_lsp_prefix_chars())
+                    } else {
+                        char_offset
+                    };
                     self.definition_probe_pending = false;
                     if self.hover_probe_offset == Some(char_offset) {
                         self.navigable_hover_offset = navigable.then_some(char_offset);
@@ -1506,6 +1540,7 @@ impl ForgeApp {
                 .color(TEXT),
             );
             egui::ScrollArea::vertical()
+                .id_salt("project_file_tree")
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     ui.set_min_width(ui.available_width());
@@ -1628,6 +1663,7 @@ impl ForgeApp {
         });
         ui.add_space(4.0);
         egui::ScrollArea::vertical()
+            .id_salt("notebook_cell_list")
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
@@ -1724,30 +1760,32 @@ impl ForgeApp {
     fn editor_tabs(&mut self, ui: &mut egui::Ui) {
         let mut select = None;
         let mut close = None;
-        egui::ScrollArea::horizontal().show(ui, |ui| {
-            ui.horizontal(|ui| {
-                for (index, tab) in self.tabs.iter().enumerate() {
-                    let title = if tab.dirty {
-                        format!("* {}", tab.title)
-                    } else {
-                        tab.title.clone()
-                    };
-                    if ui
-                        .selectable_label(
-                            index == self.active_tab,
-                            RichText::new(title).color(if tab.dirty { EMBER } else { TEXT }),
-                        )
-                        .clicked()
-                    {
-                        select = Some(index);
+        egui::ScrollArea::horizontal()
+            .id_salt("editor_tab_strip")
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    for (index, tab) in self.tabs.iter().enumerate() {
+                        let title = if tab.dirty {
+                            format!("* {}", tab.title)
+                        } else {
+                            tab.title.clone()
+                        };
+                        if ui
+                            .selectable_label(
+                                index == self.active_tab,
+                                RichText::new(title).color(if tab.dirty { EMBER } else { TEXT }),
+                            )
+                            .clicked()
+                        {
+                            select = Some(index);
+                        }
+                        if index == self.active_tab && ui.small_button("x").clicked() {
+                            close = Some(index);
+                        }
+                        ui.separator();
                     }
-                    if index == self.active_tab && ui.small_button("x").clicked() {
-                        close = Some(index);
-                    }
-                    ui.separator();
-                }
-            })
-        });
+                })
+            });
         if let Some(index) = select {
             self.active_tab = index;
             self.selected_cell = 0;
@@ -1759,26 +1797,28 @@ impl ForgeApp {
     }
 
     fn inspector(&mut self, ui: &mut egui::Ui) {
-        egui::ScrollArea::horizontal().show(ui, |ui| {
-            ui.horizontal(|ui| {
-                for (tab, label) in [
-                    (InspectorTab::Variables, "Variables"),
-                    (InspectorTab::Data, "Data"),
-                    (InspectorTab::Charts, "Plots"),
-                    (InspectorTab::Experiments, "Runs"),
-                    (InspectorTab::Search, "Search"),
-                    (InspectorTab::Help, "Help"),
-                    (InspectorTab::Problems, "Problems"),
-                ] {
-                    if ui
-                        .selectable_label(self.inspector_tab == tab, label)
-                        .clicked()
-                    {
-                        self.inspector_tab = tab;
+        egui::ScrollArea::horizontal()
+            .id_salt("inspector_tab_strip")
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    for (tab, label) in [
+                        (InspectorTab::Variables, "Variables"),
+                        (InspectorTab::Data, "Data"),
+                        (InspectorTab::Charts, "Plots"),
+                        (InspectorTab::Experiments, "Runs"),
+                        (InspectorTab::Search, "Search"),
+                        (InspectorTab::Help, "Help"),
+                        (InspectorTab::Problems, "Problems"),
+                    ] {
+                        if ui
+                            .selectable_label(self.inspector_tab == tab, label)
+                            .clicked()
+                        {
+                            self.inspector_tab = tab;
+                        }
                     }
-                }
+                });
             });
-        });
         ui.separator();
         ui.add_space(7.0);
         match self.inspector_tab {
@@ -1828,6 +1868,7 @@ impl ForgeApp {
                     ui.separator();
                     ui.label(RichText::new("Hover").strong().color(CYAN));
                     egui::ScrollArea::vertical()
+                        .id_salt("help_hover_documentation")
                         .max_height(150.0)
                         .show(ui, |ui| {
                             ui.label(RichText::new(&self.hover_text).monospace().size(10.0));
@@ -1838,6 +1879,7 @@ impl ForgeApp {
                     ui.label(RichText::new("Completions").strong().color(CYAN));
                     let mut selected = None;
                     egui::ScrollArea::vertical()
+                        .id_salt("help_completion_results")
                         .max_height(180.0)
                         .show(ui, |ui| {
                             for item in &self.completions {
@@ -1867,62 +1909,64 @@ impl ForgeApp {
                 ui.code("println!(\"forge_metric:loss={}\", loss);\nprintln!(\"forge_vector:w=1,2,3\");");
                 ui.separator();
                 ui.label(RichText::new("Shortcuts").strong().color(CYAN));
-                ui.label("Shift+Enter  Run cell\nCtrl+Shift+Enter  Run all\nCtrl+S  Save file\nCtrl+N  New file\nCtrl+F  Find and replace\nCtrl+Shift+F  Find in project");
+                ui.label("Shift+Enter  Run cell\nCtrl+Shift+Enter  Run all\nCtrl+Space  Show completions\nCtrl+S  Save file\nCtrl+N  New file\nCtrl+F  Find and replace\nCtrl+Shift+F  Find in project");
             }
             InspectorTab::Problems => {
                 if ui.button("Run cargo check").clicked() {
                     self.run_diagnostics();
                 }
                 let mut navigate = None;
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    for (path, diagnostics) in &self.lsp_diagnostics {
-                        for diagnostic in diagnostics {
-                            let color = if diagnostic.severity == 1 {
+                egui::ScrollArea::vertical()
+                    .id_salt("problems_diagnostic_list")
+                    .show(ui, |ui| {
+                        for (path, diagnostics) in &self.lsp_diagnostics {
+                            for diagnostic in diagnostics {
+                                let color = if diagnostic.severity == 1 {
+                                    RED
+                                } else if diagnostic.severity == 2 {
+                                    EMBER
+                                } else {
+                                    TEXT
+                                };
+                                if ui
+                                    .add(
+                                        egui::Button::new(
+                                            RichText::new(format!(
+                                                "{}:{}:{}  {}",
+                                                file_title(path),
+                                                diagnostic.line + 1,
+                                                diagnostic.column + 1,
+                                                diagnostic.message
+                                            ))
+                                            .monospace()
+                                            .size(10.0)
+                                            .color(color),
+                                        )
+                                        .frame(false)
+                                        .wrap(),
+                                    )
+                                    .on_hover_text("Open this diagnostic")
+                                    .clicked()
+                                {
+                                    navigate = Some((
+                                        path.clone(),
+                                        diagnostic.line as usize,
+                                        diagnostic.column as usize,
+                                    ));
+                                }
+                            }
+                        }
+                        for line in &self.diagnostic_lines {
+                            let color = if line.contains("error") {
                                 RED
-                            } else if diagnostic.severity == 2 {
+                            } else if line.contains("warning") {
                                 EMBER
                             } else {
                                 TEXT
                             };
-                            if ui
-                                .add(
-                                    egui::Button::new(
-                                        RichText::new(format!(
-                                            "{}:{}:{}  {}",
-                                            file_title(path),
-                                            diagnostic.line + 1,
-                                            diagnostic.column + 1,
-                                            diagnostic.message
-                                        ))
-                                        .monospace()
-                                        .size(10.0)
-                                        .color(color),
-                                    )
-                                    .frame(false)
-                                    .wrap(),
-                                )
-                                .on_hover_text("Open this diagnostic")
-                                .clicked()
-                            {
-                                navigate = Some((
-                                    path.clone(),
-                                    diagnostic.line as usize,
-                                    diagnostic.column as usize,
-                                ));
-                            }
+                            ui.label(RichText::new(line).monospace().size(10.0).color(color));
                         }
-                    }
-                    for line in &self.diagnostic_lines {
-                        let color = if line.contains("error") {
-                            RED
-                        } else if line.contains("warning") {
-                            EMBER
-                        } else {
-                            TEXT
-                        };
-                        ui.label(RichText::new(line).monospace().size(10.0).color(color));
-                    }
-                });
+                    });
                 if let Some((path, line, column)) = navigate {
                     self.navigate_to(path, line, column);
                 }
@@ -1940,63 +1984,67 @@ impl ForgeApp {
             );
             return;
         }
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for (name, values) in &self.vectors {
-                let min = values.iter().copied().reduce(f64::min).unwrap_or(0.0);
-                let max = values.iter().copied().reduce(f64::max).unwrap_or(0.0);
-                let mean = values.iter().sum::<f64>() / values.len().max(1) as f64;
-                ui.label(RichText::new(name).strong().color(CYAN));
-                egui::Grid::new(format!("data_summary_{name}"))
-                    .num_columns(4)
-                    .striped(true)
-                    .show(ui, |ui| {
-                        ui.label("Shape");
-                        ui.label(format!("[{}]", values.len()));
-                        ui.label("dtype");
-                        ui.label("f64");
-                        ui.end_row();
-                        ui.label("Min");
-                        ui.label(format!("{min:.5}"));
-                        ui.label("Max");
-                        ui.label(format!("{max:.5}"));
-                        ui.end_row();
-                        ui.label("Mean");
-                        ui.label(format!("{mean:.5}"));
-                        ui.label("Count");
-                        ui.label(values.len().to_string());
-                        ui.end_row();
-                    });
-                ui.label(RichText::new("Values").size(10.0).color(MUTED));
-                egui::ScrollArea::horizontal()
-                    .id_salt(format!("data_values_{name}"))
-                    .show(ui, |ui| {
-                        egui::Grid::new(format!("data_grid_{name}"))
-                            .striped(true)
-                            .show(ui, |ui| {
-                                for (index, _) in values.iter().enumerate().take(128) {
-                                    ui.label(
-                                        RichText::new(index.to_string()).monospace().size(9.0),
-                                    );
-                                }
-                                ui.end_row();
-                                for value in values.iter().take(128) {
-                                    ui.label(
-                                        RichText::new(format!("{value:.5}")).monospace().size(10.0),
-                                    );
-                                }
-                                ui.end_row();
-                            });
-                    });
-                if values.len() > 128 {
-                    ui.label(
-                        RichText::new(format!("Showing 128 of {} values", values.len()))
-                            .size(9.0)
-                            .color(MUTED),
-                    );
+        egui::ScrollArea::vertical()
+            .id_salt("data_inspector_vectors")
+            .show(ui, |ui| {
+                for (name, values) in &self.vectors {
+                    let min = values.iter().copied().reduce(f64::min).unwrap_or(0.0);
+                    let max = values.iter().copied().reduce(f64::max).unwrap_or(0.0);
+                    let mean = values.iter().sum::<f64>() / values.len().max(1) as f64;
+                    ui.label(RichText::new(name).strong().color(CYAN));
+                    egui::Grid::new(format!("data_summary_{name}"))
+                        .num_columns(4)
+                        .striped(true)
+                        .show(ui, |ui| {
+                            ui.label("Shape");
+                            ui.label(format!("[{}]", values.len()));
+                            ui.label("dtype");
+                            ui.label("f64");
+                            ui.end_row();
+                            ui.label("Min");
+                            ui.label(format!("{min:.5}"));
+                            ui.label("Max");
+                            ui.label(format!("{max:.5}"));
+                            ui.end_row();
+                            ui.label("Mean");
+                            ui.label(format!("{mean:.5}"));
+                            ui.label("Count");
+                            ui.label(values.len().to_string());
+                            ui.end_row();
+                        });
+                    ui.label(RichText::new("Values").size(10.0).color(MUTED));
+                    egui::ScrollArea::horizontal()
+                        .id_salt(format!("data_values_{name}"))
+                        .show(ui, |ui| {
+                            egui::Grid::new(format!("data_grid_{name}"))
+                                .striped(true)
+                                .show(ui, |ui| {
+                                    for (index, _) in values.iter().enumerate().take(128) {
+                                        ui.label(
+                                            RichText::new(index.to_string()).monospace().size(9.0),
+                                        );
+                                    }
+                                    ui.end_row();
+                                    for value in values.iter().take(128) {
+                                        ui.label(
+                                            RichText::new(format!("{value:.5}"))
+                                                .monospace()
+                                                .size(10.0),
+                                        );
+                                    }
+                                    ui.end_row();
+                                });
+                        });
+                    if values.len() > 128 {
+                        ui.label(
+                            RichText::new(format!("Showing 128 of {} values", values.len()))
+                                .size(9.0)
+                                .color(MUTED),
+                        );
+                    }
+                    ui.separator();
                 }
-                ui.separator();
-            }
-        });
+            });
     }
 
     fn project_search(&mut self, ui: &mut egui::Ui) {
@@ -2027,33 +2075,35 @@ impl ForgeApp {
         );
         let root = self.project.as_ref().map(|project| project.root.clone());
         let mut navigate = None;
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for result in &self.project_search_results {
-                let shown_path = root
-                    .as_ref()
-                    .and_then(|root| result.path.strip_prefix(root).ok())
-                    .unwrap_or(&result.path);
-                let label = format!(
-                    "{}:{}:{}\n  {}",
-                    shown_path.display(),
-                    result.line + 1,
-                    result.column + 1,
-                    result.preview
-                );
-                if ui
-                    .add(
-                        egui::Button::new(RichText::new(label).monospace().size(10.0))
-                            .frame(false)
-                            .wrap(),
-                    )
-                    .on_hover_text("Open search result")
-                    .clicked()
-                {
-                    navigate = Some((result.path.clone(), result.line, result.column));
+        egui::ScrollArea::vertical()
+            .id_salt("project_search_results")
+            .show(ui, |ui| {
+                for result in &self.project_search_results {
+                    let shown_path = root
+                        .as_ref()
+                        .and_then(|root| result.path.strip_prefix(root).ok())
+                        .unwrap_or(&result.path);
+                    let label = format!(
+                        "{}:{}:{}\n  {}",
+                        shown_path.display(),
+                        result.line + 1,
+                        result.column + 1,
+                        result.preview
+                    );
+                    if ui
+                        .add(
+                            egui::Button::new(RichText::new(label).monospace().size(10.0))
+                                .frame(false)
+                                .wrap(),
+                        )
+                        .on_hover_text("Open search result")
+                        .clicked()
+                    {
+                        navigate = Some((result.path.clone(), result.line, result.column));
+                    }
+                    ui.separator();
                 }
-                ui.separator();
-            }
-        });
+            });
         if let Some((path, line, column)) = navigate {
             self.navigate_to(path, line, column);
         }
@@ -2102,29 +2152,31 @@ impl ForgeApp {
                     }
                 }
             });
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            egui::Grid::new("experiment_table")
-                .striped(true)
-                .show(ui, |ui| {
-                    ui.label(RichText::new("Run").strong());
-                    ui.label(RichText::new("Final").strong());
-                    ui.label(RichText::new("Steps").strong());
-                    ui.label(RichText::new("Execs").strong());
-                    ui.end_row();
-                    for run in &self.saved_runs {
-                        let values = run.metrics.get(&self.comparison_metric);
-                        let final_value = values
-                            .and_then(|values| values.last())
-                            .map(|point| format!("{:.6}", point[1]))
-                            .unwrap_or_else(|| "-".to_owned());
-                        ui.label(&run.name);
-                        ui.label(final_value);
-                        ui.label(values.map_or(0, Vec::len).to_string());
-                        ui.label(run.execution_count.to_string());
+        egui::ScrollArea::vertical()
+            .id_salt("experiment_run_table")
+            .show(ui, |ui| {
+                egui::Grid::new("experiment_table")
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.label(RichText::new("Run").strong());
+                        ui.label(RichText::new("Final").strong());
+                        ui.label(RichText::new("Steps").strong());
+                        ui.label(RichText::new("Execs").strong());
                         ui.end_row();
-                    }
-                });
-        });
+                        for run in &self.saved_runs {
+                            let values = run.metrics.get(&self.comparison_metric);
+                            let final_value = values
+                                .and_then(|values| values.last())
+                                .map(|point| format!("{:.6}", point[1]))
+                                .unwrap_or_else(|| "-".to_owned());
+                            ui.label(&run.name);
+                            ui.label(final_value);
+                            ui.label(values.map_or(0, Vec::len).to_string());
+                            ui.label(run.execution_count.to_string());
+                            ui.end_row();
+                        }
+                    });
+            });
     }
 
     fn charts(&mut self, ui: &mut egui::Ui) {
@@ -2211,6 +2263,7 @@ impl ForgeApp {
                     .map(|r| r.output.as_str())
                     .unwrap_or(&self.console);
                 egui::ScrollArea::vertical()
+                    .id_salt("rust_console_output")
                     .max_height((ui.available_height() - 34.0).max(30.0))
                     .stick_to_bottom(true)
                     .show(ui, |ui| {
@@ -2239,15 +2292,17 @@ impl ForgeApp {
                 });
             }
             ConsoleTab::History => {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    for (index, command) in self.history.iter().enumerate() {
-                        ui.label(
-                            RichText::new(format!("In [{}]: {}", index + 1, command))
-                                .monospace()
-                                .color(TEXT),
-                        );
-                    }
-                });
+                egui::ScrollArea::vertical()
+                    .id_salt("rust_console_history")
+                    .show(ui, |ui| {
+                        for (index, command) in self.history.iter().enumerate() {
+                            ui.label(
+                                RichText::new(format!("In [{}]: {}", index + 1, command))
+                                    .monospace()
+                                    .color(TEXT),
+                            );
+                        }
+                    });
             }
         }
         ui.take_available_space();
@@ -2262,6 +2317,7 @@ impl eframe::App for ForgeApp {
         let find = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F));
         let find_in_files =
             ui.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::F));
+        let complete = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Space));
         let run = ui.input(|i| i.modifiers.shift && i.key_pressed(egui::Key::Enter));
         let run_all = ui
             .input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Enter));
@@ -2275,6 +2331,16 @@ impl eframe::App for ForgeApp {
             self.inspector_tab = InspectorTab::Search;
         } else if find {
             self.find_visible = true;
+        }
+        if complete {
+            ui.input_mut(|input| {
+                input.consume_key(egui::Modifiers::COMMAND, egui::Key::Space);
+            });
+            self.request_lsp("complete");
+            self.lsp_status = "Requesting completions...".to_owned();
+        }
+        if self.completion_popup_open && ui.input(|input| input.key_pressed(egui::Key::Escape)) {
+            self.completion_popup_open = false;
         }
         if run_all {
             self.enqueue_cells(0..self.cells().len());
@@ -2380,6 +2446,19 @@ impl eframe::App for ForgeApp {
                     self.tabs[self.active_tab].dirty = true;
                     self.cell_records.clear();
                 }
+                if let Some(diagnostics) = self
+                    .active()
+                    .path
+                    .as_ref()
+                    .and_then(|path| self.lsp_diagnostics.get(path))
+                {
+                    paint_inline_diagnostics(
+                        ui,
+                        &output,
+                        &self.tabs[self.active_tab].content,
+                        diagnostics,
+                    );
+                }
                 if let Some(range) = output.cursor_range {
                     self.cursor_offset = range.primary.index.0;
                     self.select_cell_from_caret();
@@ -2428,6 +2507,58 @@ impl eframe::App for ForgeApp {
                         if ctrl_held && output.response.clicked_by(egui::PointerButton::Primary) {
                             self.cursor_offset = offset;
                             ctrl_clicked_definition = true;
+                        }
+                    }
+                }
+                if self.completion_popup_open {
+                    if let Some(range) = output.cursor_range {
+                        let caret = output.galley.pos_from_cursor(range.primary);
+                        let popup_position =
+                            output.galley_pos + egui::vec2(caret.min.x, caret.max.y + 3.0);
+                        let completions = self
+                            .completions
+                            .iter()
+                            .take(12)
+                            .cloned()
+                            .collect::<Vec<_>>();
+                        let mut selected = None;
+                        let popup = egui::Area::new(egui::Id::new("editor_completion_popup"))
+                            .order(egui::Order::Foreground)
+                            .fixed_pos(popup_position)
+                            .show(ui.ctx(), |ui| {
+                                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                    ui.set_min_width(240.0);
+                                    ui.label(
+                                        RichText::new("RUST-ANALYZER COMPLETIONS")
+                                            .size(9.0)
+                                            .strong()
+                                            .color(MUTED),
+                                    );
+                                    egui::ScrollArea::vertical()
+                                        .id_salt("editor_completion_popup_list")
+                                        .max_height(240.0)
+                                        .show(ui, |ui| {
+                                            for item in completions {
+                                                if ui
+                                                    .selectable_label(
+                                                        false,
+                                                        RichText::new(&item).monospace().size(11.0),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    selected = Some(item);
+                                                }
+                                            }
+                                        });
+                                });
+                            });
+                        if let Some(completion) = selected {
+                            self.apply_completion(&completion);
+                        } else if ui.input(|input| input.pointer.any_pressed())
+                            && !popup.response.contains_pointer()
+                            && !output.response.contains_pointer()
+                        {
+                            self.completion_popup_open = false;
                         }
                     }
                 }
@@ -2514,6 +2645,23 @@ fn char_to_byte(text: &str, char_offset: usize) -> usize {
         .nth(char_offset)
         .map(|(byte, _)| byte)
         .unwrap_or(text.len())
+}
+
+fn is_notebook_document(text: &str) -> bool {
+    text.contains("//# %%")
+}
+
+fn notebook_lsp_prefix_chars() -> usize {
+    "fn __forge_notebook__() {\n".chars().count()
+}
+
+fn lsp_document(text: &str) -> (String, usize) {
+    if is_notebook_document(text) {
+        let prefix = "fn __forge_notebook__() {\n";
+        (format!("{prefix}{text}\n}}\n"), prefix.chars().count())
+    } else {
+        (text.to_owned(), 0)
+    }
 }
 
 fn cell_byte_ranges(text: &str) -> Vec<std::ops::Range<usize>> {
@@ -2629,6 +2777,77 @@ fn paint_navigable_word(
             ],
             Stroke::new(1.5, CYAN),
         );
+    }
+}
+
+fn paint_inline_diagnostics(
+    ui: &egui::Ui,
+    output: &egui::text_edit::TextEditOutput,
+    text: &str,
+    diagnostics: &[LspDiagnostic],
+) {
+    let chars = text.chars().collect::<Vec<_>>();
+    let painter = ui.painter().with_clip_rect(output.text_clip_rect);
+    for diagnostic in diagnostics {
+        let line_start = text
+            .split_inclusive('\n')
+            .take(diagnostic.line as usize)
+            .map(str::chars)
+            .map(Iterator::count)
+            .sum::<usize>();
+        let mut start = (line_start + diagnostic.column as usize).min(chars.len());
+        while start < chars.len() && chars[start].is_whitespace() && chars[start] != '\n' {
+            start += 1;
+        }
+        let mut end = start;
+        while end < chars.len()
+            && (chars[end].is_alphanumeric() || chars[end] == '_' || chars[end] == ':')
+        {
+            end += 1;
+        }
+        if end == start {
+            end = (start + 1).min(chars.len());
+        }
+        let start_rect = output
+            .galley
+            .pos_from_cursor(egui::text::CCursor::new(start));
+        let end_rect = output.galley.pos_from_cursor(egui::text::CCursor::new(end));
+        if start_rect.min.y != end_rect.min.y {
+            continue;
+        }
+        let left = output.galley_pos.x + start_rect.min.x;
+        let right = (output.galley_pos.x + end_rect.min.x).max(left + 5.0);
+        let baseline = output.galley_pos.y + start_rect.max.y - 1.0;
+        let color = match diagnostic.severity {
+            1 => RED,
+            2 => EMBER,
+            _ => CYAN,
+        };
+        let mut points = Vec::new();
+        let mut x = left;
+        let mut high = true;
+        while x <= right {
+            points.push(egui::pos2(x, baseline + if high { -1.5 } else { 1.0 }));
+            high = !high;
+            x += 3.0;
+        }
+        points.push(egui::pos2(right, baseline));
+        painter.add(egui::Shape::line(points, Stroke::new(1.4, color)));
+        let hover_rect = egui::Rect::from_min_max(
+            egui::pos2(left, output.galley_pos.y + start_rect.min.y),
+            egui::pos2(right, output.galley_pos.y + start_rect.max.y + 3.0),
+        );
+        if ui
+            .ctx()
+            .pointer_hover_pos()
+            .is_some_and(|pointer| hover_rect.contains(pointer))
+        {
+            output
+                .response
+                .response
+                .clone()
+                .on_hover_text_at_pointer(&diagnostic.message);
+        }
     }
 }
 
@@ -2867,4 +3086,29 @@ fn configure_style(ctx: &egui::Context, dark: bool) {
     style.spacing.button_padding = egui::vec2(10.0, 6.0);
     ctx.set_style_of(theme, style);
     ctx.request_repaint();
+}
+
+#[cfg(test)]
+mod editor_tests {
+    use super::*;
+
+    #[test]
+    fn wraps_notebooks_for_rust_analyzer_and_preserves_offsets() {
+        let source = "//# %% setup\nlet value = 42;";
+        let (wrapped, prefix_chars) = lsp_document(source);
+        assert!(wrapped.starts_with("fn __forge_notebook__() {\n"));
+        assert!(wrapped.contains(source));
+        assert_eq!(prefix_chars, notebook_lsp_prefix_chars());
+        let raw_offset = source.find("value").unwrap();
+        let mapped_offset = raw_offset + prefix_chars;
+        assert_eq!(mapped_offset - prefix_chars, raw_offset);
+    }
+
+    #[test]
+    fn leaves_regular_rust_documents_unchanged_for_rust_analyzer() {
+        let source = "fn main() {}";
+        let (mapped, prefix_chars) = lsp_document(source);
+        assert_eq!(mapped, source);
+        assert_eq!(prefix_chars, 0);
+    }
 }

@@ -26,6 +26,8 @@ Its workspace follows the scientific-IDE model popularized by Spyder: an editor-
 - Spyder-style Variable Explorer table and Plots/Help/Problems tool panes
 - Interactive Rust console with persistent Evcxr state and command history
 - `rust-analyzer` document synchronization, diagnostics, completion, hover, and definition requests
+- Inline rust-analyzer diagnostic underlines with hover messages
+- Caret-anchored, clickable rust-analyzer completion popup
 
 ## Notebook controls
 
@@ -35,6 +37,7 @@ Its workspace follows the scientific-IDE model popularized by Spyder: an editor-
 - `Ctrl+left-click`: open the definition of the clicked Rust symbol, including definitions in other files
 - `Ctrl+F`: find and replace in the active file
 - `Ctrl+Shift+F`: search all editable files in the open project
+- `Ctrl+Space`: request and open rust-analyzer completions at the caret
 
 Cells can publish visualization data through stdout:
 
