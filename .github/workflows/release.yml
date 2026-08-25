@@ -1,0 +1,37 @@
+name: Build installers
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            formats: nsis
+          - os: macos-14
+            formats: dmg
+          - os: ubuntu-24.04
+            formats: deb,appimage
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Bundle rust-analyzer
+        shell: bash
+        run: ./scripts/fetch-rust-analyzer.sh
+      - name: Install packager
+        run: cargo install cargo-packager --locked
+      - name: Build installer
+        run: cargo packager --release --formats ${{ matrix.formats }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-ml-${{ runner.os }}
+          path: target/release/*

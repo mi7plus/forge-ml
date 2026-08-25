@@ -1,0 +1,15 @@
+productName = "Forge ML"
+identifier = "dev.forgeml.ide"
+version = "0.1.0"
+authors = ["Forge ML contributors"]
+description = "A scientific Rust IDE for interactive machine-learning development"
+category = "DeveloperTool"
+licenseFile = "LICENSE"
+beforePackagingCommand = "cargo build --release"
+resources = ["packaging/resources/rust-analyzer*"]
+
+[nsis]
+installMode = "currentUser"
+
+[deb]
+depends = ["libc6", "libgcc-s1"]
