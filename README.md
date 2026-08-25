@@ -20,6 +20,7 @@ Its workspace follows the scientific-IDE model popularized by Spyder: an editor-
 - Persistent appearance settings for theme, editor font size, and caret blinking
 - Background Cargo diagnostics in the Problems inspector
 - Telemetry-driven line charts and vector bar visualizations
+- Deletable live datasets, plots, and saved experiment runs
 - Project and Outline navigation tabs
 - Project-wide search with clickable line and column results
 - Clickable source outline for functions, structs, enums, traits, implementations, and modules

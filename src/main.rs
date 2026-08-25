@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 const TEXT: Color32 = Color32::PLACEHOLDER;
 const MUTED: Color32 = Color32::PLACEHOLDER;
@@ -121,6 +122,8 @@ struct EditorTab {
     title: String,
     content: String,
     dirty: bool,
+    disk_hash: Option<u64>,
+    external_change_pending: bool,
 }
 
 enum ExplorerAction {
@@ -206,6 +209,7 @@ struct ForgeApp {
     editor_font_size: f32,
     caret_blink: bool,
     completion_popup_open: bool,
+    last_file_poll: Instant,
 }
 
 impl ForgeApp {
@@ -250,8 +254,10 @@ impl ForgeApp {
                     .map(|content| EditorTab {
                         title: file_title(&path),
                         path: Some(path),
+                        disk_hash: Some(content_hash(&content)),
                         content,
                         dirty: false,
+                        external_change_pending: false,
                     })
             })
             .collect::<Vec<_>>();
@@ -319,6 +325,7 @@ impl ForgeApp {
             editor_font_size,
             caret_blink,
             completion_popup_open: false,
+            last_file_poll: Instant::now(),
         }
     }
 
@@ -330,6 +337,11 @@ impl ForgeApp {
     }
 
     fn cells(&self) -> Vec<(String, String)> {
+        if !is_notebook_document(&self.active().content) {
+            return (!self.active().content.trim().is_empty())
+                .then(|| vec![(self.active().title.clone(), self.active().content.clone())])
+                .unwrap_or_default();
+        }
         self.active()
             .content
             .split("//# %%")
@@ -605,8 +617,10 @@ impl ForgeApp {
                 self.tabs.push(EditorTab {
                     title: file_title(&path),
                     path: Some(path),
+                    disk_hash: Some(content_hash(&content)),
                     content,
                     dirty: false,
+                    external_change_pending: false,
                 });
                 self.active_tab = self.tabs.len() - 1;
                 self.selected_cell = 0;
@@ -638,6 +652,10 @@ impl ForgeApp {
                 tab.path = Some(path.clone());
                 tab.title = file_title(&path);
                 tab.dirty = false;
+                tab.disk_hash = std::fs::read_to_string(&path)
+                    .ok()
+                    .map(|content| content_hash(&content));
+                tab.external_change_pending = false;
                 self.console = format!("Saved {}", path.display());
                 if let Some(project) = &mut self.project {
                     let _ = project.refresh();
@@ -988,6 +1006,7 @@ impl ForgeApp {
         let Some((_, code)) = self.cells().get(cell_id).cloned() else {
             return;
         };
+        let code = prepare_runtime_code(&code, self.active().path.as_deref());
         if self.runtime.execute(cell_id, code).is_ok() {
             self.run_state = RunState::Running(cell_id);
             let record = self.cell_records.entry(cell_id).or_default();
@@ -1099,7 +1118,65 @@ impl ForgeApp {
         });
     }
 
+    fn poll_external_file_changes(&mut self) {
+        if self.last_file_poll.elapsed() < Duration::from_millis(750) {
+            return;
+        }
+        self.last_file_poll = Instant::now();
+        let mut reloaded = Vec::new();
+        let mut conflicted = Vec::new();
+        for (index, tab) in self.tabs.iter_mut().enumerate() {
+            let Some(path) = tab.path.clone() else {
+                continue;
+            };
+            let Ok(content) = std::fs::read_to_string(&path) else {
+                if !tab.external_change_pending {
+                    tab.external_change_pending = true;
+                    conflicted.push(format!("{} is no longer readable on disk", tab.title));
+                }
+                continue;
+            };
+            let hash = content_hash(&content);
+            if tab.disk_hash == Some(hash) {
+                tab.external_change_pending = false;
+                continue;
+            }
+            if tab.dirty {
+                if !tab.external_change_pending {
+                    tab.external_change_pending = true;
+                    conflicted.push(format!(
+                        "{} changed outside Forge; save or reopen it to resolve the conflict",
+                        tab.title
+                    ));
+                }
+                continue;
+            }
+            tab.content = content;
+            tab.disk_hash = Some(hash);
+            tab.external_change_pending = false;
+            reloaded.push((index, tab.title.clone()));
+        }
+        if reloaded.iter().any(|(index, _)| *index == self.active_tab) {
+            self.selected_cell = 0;
+            self.cell_records.clear();
+            self.pending_editor_selection = None;
+            self.last_lsp_hash = 0;
+        }
+        if !conflicted.is_empty() {
+            self.console = conflicted.join("\n");
+        } else if !reloaded.is_empty() {
+            let names = reloaded
+                .into_iter()
+                .map(|(_, name)| name)
+                .collect::<Vec<_>>()
+                .join(", ");
+            self.console = format!("Reloaded external changes: {names}");
+        }
+    }
+
     fn poll_background(&mut self, ctx: &egui::Context) {
+        self.poll_external_file_changes();
+        ctx.request_repaint_after(Duration::from_millis(750));
         while let Some(result) = self.runtime.try_recv() {
             match result {
                 CellResult::Ready => {
@@ -1765,7 +1842,9 @@ impl ForgeApp {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     for (index, tab) in self.tabs.iter().enumerate() {
-                        let title = if tab.dirty {
+                        let title = if tab.external_change_pending {
+                            format!("! {}", tab.title)
+                        } else if tab.dirty {
                             format!("* {}", tab.title)
                         } else {
                             tab.title.clone()
@@ -1773,7 +1852,13 @@ impl ForgeApp {
                         if ui
                             .selectable_label(
                                 index == self.active_tab,
-                                RichText::new(title).color(if tab.dirty { EMBER } else { TEXT }),
+                                RichText::new(title).color(if tab.external_change_pending {
+                                    RED
+                                } else if tab.dirty {
+                                    EMBER
+                                } else {
+                                    TEXT
+                                }),
                             )
                             .clicked()
                         {
@@ -1974,7 +2059,7 @@ impl ForgeApp {
         }
     }
 
-    fn data_inspector(&self, ui: &mut egui::Ui) {
+    fn data_inspector(&mut self, ui: &mut egui::Ui) {
         if self.vectors.is_empty() {
             ui.label(
                 RichText::new("Emit `forge_vector:name=1,2,3` to inspect array-like data.")
@@ -1984,6 +2069,16 @@ impl ForgeApp {
             );
             return;
         }
+        if ui
+            .small_button("Clear datasets")
+            .on_hover_text("Remove all live datasets and their vector plots")
+            .clicked()
+        {
+            self.vectors.clear();
+            self.console = "Cleared all live datasets.".to_owned();
+            return;
+        }
+        let mut dataset_to_delete = None;
         egui::ScrollArea::vertical()
             .id_salt("data_inspector_vectors")
             .show(ui, |ui| {
@@ -1991,7 +2086,16 @@ impl ForgeApp {
                     let min = values.iter().copied().reduce(f64::min).unwrap_or(0.0);
                     let max = values.iter().copied().reduce(f64::max).unwrap_or(0.0);
                     let mean = values.iter().sum::<f64>() / values.len().max(1) as f64;
-                    ui.label(RichText::new(name).strong().color(CYAN));
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(name).strong().color(CYAN));
+                        if ui
+                            .small_button("Delete")
+                            .on_hover_text("Delete this dataset and its plot")
+                            .clicked()
+                        {
+                            dataset_to_delete = Some(name.clone());
+                        }
+                    });
                     egui::Grid::new(format!("data_summary_{name}"))
                         .num_columns(4)
                         .striped(true)
@@ -2045,6 +2149,10 @@ impl ForgeApp {
                     ui.separator();
                 }
             });
+        if let Some(name) = dataset_to_delete {
+            self.vectors.remove(&name);
+            self.console = format!("Deleted dataset `{name}`.");
+        }
     }
 
     fn project_search(&mut self, ui: &mut egui::Ui) {
@@ -2152,6 +2260,7 @@ impl ForgeApp {
                     }
                 }
             });
+        let mut run_to_delete = None;
         egui::ScrollArea::vertical()
             .id_salt("experiment_run_table")
             .show(ui, |ui| {
@@ -2162,8 +2271,9 @@ impl ForgeApp {
                         ui.label(RichText::new("Final").strong());
                         ui.label(RichText::new("Steps").strong());
                         ui.label(RichText::new("Execs").strong());
+                        ui.label("");
                         ui.end_row();
-                        for run in &self.saved_runs {
+                        for (index, run) in self.saved_runs.iter().enumerate() {
                             let values = run.metrics.get(&self.comparison_metric);
                             let final_value = values
                                 .and_then(|values| values.last())
@@ -2173,10 +2283,21 @@ impl ForgeApp {
                             ui.label(final_value);
                             ui.label(values.map_or(0, Vec::len).to_string());
                             ui.label(run.execution_count.to_string());
+                            if ui
+                                .small_button("Delete")
+                                .on_hover_text("Delete this saved run")
+                                .clicked()
+                            {
+                                run_to_delete = Some(index);
+                            }
                             ui.end_row();
                         }
                     });
             });
+        if let Some(index) = run_to_delete {
+            let run = self.saved_runs.remove(index);
+            self.console = format!("Deleted saved run `{}`.", run.name);
+        }
     }
 
     fn charts(&mut self, ui: &mut egui::Ui) {
@@ -2192,6 +2313,16 @@ impl ForgeApp {
             if ui.button("Export").clicked() {
                 self.export_telemetry_csv();
             }
+            if (!self.metrics.is_empty() || !self.vectors.is_empty())
+                && ui
+                    .button("Clear current")
+                    .on_hover_text("Clear all current datasets and plots")
+                    .clicked()
+            {
+                self.metrics.clear();
+                self.vectors.clear();
+                self.console = "Cleared current datasets and plots.".to_owned();
+            }
         });
         if self.metrics.is_empty() && self.vectors.is_empty() {
             ui.label(
@@ -2203,8 +2334,18 @@ impl ForgeApp {
                 .color(MUTED),
             );
         }
+        let mut metric_to_delete = None;
         for (name, values) in &self.metrics {
-            ui.label(RichText::new(name).strong().color(EMBER));
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(name).strong().color(EMBER));
+                if ui
+                    .small_button("Delete")
+                    .on_hover_text("Delete this metric plot")
+                    .clicked()
+                {
+                    metric_to_delete = Some(name.clone());
+                }
+            });
             let points: PlotPoints = values.clone().into();
             Plot::new(format!("metric_{name}"))
                 .height(175.0)
@@ -2213,8 +2354,22 @@ impl ForgeApp {
                     p.line(Line::new(name, points).color(EMBER).width(2.0))
                 });
         }
+        if let Some(name) = metric_to_delete {
+            self.metrics.remove(&name);
+            self.console = format!("Deleted plot `{name}`.");
+        }
+        let mut vector_to_delete = None;
         for (name, values) in &self.vectors {
-            ui.label(RichText::new(name).strong().color(CYAN));
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(name).strong().color(CYAN));
+                if ui
+                    .small_button("Delete")
+                    .on_hover_text("Delete this dataset and its plot")
+                    .clicked()
+                {
+                    vector_to_delete = Some(name.clone());
+                }
+            });
             let bars = values
                 .iter()
                 .enumerate()
@@ -2224,6 +2379,10 @@ impl ForgeApp {
                 .height(175.0)
                 .allow_drag(false)
                 .show(ui, |p| p.bar_chart(BarChart::new(name, bars).color(CYAN)));
+        }
+        if let Some(name) = vector_to_delete {
+            self.vectors.remove(&name);
+            self.console = format!("Deleted dataset and plot `{name}`.");
         }
     }
 
@@ -2249,8 +2408,26 @@ impl ForgeApp {
             {
                 ui.label(RichText::new(format!("{ms} ms")).size(10.0).color(CYAN));
             }
-            if ui.small_button("Clear").clicked() {
-                self.console.clear();
+            if ui
+                .small_button("Clear")
+                .on_hover_text(match self.console_tab {
+                    ConsoleTab::Console => "Clear the visible console output",
+                    ConsoleTab::History => "Clear the command history",
+                })
+                .clicked()
+            {
+                match self.console_tab {
+                    ConsoleTab::Console => {
+                        // Cell runs keep their output separately from the shared console.
+                        // Clear both stores so the selected cell's errors do not reappear.
+                        self.console.clear();
+                        if let Some(record) = self.cell_records.get_mut(&self.selected_cell) {
+                            record.output.clear();
+                            record.elapsed_ms = None;
+                        }
+                    }
+                    ConsoleTab::History => self.history.clear(),
+                }
             }
         });
         ui.separator();
@@ -2664,6 +2841,120 @@ fn lsp_document(text: &str) -> (String, usize) {
     }
 }
 
+fn prepare_runtime_code(code: &str, source_path: Option<&Path>) -> String {
+    let source_directory = source_path.and_then(Path::parent);
+    let mut output = Vec::new();
+    let mut explicit_path_attribute = false;
+    for line in code.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("#[path") {
+            let rewritten = source_directory
+                .and_then(|directory| rewrite_path_attribute(line, directory))
+                .unwrap_or_else(|| line.to_owned());
+            output.push(rewritten);
+            explicit_path_attribute = true;
+            continue;
+        }
+        if !explicit_path_attribute {
+            if let Some(module_name) = trimmed
+                .strip_prefix("mod ")
+                .and_then(|value| value.strip_suffix(';'))
+                .map(str::trim)
+                .filter(|name| {
+                    name.chars()
+                        .all(|character| character == '_' || character.is_alphanumeric())
+                })
+            {
+                if let Some(directory) = source_directory {
+                    let flat = directory.join(format!("{module_name}.rs"));
+                    let nested = directory.join(module_name).join("mod.rs");
+                    let module_path = [flat, nested].into_iter().find(|path| path.is_file());
+                    if let Some(module_path) = module_path {
+                        output.push(format!("#[path = \"{}\"]", rust_path(&module_path)));
+                    }
+                }
+            }
+        }
+        output.push(line.to_owned());
+        explicit_path_attribute = false;
+    }
+    let mut prepared = output.join("\n");
+    if code.contains("// forge: expose-main") {
+        if let Some(exposed) = expose_main_body(&prepared) {
+            prepared = exposed;
+        }
+    } else if !is_notebook_document(code)
+        && code.lines().any(|line| {
+            let line = line.trim_start();
+            line.starts_with("fn main(") || line.starts_with("pub fn main(")
+        })
+    {
+        prepared.push_str("\nmain();");
+    }
+    prepared
+}
+
+fn expose_main_body(code: &str) -> Option<String> {
+    let main_start = code
+        .lines()
+        .scan(0, |offset, line| {
+            let start = *offset;
+            *offset += line.len() + 1;
+            Some((start, line))
+        })
+        .find_map(|(start, line)| {
+            let trimmed = line.trim_start();
+            (trimmed.starts_with("fn main(") || trimmed.starts_with("pub fn main("))
+                .then_some(start + line.len() - trimmed.len())
+        })?;
+    let body_start = code[main_start..].find('{')? + main_start;
+    let mut depth = 0_usize;
+    let mut body_end = None;
+    for (offset, character) in code[body_start..].char_indices() {
+        match character {
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    body_end = Some(body_start + offset);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let body_end = body_end?;
+    let mut exposed = String::new();
+    exposed.push_str(code[..main_start].trim_end());
+    exposed.push('\n');
+    exposed.push_str(code[body_end + 1..].trim());
+    exposed.push('\n');
+    exposed.push_str(code[body_start + 1..body_end].trim());
+    Some(exposed)
+}
+
+fn rewrite_path_attribute(line: &str, source_directory: &Path) -> Option<String> {
+    let first_quote = line.find('"')?;
+    let second_quote = line[first_quote + 1..].find('"')? + first_quote + 1;
+    let declared = Path::new(&line[first_quote + 1..second_quote]);
+    if declared.is_absolute() {
+        return Some(line.to_owned());
+    }
+    let resolved = source_directory.join(declared);
+    let mut rewritten = String::new();
+    rewritten.push_str(&line[..first_quote + 1]);
+    rewritten.push_str(&rust_path(&resolved));
+    rewritten.push_str(&line[second_quote..]);
+    Some(rewritten)
+}
+
+fn rust_path(path: &Path) -> String {
+    path.canonicalize()
+        .unwrap_or_else(|_| path.to_owned())
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
 fn cell_byte_ranges(text: &str) -> Vec<std::ops::Range<usize>> {
     if text.is_empty() {
         return Vec::new();
@@ -2856,6 +3147,8 @@ fn welcome_tab() -> EditorTab {
         path: None,
         title: "experiment.rs".to_owned(),
         dirty: false,
+        disk_hash: None,
+        external_change_pending: false,
         content: r#"//# %% setup
 let learning_rate = 0.03_f32;
 let epochs = 12;
@@ -2880,7 +3173,15 @@ fn blank_tab() -> EditorTab {
         title: "Untitled.rs".to_owned(),
         content: String::new(),
         dirty: false,
+        disk_hash: None,
+        external_change_pending: false,
     }
+}
+
+fn content_hash(content: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    content.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn file_title(path: &Path) -> String {
@@ -3110,5 +3411,19 @@ mod editor_tests {
         let (mapped, prefix_chars) = lsp_document(source);
         assert_eq!(mapped, source);
         assert_eq!(prefix_chars, 0);
+    }
+
+    #[test]
+    fn resolves_relative_module_paths_for_the_evcxr_runtime() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let source_path = root.join("examples/navigation_demo.rs");
+        let source = std::fs::read_to_string(&source_path).unwrap();
+        let prepared = prepare_runtime_code(&source, Some(&source_path));
+        let model_path = rust_path(&root.join("examples/support/model.rs"));
+        assert!(prepared.starts_with(&format!("#[path = \"{model_path}\"]")));
+        assert!(prepared.contains("mod model;"));
+        assert!(!prepared.contains("fn main()"));
+        assert!(prepared.contains("let model: LinearModel = LinearModel::new"));
+        assert!(prepared.contains("forge_vector:predictions"));
     }
 }

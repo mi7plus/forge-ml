@@ -20,4 +20,6 @@ To test experiment comparison, run the baseline cell in `experiment_comparison.r
 
 Open `navigation_demo.rs`, hold Left Ctrl, and hover or click `LinearModel`, `predict`, or `mean_squared_error`. Rust-analyzer should underline navigable symbols and open their definitions in `support/model.rs`.
 
+Run the file in Forge to populate Variables with the model, inputs, targets, predictions, and loss. Its vectors appear in Data and Plots, and loss appears as a metric plot.
+
 Run `cargo check --example navigation_demo` to verify the conventional Rust example independently.
