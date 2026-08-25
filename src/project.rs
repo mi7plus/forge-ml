@@ -36,7 +36,12 @@ pub fn is_editable(path: &Path) -> bool {
 fn read_directory(directory: &Path) -> io::Result<Vec<FileNode>> {
     let mut entries = fs::read_dir(directory)?
         .filter_map(Result::ok)
-        .filter(|entry| !matches!(entry.file_name().to_str(), Some(".git" | "target")))
+        .filter(|entry| {
+            !matches!(
+                entry.file_name().to_str(),
+                Some(".forge" | ".git" | "target")
+            )
+        })
         .map(|entry| {
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().into_owned();

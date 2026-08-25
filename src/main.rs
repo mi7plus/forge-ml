@@ -8,9 +8,11 @@ use eframe::egui;
 use egui::{Color32, Frame, Margin, Panel, RichText, Stroke};
 use egui_code_editor::{CodeEditor, ColorTheme, Syntax};
 use egui_plot::{Bar, BarChart, Line, Plot, PlotPoints};
+use forge_protocol::{ForgeEvent, RunId, TableData};
+use forge_storage::{WorkspaceRecovery, WorkspaceStore};
 use lsp::{Diagnostic as LspDiagnostic, LspCommand, LspEvent, LspHandle};
 use project::{FileNode, Project};
-use runtime::{CellResult, RuntimeHandle, TableData, Telemetry, VariableMeta};
+use runtime::{CellResult, RuntimeHandle, VariableMeta};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -114,6 +116,8 @@ struct CellRecord {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct ExperimentRun {
+    #[serde(default)]
+    id: RunId,
     name: String,
     metrics: HashMap<String, Vec<[f64; 2]>>,
     vectors: HashMap<String, Vec<f64>>,
@@ -187,6 +191,7 @@ struct ForgeApp {
     tabs: Vec<EditorTab>,
     active_tab: usize,
     project: Option<Project>,
+    workspace_store: Option<WorkspaceStore>,
     selected_cell: usize,
     run_state: RunState,
     run_queue: VecDeque<usize>,
@@ -276,14 +281,36 @@ impl ForgeApp {
         };
         let project = session
             .project_root
+            .clone()
             .and_then(|root| Project::open(root).ok());
+        let workspace_store = project
+            .as_ref()
+            .and_then(|project| WorkspaceStore::open(&project.root).ok());
+        let recovery = workspace_store
+            .as_ref()
+            .and_then(|store| store.load_recovery().ok())
+            .unwrap_or_default();
+        let open_files = if recovery.open_files.is_empty() {
+            session.open_files.clone()
+        } else {
+            recovery.open_files
+        };
+        let active_file = recovery.active_file.or_else(|| session.active_file.clone());
+        let persisted_runs = workspace_store
+            .as_ref()
+            .and_then(|store| store.load_experiments::<ExperimentRun>().ok())
+            .unwrap_or_default();
+        let saved_runs = if persisted_runs.is_empty() {
+            session.saved_runs.clone()
+        } else {
+            persisted_runs
+        };
         if let Some(root) = project.as_ref().map(|project| project.root.clone()) {
             recent_projects.retain(|path| path != &root);
             recent_projects.insert(0, root);
             recent_projects.truncate(10);
         }
-        let mut tabs = session
-            .open_files
+        let mut tabs = open_files
             .into_iter()
             .filter_map(|path| {
                 std::fs::read_to_string(&path)
@@ -301,8 +328,7 @@ impl ForgeApp {
         if tabs.is_empty() {
             tabs.push(welcome_tab());
         }
-        let active_tab = session
-            .active_file
+        let active_tab = active_file
             .and_then(|active| {
                 tabs.iter()
                     .position(|tab| tab.path.as_ref() == Some(&active))
@@ -312,6 +338,7 @@ impl ForgeApp {
             tabs,
             active_tab,
             project,
+            workspace_store,
             selected_cell: 0,
             run_state: RunState::Booting,
             run_queue: VecDeque::new(),
@@ -357,7 +384,7 @@ impl ForgeApp {
             pending_editor_selection: None,
             run_all_after_reset: false,
             experiment_name: session.experiment_name,
-            saved_runs: session.saved_runs,
+            saved_runs,
             comparison_metric: session.comparison_metric,
             project_search_query: String::new(),
             project_search_case_sensitive: false,
@@ -522,6 +549,42 @@ impl ForgeApp {
             Ok(project) => {
                 self.console = format!("Opened {}", project.root.display());
                 self.project = Some(project);
+                self.workspace_store = WorkspaceStore::open(&root).ok();
+                if let Some(store) = &self.workspace_store {
+                    if let Ok(runs) = store.load_experiments::<ExperimentRun>() {
+                        self.saved_runs = runs;
+                    }
+                    if let Ok(recovery) = store.load_recovery() {
+                        let mut restored_tabs = recovery
+                            .open_files
+                            .into_iter()
+                            .filter_map(|path| {
+                                std::fs::read_to_string(&path)
+                                    .ok()
+                                    .map(|content| EditorTab {
+                                        title: file_title(&path),
+                                        path: Some(path),
+                                        disk_hash: Some(content_hash(&content)),
+                                        content,
+                                        dirty: false,
+                                        external_change_pending: false,
+                                    })
+                            })
+                            .collect::<Vec<_>>();
+                        if !restored_tabs.is_empty() {
+                            self.active_tab = recovery
+                                .active_file
+                                .and_then(|active| {
+                                    restored_tabs
+                                        .iter()
+                                        .position(|tab| tab.path.as_ref() == Some(&active))
+                                })
+                                .unwrap_or(0);
+                            self.tabs.clear();
+                            self.tabs.append(&mut restored_tabs);
+                        }
+                    }
+                }
                 self.recent_projects.retain(|path| path != &root);
                 self.recent_projects.insert(0, root);
                 self.recent_projects.truncate(10);
@@ -899,12 +962,20 @@ impl ForgeApp {
         } else {
             self.experiment_name.trim().to_owned()
         };
-        self.saved_runs.push(ExperimentRun {
+        let run = ExperimentRun {
+            id: RunId::new(),
             name: name.clone(),
             metrics: self.metrics.clone(),
             vectors: self.vectors.clone(),
             execution_count: self.execution_count,
-        });
+        };
+        if let Some(store) = &self.workspace_store {
+            if let Err(error) = store.save_experiment(&run.id, &run.name, &run) {
+                self.console = format!("Could not persist experiment snapshot: {error}");
+                return;
+            }
+        }
+        self.saved_runs.push(run);
         self.experiment_name = format!("run_{}", self.saved_runs.len() + 1);
         self.inspector_tab = InspectorTab::Experiments;
         self.console = format!("Saved experiment snapshot {name}.");
@@ -925,6 +996,7 @@ impl ForgeApp {
             return;
         };
         let current = ExperimentRun {
+            id: RunId::new(),
             name: "current".to_owned(),
             metrics: self.metrics.clone(),
             vectors: self.vectors.clone(),
@@ -1305,7 +1377,7 @@ impl ForgeApp {
                     output,
                     elapsed_ms,
                     variables,
-                    telemetry,
+                    events,
                 } => {
                     self.run_state = RunState::Ready;
                     self.execution_count += 1;
@@ -1321,16 +1393,16 @@ impl ForgeApp {
                     } else {
                         output
                     };
-                    for item in telemetry {
-                        match item {
-                            Telemetry::Metric { name, value } => {
+                    for envelope in events {
+                        match envelope.event {
+                            ForgeEvent::Metric { name, value } => {
                                 let series = self.metrics.entry(name).or_default();
                                 series.push([series.len() as f64, value]);
                             }
-                            Telemetry::Vector { name, values } => {
+                            ForgeEvent::Vector { name, values } => {
                                 self.vectors.insert(name, values);
                             }
-                            Telemetry::Table { name, data } => {
+                            ForgeEvent::Table { name, data } => {
                                 self.tables.insert(name, data);
                             }
                         }
@@ -2686,6 +2758,13 @@ impl ForgeApp {
             });
         if let Some(index) = run_to_delete {
             let run = self.saved_runs.remove(index);
+            if let Some(store) = &self.workspace_store {
+                if let Err(error) = store.delete_experiment(&run.id) {
+                    self.console =
+                        format!("Deleted run from the view, but storage failed: {error}");
+                    return;
+                }
+            }
             self.console = format!("Deleted saved run `{}`.", run.name);
         }
     }
@@ -3193,6 +3272,19 @@ impl eframe::App for ForgeApp {
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        let recovery = WorkspaceRecovery {
+            open_files: self
+                .tabs
+                .iter()
+                .filter_map(|tab| tab.path.clone())
+                .collect(),
+            active_file: self.active().path.clone(),
+        };
+        if let Some(store) = &self.workspace_store {
+            if let Err(error) = store.save_recovery(&recovery) {
+                self.console = format!("Could not save workspace recovery state: {error}");
+            }
+        }
         let state = SessionState {
             project_root: self.project.as_ref().map(|p| p.root.clone()),
             open_files: self
@@ -3930,6 +4022,7 @@ mod editor_tests {
         metrics.insert("loss".to_owned(), vec![[0.0, 1.0], [1.0, 0.5]]);
         let state = SessionState {
             saved_runs: vec![ExperimentRun {
+                id: RunId::new(),
                 name: "baseline".to_owned(),
                 metrics,
                 vectors: HashMap::new(),

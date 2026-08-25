@@ -1,3 +1,4 @@
+use forge_protocol::{parse_stdout_events, EventEnvelope};
 use serde::{Deserialize, Serialize};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -18,7 +19,7 @@ pub enum CellResult {
         output: String,
         elapsed_ms: u128,
         variables: Vec<VariableMeta>,
-        telemetry: Vec<Telemetry>,
+        events: Vec<EventEnvelope>,
     },
     Error {
         cell_id: usize,
@@ -33,19 +34,6 @@ pub enum CellResult {
 pub struct VariableMeta {
     pub name: String,
     pub type_name: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TableData {
-    pub columns: Vec<String>,
-    pub rows: Vec<Vec<String>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Telemetry {
-    Metric { name: String, value: f64 },
-    Vector { name: String, values: Vec<f64> },
-    Table { name: String, data: TableData },
 }
 
 pub struct RuntimeHandle {
@@ -140,13 +128,13 @@ fn runtime_loop(
                                 type_name: type_name.to_owned(),
                             })
                             .collect();
-                        let telemetry = parse_telemetry(&stdout);
+                        let events = parse_stdout_events(&stdout);
                         let _ = results.send(CellResult::Success {
                             cell_id,
                             output,
                             elapsed_ms,
                             variables,
-                            telemetry,
+                            events,
                         });
                     }
                     Err(error) => {
@@ -180,101 +168,21 @@ fn runtime_loop(
     }
 }
 
-fn parse_telemetry(output: &str) -> Vec<Telemetry> {
-    output
-        .lines()
-        .filter_map(|line| {
-            if let Some(payload) = line.trim().strip_prefix("forge_metric:") {
-                let (name, value) = payload.split_once('=')?;
-                return value.trim().parse().ok().map(|value| Telemetry::Metric {
-                    name: name.trim().to_owned(),
-                    value,
-                });
-            }
-            if let Some(payload) = line.trim().strip_prefix("forge_vector:") {
-                let (name, values) = payload.split_once('=')?;
-                let values = values
-                    .split(',')
-                    .filter_map(|value| value.trim().parse().ok())
-                    .collect::<Vec<_>>();
-                return (!values.is_empty()).then(|| Telemetry::Vector {
-                    name: name.trim().to_owned(),
-                    values,
-                });
-            }
-            if let Some(payload) = line.trim().strip_prefix("forge_table:") {
-                let (name, json) = payload.split_once('=')?;
-                let value: serde_json::Value = serde_json::from_str(json.trim()).ok()?;
-                let columns = value
-                    .get("columns")?
-                    .as_array()?
-                    .iter()
-                    .map(json_cell)
-                    .collect::<Vec<_>>();
-                let rows = value
-                    .get("rows")?
-                    .as_array()?
-                    .iter()
-                    .map(|row| {
-                        row.as_array()
-                            .map(|cells| cells.iter().map(json_cell).collect())
-                    })
-                    .collect::<Option<Vec<Vec<String>>>>()?;
-                if columns.is_empty() || rows.iter().any(|row| row.len() != columns.len()) {
-                    return None;
-                }
-                return Some(Telemetry::Table {
-                    name: name.trim().to_owned(),
-                    data: TableData { columns, rows },
-                });
-            }
-            None
-        })
-        .collect()
-}
-
-fn json_cell(value: &serde_json::Value) -> String {
-    match value {
-        serde_json::Value::String(value) => value.clone(),
-        serde_json::Value::Null => String::new(),
-        other => other.to_string(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn parses_metric_and_vector_telemetry() {
-        let values = parse_telemetry("forge_metric:loss=0.42\nforge_vector:w=1, 2, 3");
+    fn runtime_uses_protocol_legacy_adapter() {
+        use forge_protocol::ForgeEvent;
+
+        let values = parse_stdout_events("forge_metric:loss=0.42\nforge_vector:w=1, 2, 3");
         assert_eq!(values.len(), 2);
         assert!(
-            matches!(&values[0], Telemetry::Metric { name, value } if name == "loss" && *value == 0.42)
+            matches!(&values[0].event, ForgeEvent::Metric { name, value } if name == "loss" && *value == 0.42)
         );
         assert!(
-            matches!(&values[1], Telemetry::Vector { name, values } if name == "w" && values == &[1.0, 2.0, 3.0])
+            matches!(&values[1].event, ForgeEvent::Vector { name, values } if name == "w" && values == &[1.0, 2.0, 3.0])
         );
-    }
-
-    #[test]
-    fn parses_rectangular_table_telemetry() {
-        let values = parse_telemetry(
-            r#"forge_table:samples={"columns":["feature","label"],"rows":[[1.25,"cat"],[2.5,"dog"]]}"#,
-        );
-        assert_eq!(values.len(), 1);
-        assert!(matches!(
-            &values[0],
-            Telemetry::Table { name, data }
-                if name == "samples"
-                    && data.columns == ["feature", "label"]
-                    && data.rows[1] == ["2.5", "dog"]
-        ));
-    }
-
-    #[test]
-    fn rejects_ragged_table_telemetry() {
-        let values = parse_telemetry(r#"forge_table:bad={"columns":["x","y"],"rows":[[1],[2,3]]}"#);
-        assert!(values.is_empty());
     }
 }

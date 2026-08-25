@@ -1,7 +1,11 @@
 [package]
 name = "forge_ide"
-version = "0.1.5"
+version = "0.2.0"
 edition = "2021"
+
+[workspace]
+members = [".", "crates/forge-protocol", "crates/forge-storage"]
+resolver = "2"
 
 [dependencies]
 eframe = { version = "=0.36.0", features = ["persistence"] }
@@ -9,8 +13,10 @@ egui = "=0.36.0"
 egui_plot = "=0.37.0"
 egui_code_editor = "=0.3.8"
 egui_phosphor_icons = { version = "=0.5.0", default-features = false }
-evcxr = "0.18"
+evcxr = "0.22"
 serde = { version = "1.0", features = ["derive"] }
 rfd = "0.17.2"
 serde_json = "1.0"
 url = "2.5"
+forge-protocol = { path = "crates/forge-protocol" }
+forge-storage = { path = "crates/forge-storage" }
