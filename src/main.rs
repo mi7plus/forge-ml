@@ -49,7 +49,9 @@ fn main() -> eframe::Result<()> {
 #[derive(Clone, Copy, PartialEq)]
 enum InspectorTab {
     Variables,
+    Data,
     Charts,
+    Experiments,
     Help,
     Problems,
 }
@@ -90,11 +92,31 @@ struct CellRecord {
     elapsed_ms: Option<u128>,
 }
 
+#[derive(Clone)]
+struct ExperimentRun {
+    name: String,
+    metrics: HashMap<String, Vec<[f64; 2]>>,
+    vectors: HashMap<String, Vec<f64>>,
+    execution_count: usize,
+}
+
 struct EditorTab {
     path: Option<PathBuf>,
     title: String,
     content: String,
     dirty: bool,
+}
+
+enum ExplorerAction {
+    Open(PathBuf),
+    NewFile(PathBuf),
+    Delete(PathBuf),
+}
+
+#[derive(Clone, Copy)]
+enum PendingUnsavedAction {
+    CloseTab(usize),
+    OpenProject,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -144,6 +166,16 @@ struct ForgeApp {
     dark_mode: bool,
     editor_needs_initial_focus: bool,
     explorer_height: f32,
+    pending_delete: Option<PathBuf>,
+    pending_unsaved_action: Option<PendingUnsavedAction>,
+    find_visible: bool,
+    find_query: String,
+    replace_query: String,
+    pending_editor_selection: Option<(usize, usize)>,
+    run_all_after_reset: bool,
+    experiment_name: String,
+    saved_runs: Vec<ExperimentRun>,
+    comparison_metric: String,
 }
 
 impl ForgeApp {
@@ -222,6 +254,16 @@ impl ForgeApp {
             dark_mode,
             editor_needs_initial_focus: true,
             explorer_height,
+            pending_delete: None,
+            pending_unsaved_action: None,
+            find_visible: false,
+            find_query: String::new(),
+            replace_query: String::new(),
+            pending_editor_selection: None,
+            run_all_after_reset: false,
+            experiment_name: "run_1".to_owned(),
+            saved_runs: Vec::new(),
+            comparison_metric: "loss".to_owned(),
         }
     }
 
@@ -247,11 +289,105 @@ impl ForgeApp {
             .collect()
     }
 
-    fn open_project(&mut self) {
-        if self.tabs.iter().any(|tab| tab.dirty) {
-            self.console = "Save modified tabs before switching projects.".to_owned();
+    fn select_cell_from_caret(&mut self) {
+        let ranges = cell_byte_ranges(&self.active().content);
+        if ranges.is_empty() {
+            self.selected_cell = 0;
             return;
         }
+        let cursor_byte = char_to_byte(&self.active().content, self.cursor_offset);
+        self.selected_cell = ranges
+            .iter()
+            .position(|range| cursor_byte >= range.start && cursor_byte < range.end)
+            .unwrap_or(ranges.len() - 1);
+    }
+
+    fn insert_cell_after(&mut self) {
+        let ranges = cell_byte_ranges(&self.active().content);
+        let insertion = ranges
+            .get(self.selected_cell)
+            .map(|range| range.end)
+            .unwrap_or_else(|| self.active().content.len());
+        let block = if insertion == 0 {
+            "//# %% new cell\n"
+        } else {
+            "\n\n//# %% new cell\n"
+        };
+        self.active_mut().content.insert_str(insertion, block);
+        self.active_mut().dirty = true;
+        self.selected_cell = self.selected_cell.saturating_add(1);
+        let offset = self.active().content[..insertion + block.len()]
+            .chars()
+            .count();
+        self.pending_editor_selection = Some((offset, offset));
+        self.cell_records.clear();
+    }
+
+    fn delete_selected_cell(&mut self) {
+        let ranges = cell_byte_ranges(&self.active().content);
+        let Some(range) = ranges.get(self.selected_cell).cloned() else {
+            return;
+        };
+        if ranges.len() == 1 {
+            self.active_mut().content = "//# %% new cell\n".to_owned();
+            self.selected_cell = 0;
+        } else {
+            self.active_mut().content.replace_range(range, "");
+            self.selected_cell = self.selected_cell.min(ranges.len() - 2);
+        }
+        self.active_mut().dirty = true;
+        self.cell_records.clear();
+        self.pending_editor_selection = Some((0, 0));
+    }
+
+    fn move_selected_cell(&mut self, direction: isize) {
+        let ranges = cell_byte_ranges(&self.active().content);
+        if ranges.len() < 2 {
+            return;
+        }
+        let target = self.selected_cell as isize + direction;
+        if target < 0 || target >= ranges.len() as isize {
+            return;
+        }
+        let mut chunks = ranges
+            .iter()
+            .map(|range| self.active().content[range.clone()].to_owned())
+            .collect::<Vec<_>>();
+        chunks.swap(self.selected_cell, target as usize);
+        self.active_mut().content = chunks.concat();
+        self.active_mut().dirty = true;
+        self.selected_cell = target as usize;
+        self.cell_records.clear();
+    }
+
+    fn restart_and_run_all(&mut self) {
+        self.run_queue.clear();
+        self.run_all_after_reset = true;
+        self.run_state = RunState::Booting;
+        self.console = "Restarting runtime before running all cells...".to_owned();
+        let _ = self.runtime.reset();
+    }
+
+    fn stop_execution(&mut self) {
+        self.run_queue.clear();
+        self.run_all_after_reset = false;
+        self.run_state = RunState::Booting;
+        self.console = "Stopping execution and restarting the Rust runtime...".to_owned();
+        if let Err(error) = self.runtime.stop() {
+            self.run_state = RunState::Failed;
+            self.console = format!("Could not stop execution: {error}");
+        }
+    }
+
+    fn open_project(&mut self) {
+        if self.tabs.iter().any(|tab| tab.dirty) {
+            self.pending_unsaved_action = Some(PendingUnsavedAction::OpenProject);
+            return;
+        }
+        self.open_project_dialog();
+    }
+
+    fn open_project_dialog(&mut self) {
         let Some(root) = rfd::FileDialog::new()
             .set_title("Open Forge ML project")
             .pick_folder()
@@ -265,6 +401,122 @@ impl ForgeApp {
             }
             Err(error) => self.console = format!("Could not open project: {error}"),
         }
+    }
+
+    fn create_new_file(&mut self, directory: Option<PathBuf>) {
+        let Some(project_root) = self.project.as_ref().map(|project| project.root.clone()) else {
+            self.console = "Open a project before creating a file.".to_owned();
+            return;
+        };
+        let directory = directory.unwrap_or_else(|| project_root.clone());
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Create file in Forge ML project")
+            .set_directory(directory)
+            .save_file()
+        else {
+            return;
+        };
+        let Some(parent) = path.parent() else {
+            self.console = "Choose a valid file location.".to_owned();
+            return;
+        };
+        let inside_project = project_root
+            .canonicalize()
+            .ok()
+            .zip(parent.canonicalize().ok())
+            .is_some_and(|(root, parent)| parent.starts_with(root));
+        if !inside_project {
+            self.console = "New files must be created inside the open project.".to_owned();
+            return;
+        }
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(_) => {
+                if let Some(project) = &mut self.project {
+                    let _ = project.refresh();
+                }
+                self.console = format!("Created {}", path.display());
+                self.open_file(path);
+                self.editor_needs_initial_focus = true;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                self.console = format!(
+                    "{} already exists; no file was overwritten.",
+                    path.display()
+                );
+            }
+            Err(error) => {
+                self.console = format!("Could not create {}: {error}", path.display());
+            }
+        }
+    }
+
+    fn delete_file(&mut self, path: PathBuf) {
+        let Some(project_root) = self.project.as_ref().map(|project| project.root.clone()) else {
+            return;
+        };
+        if self
+            .tabs
+            .iter()
+            .any(|tab| tab.path.as_ref() == Some(&path) && tab.dirty)
+        {
+            self.console = format!(
+                "Save or discard changes in {} before deleting it.",
+                path.display()
+            );
+            return;
+        }
+        let inside_project = project_root
+            .canonicalize()
+            .ok()
+            .zip(path.canonicalize().ok())
+            .is_some_and(|(root, target)| target.starts_with(root) && target.is_file());
+        if !inside_project {
+            self.console = "Forge only deletes files inside the open project.".to_owned();
+            return;
+        }
+        match std::fs::remove_file(&path) {
+            Ok(()) => {
+                self.tabs.retain(|tab| tab.path.as_ref() != Some(&path));
+                if self.tabs.is_empty() {
+                    self.tabs.push(blank_tab());
+                }
+                self.active_tab = self.active_tab.min(self.tabs.len() - 1);
+                self.lsp_diagnostics.remove(&path);
+                if let Some(project) = &mut self.project {
+                    let _ = project.refresh();
+                }
+                self.console = format!("Deleted {}. This action cannot be undone.", path.display());
+            }
+            Err(error) => self.console = format!("Could not delete {}: {error}", path.display()),
+        }
+    }
+
+    fn delete_confirmation(&mut self, ctx: &egui::Context) {
+        let Some(path) = self.pending_delete.clone() else {
+            return;
+        };
+        egui::Window::new("Delete file?")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(format!("Delete {}?", path.display()));
+                ui.label(RichText::new("This action cannot be undone.").color(RED));
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Cancel").clicked() {
+                        self.pending_delete = None;
+                    }
+                    if ui.button(RichText::new("Delete file").color(RED)).clicked() {
+                        self.pending_delete = None;
+                        self.delete_file(path.clone());
+                    }
+                });
+            });
     }
 
     fn open_file(&mut self, path: PathBuf) {
@@ -294,7 +546,11 @@ impl ForgeApp {
     }
 
     fn save_active(&mut self) {
-        let path = self.active().path.clone().or_else(|| {
+        let _ = self.save_tab(self.active_tab);
+    }
+
+    fn save_tab(&mut self, index: usize) -> bool {
+        let path = self.tabs[index].path.clone().or_else(|| {
             let mut dialog = rfd::FileDialog::new().set_title("Save file");
             if let Some(project) = &self.project {
                 dialog = dialog.set_directory(&project.root);
@@ -302,12 +558,12 @@ impl ForgeApp {
             dialog.save_file()
         });
         let Some(path) = path else {
-            return;
+            return false;
         };
-        let content = self.active().content.clone();
+        let content = self.tabs[index].content.clone();
         match std::fs::write(&path, content) {
             Ok(()) => {
-                let tab = self.active_mut();
+                let tab = &mut self.tabs[index];
                 tab.path = Some(path.clone());
                 tab.title = file_title(&path);
                 tab.dirty = false;
@@ -316,23 +572,255 @@ impl ForgeApp {
                     let _ = project.refresh();
                 }
                 self.run_diagnostics();
+                true
             }
-            Err(error) => self.console = format!("Could not save {}: {error}", path.display()),
+            Err(error) => {
+                self.console = format!("Could not save {}: {error}", path.display());
+                false
+            }
         }
     }
 
     fn close_tab(&mut self, index: usize) {
         if self.tabs[index].dirty {
-            self.console = format!("Save {} before closing it.", self.tabs[index].title);
+            self.pending_unsaved_action = Some(PendingUnsavedAction::CloseTab(index));
             return;
         }
+        self.close_tab_now(index);
+    }
+
+    fn close_tab_now(&mut self, index: usize) {
         self.tabs.remove(index);
         if self.tabs.is_empty() {
-            self.tabs.push(welcome_tab());
+            self.tabs.push(blank_tab());
         }
         self.active_tab = self.active_tab.min(self.tabs.len() - 1);
         self.selected_cell = 0;
         self.cell_records.clear();
+    }
+
+    fn unsaved_confirmation(&mut self, ctx: &egui::Context) {
+        let Some(action) = self.pending_unsaved_action else {
+            return;
+        };
+        let dirty_names = self
+            .tabs
+            .iter()
+            .filter(|tab| tab.dirty)
+            .map(|tab| tab.title.clone())
+            .collect::<Vec<_>>();
+        egui::Window::new("Unsaved changes")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label("Save your changes before continuing?");
+                ui.label(RichText::new(dirty_names.join(", ")).color(EMBER));
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Cancel").clicked() {
+                        self.pending_unsaved_action = None;
+                    }
+                    if ui.button("Discard").clicked() {
+                        self.pending_unsaved_action = None;
+                        match action {
+                            PendingUnsavedAction::CloseTab(index) => self.close_tab_now(index),
+                            PendingUnsavedAction::OpenProject => self.open_project_dialog(),
+                        }
+                    }
+                    if ui.button("Save").clicked() {
+                        let indices = match action {
+                            PendingUnsavedAction::CloseTab(index) => vec![index],
+                            PendingUnsavedAction::OpenProject => self
+                                .tabs
+                                .iter()
+                                .enumerate()
+                                .filter_map(|(index, tab)| tab.dirty.then_some(index))
+                                .collect(),
+                        };
+                        if indices.into_iter().all(|index| self.save_tab(index)) {
+                            self.pending_unsaved_action = None;
+                            match action {
+                                PendingUnsavedAction::CloseTab(index) => self.close_tab_now(index),
+                                PendingUnsavedAction::OpenProject => self.open_project_dialog(),
+                            }
+                        }
+                    }
+                });
+            });
+    }
+
+    fn navigate_to(&mut self, path: PathBuf, line: usize, column: usize) {
+        self.open_file(path);
+        let content = &self.active().content;
+        let line_start = content
+            .split_inclusive('\n')
+            .take(line)
+            .map(str::chars)
+            .map(Iterator::count)
+            .sum::<usize>();
+        let line_length = content
+            .lines()
+            .nth(line)
+            .map(str::chars)
+            .map(Iterator::count)
+            .unwrap_or(0);
+        let offset = line_start + column.min(line_length);
+        self.pending_editor_selection = Some((offset, offset));
+        self.cursor_offset = offset;
+        self.editor_needs_initial_focus = true;
+    }
+
+    fn find_next(&mut self) {
+        if self.find_query.is_empty() {
+            return;
+        }
+        let content = &self.active().content;
+        let start_byte = char_to_byte(content, self.cursor_offset.saturating_add(1));
+        let found = content[start_byte..]
+            .find(&self.find_query)
+            .map(|offset| start_byte + offset)
+            .or_else(|| content[..start_byte].find(&self.find_query));
+        if let Some(byte_start) = found {
+            let byte_end = byte_start + self.find_query.len();
+            let char_start = content[..byte_start].chars().count();
+            let char_end = content[..byte_end].chars().count();
+            self.pending_editor_selection = Some((char_start, char_end));
+            self.cursor_offset = char_start;
+        } else {
+            self.console = format!("No matches for {:?}.", self.find_query);
+        }
+    }
+
+    fn replace_current(&mut self) {
+        let Some((start, end)) = self.pending_editor_selection else {
+            self.find_next();
+            return;
+        };
+        let start_byte = char_to_byte(&self.active().content, start);
+        let end_byte = char_to_byte(&self.active().content, end);
+        if self.active().content.get(start_byte..end_byte) == Some(self.find_query.as_str()) {
+            let replacement = self.replace_query.clone();
+            self.active_mut()
+                .content
+                .replace_range(start_byte..end_byte, &replacement);
+            self.active_mut().dirty = true;
+            self.cursor_offset = start + replacement.chars().count();
+            self.pending_editor_selection = None;
+        }
+        self.find_next();
+    }
+
+    fn replace_all(&mut self) {
+        if self.find_query.is_empty() {
+            return;
+        }
+        let count = self.active().content.matches(&self.find_query).count();
+        if count > 0 {
+            let updated = self
+                .active()
+                .content
+                .replace(&self.find_query, &self.replace_query);
+            self.active_mut().content = updated;
+            self.active_mut().dirty = true;
+            self.pending_editor_selection = None;
+        }
+        self.console = format!("Replaced {count} occurrence(s).");
+    }
+
+    fn apply_completion(&mut self, completion: &str) {
+        let cursor = self
+            .cursor_offset
+            .min(self.active().content.chars().count());
+        let start = word_start_at(&self.active().content, cursor).unwrap_or(cursor);
+        let start_byte = char_to_byte(&self.active().content, start);
+        let end_byte = char_to_byte(&self.active().content, cursor);
+        self.active_mut()
+            .content
+            .replace_range(start_byte..end_byte, completion);
+        self.active_mut().dirty = true;
+        let offset = start + completion.chars().count();
+        self.cursor_offset = offset;
+        self.pending_editor_selection = Some((offset, offset));
+        self.completions.clear();
+        self.lsp_status = format!("Inserted {completion}.");
+    }
+
+    fn save_experiment_run(&mut self) {
+        if self.metrics.is_empty() && self.vectors.is_empty() {
+            self.console = "Run telemetry-producing cells before saving an experiment.".to_owned();
+            return;
+        }
+        let name = if self.experiment_name.trim().is_empty() {
+            format!("run_{}", self.saved_runs.len() + 1)
+        } else {
+            self.experiment_name.trim().to_owned()
+        };
+        self.saved_runs.push(ExperimentRun {
+            name: name.clone(),
+            metrics: self.metrics.clone(),
+            vectors: self.vectors.clone(),
+            execution_count: self.execution_count,
+        });
+        self.experiment_name = format!("run_{}", self.saved_runs.len() + 1);
+        self.inspector_tab = InspectorTab::Experiments;
+        self.console = format!("Saved experiment snapshot {name}.");
+    }
+
+    fn export_telemetry_csv(&mut self) {
+        if self.metrics.is_empty() && self.vectors.is_empty() && self.saved_runs.is_empty() {
+            self.console = "There is no telemetry to export.".to_owned();
+            return;
+        }
+        let mut dialog = rfd::FileDialog::new()
+            .set_title("Export Forge ML telemetry")
+            .set_file_name("forge-ml-telemetry.csv");
+        if let Some(project) = &self.project {
+            dialog = dialog.set_directory(&project.root);
+        }
+        let Some(path) = dialog.save_file() else {
+            return;
+        };
+        let current = ExperimentRun {
+            name: "current".to_owned(),
+            metrics: self.metrics.clone(),
+            vectors: self.vectors.clone(),
+            execution_count: self.execution_count,
+        };
+        let runs = std::iter::once(&current).chain(self.saved_runs.iter());
+        let mut csv = "run,kind,series,index,value,executions\n".to_owned();
+        for run in runs {
+            for (series, values) in &run.metrics {
+                for point in values {
+                    csv.push_str(&format!(
+                        "{},{},{},{},{},{}\n",
+                        csv_field(&run.name),
+                        "metric",
+                        csv_field(series),
+                        point[0],
+                        point[1],
+                        run.execution_count
+                    ));
+                }
+            }
+            for (series, values) in &run.vectors {
+                for (index, value) in values.iter().enumerate() {
+                    csv.push_str(&format!(
+                        "{},{},{},{},{},{}\n",
+                        csv_field(&run.name),
+                        "vector",
+                        csv_field(series),
+                        index,
+                        value,
+                        run.execution_count
+                    ));
+                }
+            }
+        }
+        match std::fs::write(&path, csv) {
+            Ok(()) => self.console = format!("Exported telemetry to {}", path.display()),
+            Err(error) => self.console = format!("Could not export {}: {error}", path.display()),
+        }
     }
 
     fn enqueue_cells(&mut self, ids: impl IntoIterator<Item = usize>) {
@@ -526,8 +1014,13 @@ impl ForgeApp {
                     self.run_state = RunState::Ready;
                     self.execution_count = 0;
                     self.variables.clear();
+                    self.metrics.clear();
+                    self.vectors.clear();
                     self.cell_records.clear();
                     self.console = "Runtime state cleared.".to_owned();
+                    if std::mem::take(&mut self.run_all_after_reset) {
+                        self.enqueue_cells(0..self.cells().len());
+                    }
                 }
                 CellResult::RuntimeError(message) => {
                     self.run_state = RunState::Failed;
@@ -558,7 +1051,7 @@ impl ForgeApp {
                     self.lsp_status = "Hover information ready.".to_owned();
                 }
                 LspEvent::Definition { path, line } => {
-                    self.open_file(path.clone());
+                    self.navigate_to(path.clone(), line, 0);
                     self.console = format!("Definition: {}:{}", path.display(), line + 1);
                 }
                 LspEvent::DefinitionProbe {
@@ -592,6 +1085,10 @@ impl ForgeApp {
             ui.label(RichText::new("FORGE ML").strong().color(RED));
             ui.separator();
             ui.menu_button("File", |ui| {
+                if ui.button("New file...   Ctrl+N").clicked() {
+                    self.create_new_file(None);
+                    ui.close();
+                }
                 if ui.button("Open project...").clicked() {
                     self.open_project();
                 }
@@ -622,6 +1119,18 @@ impl ForgeApp {
                 }
                 if ui.button("Run all   Ctrl+Shift+Enter").clicked() {
                     self.enqueue_cells(0..self.cells().len());
+                }
+                if ui.button("Restart and run all").clicked() {
+                    self.restart_and_run_all();
+                }
+                if ui
+                    .add_enabled(
+                        matches!(self.run_state, RunState::Running(_)),
+                        egui::Button::new("Stop execution"),
+                    )
+                    .clicked()
+                {
+                    self.stop_execution();
                 }
             });
             ui.menu_button("Debug", |ui| {
@@ -713,17 +1222,29 @@ impl ForgeApp {
                 let _ = self.runtime.reset();
                 self.run_state = RunState::Booting;
             }
-            ui.add_space((ui.available_width() - 210.0).max(8.0));
-            ui.label(
-                RichText::new(
-                    self.project
-                        .as_ref()
-                        .map(|p| p.root.display().to_string())
-                        .unwrap_or_else(|| "No project".to_owned()),
+            if ui
+                .add_enabled(
+                    matches!(self.run_state, RunState::Running(_)),
+                    egui::Button::new("Stop"),
                 )
-                .size(11.0)
-                .color(MUTED),
-            );
+                .on_hover_text("Stop execution and restart the Rust runtime")
+                .clicked()
+            {
+                self.stop_execution();
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(14.0);
+                ui.label(
+                    RichText::new(
+                        self.project
+                            .as_ref()
+                            .map(|p| p.root.display().to_string())
+                            .unwrap_or_else(|| "No project".to_owned()),
+                    )
+                    .size(11.0)
+                    .color(MUTED),
+                );
+            });
         });
     }
 
@@ -733,6 +1254,20 @@ impl ForgeApp {
             if ui.small_button("Open").clicked() {
                 self.open_project();
             }
+            if ui.small_button("New").clicked() {
+                self.create_new_file(None);
+            }
+            let selected_file = self.active().path.clone().filter(|path| {
+                self.project
+                    .as_ref()
+                    .is_some_and(|project| path.starts_with(&project.root) && path.is_file())
+            });
+            if ui
+                .add_enabled(selected_file.is_some(), egui::Button::new("Delete").small())
+                .clicked()
+            {
+                self.pending_delete = selected_file;
+            }
             if ui.small_button("Refresh").clicked() {
                 if let Some(project) = &mut self.project {
                     let _ = project.refresh();
@@ -741,7 +1276,7 @@ impl ForgeApp {
         });
         ui.add_space(5.0);
         let selected = self.active().path.clone();
-        let clicked = self.project.as_ref().and_then(|project| {
+        let action = self.project.as_ref().and_then(|project| {
             ui.label(
                 RichText::new(
                     project
@@ -761,8 +1296,12 @@ impl ForgeApp {
                 })
                 .inner
         });
-        if let Some(path) = clicked {
-            self.open_file(path);
+        if let Some(action) = action {
+            match action {
+                ExplorerAction::Open(path) => self.open_file(path),
+                ExplorerAction::NewFile(directory) => self.create_new_file(Some(directory)),
+                ExplorerAction::Delete(path) => self.pending_delete = Some(path),
+            }
         }
         if self.project.is_none() {
             ui.label(
@@ -832,6 +1371,44 @@ impl ForgeApp {
                 .strong()
                 .color(MUTED),
         );
+        ui.horizontal(|ui| {
+            if ui
+                .small_button("+")
+                .on_hover_text("Insert cell after")
+                .clicked()
+            {
+                self.insert_cell_after();
+            }
+            if ui
+                .small_button("Up")
+                .on_hover_text("Move cell up")
+                .clicked()
+            {
+                self.move_selected_cell(-1);
+            }
+            if ui
+                .small_button("Down")
+                .on_hover_text("Move cell down")
+                .clicked()
+            {
+                self.move_selected_cell(1);
+            }
+            if ui
+                .small_button("Delete")
+                .on_hover_text("Delete selected cell")
+                .clicked()
+            {
+                self.delete_selected_cell();
+            }
+            if ui
+                .small_button("Clear")
+                .on_hover_text("Clear cell outputs")
+                .clicked()
+            {
+                self.cell_records.clear();
+                self.console = "Cell outputs cleared.".to_owned();
+            }
+        });
         ui.add_space(4.0);
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
@@ -939,20 +1516,24 @@ impl ForgeApp {
     }
 
     fn inspector(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            for (tab, label) in [
-                (InspectorTab::Variables, "Variables"),
-                (InspectorTab::Charts, "Plots"),
-                (InspectorTab::Help, "Help"),
-                (InspectorTab::Problems, "Problems"),
-            ] {
-                if ui
-                    .selectable_label(self.inspector_tab == tab, label)
-                    .clicked()
-                {
-                    self.inspector_tab = tab;
+        egui::ScrollArea::horizontal().show(ui, |ui| {
+            ui.horizontal(|ui| {
+                for (tab, label) in [
+                    (InspectorTab::Variables, "Variables"),
+                    (InspectorTab::Data, "Data"),
+                    (InspectorTab::Charts, "Plots"),
+                    (InspectorTab::Experiments, "Runs"),
+                    (InspectorTab::Help, "Help"),
+                    (InspectorTab::Problems, "Problems"),
+                ] {
+                    if ui
+                        .selectable_label(self.inspector_tab == tab, label)
+                        .clicked()
+                    {
+                        self.inspector_tab = tab;
+                    }
                 }
-            }
+            });
         });
         ui.separator();
         ui.add_space(7.0);
@@ -988,7 +1569,9 @@ impl ForgeApp {
                     ui.label(RichText::new("Run a cell to inspect its variables.").color(MUTED));
                 }
             }
+            InspectorTab::Data => self.data_inspector(ui),
             InspectorTab::Charts => self.charts(ui),
+            InspectorTab::Experiments => self.experiments(ui),
             InspectorTab::Help => {
                 ui.heading("Rust language help");
                 ui.label(RichText::new(&self.lsp_status).color(MUTED));
@@ -1008,13 +1591,28 @@ impl ForgeApp {
                 if !self.completions.is_empty() {
                     ui.separator();
                     ui.label(RichText::new("Completions").strong().color(CYAN));
+                    let mut selected = None;
                     egui::ScrollArea::vertical()
                         .max_height(180.0)
                         .show(ui, |ui| {
                             for item in &self.completions {
-                                ui.label(RichText::new(item).monospace().size(10.0));
+                                if ui
+                                    .add(
+                                        egui::Button::new(
+                                            RichText::new(item).monospace().size(10.0),
+                                        )
+                                        .frame(false),
+                                    )
+                                    .on_hover_text("Insert completion")
+                                    .clicked()
+                                {
+                                    selected = Some(item.clone());
+                                }
                             }
                         });
+                    if let Some(completion) = selected {
+                        self.apply_completion(&completion);
+                    }
                 }
                 ui.separator();
                 ui.heading("Scientific console");
@@ -1024,12 +1622,13 @@ impl ForgeApp {
                 ui.code("println!(\"forge_metric:loss={}\", loss);\nprintln!(\"forge_vector:w=1,2,3\");");
                 ui.separator();
                 ui.label(RichText::new("Shortcuts").strong().color(CYAN));
-                ui.label("Shift+Enter  Run cell\nCtrl+Shift+Enter  Run all\nCtrl+S  Save file");
+                ui.label("Shift+Enter  Run cell\nCtrl+Shift+Enter  Run all\nCtrl+S  Save file\nCtrl+N  New file\nCtrl+F  Find and replace");
             }
             InspectorTab::Problems => {
                 if ui.button("Run cargo check").clicked() {
                     self.run_diagnostics();
                 }
+                let mut navigate = None;
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     for (path, diagnostics) in &self.lsp_diagnostics {
                         for diagnostic in diagnostics {
@@ -1040,18 +1639,32 @@ impl ForgeApp {
                             } else {
                                 TEXT
                             };
-                            ui.label(
-                                RichText::new(format!(
-                                    "{}:{}:{}  {}",
-                                    file_title(path),
-                                    diagnostic.line + 1,
-                                    diagnostic.column + 1,
-                                    diagnostic.message
-                                ))
-                                .monospace()
-                                .size(10.0)
-                                .color(color),
-                            );
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        RichText::new(format!(
+                                            "{}:{}:{}  {}",
+                                            file_title(path),
+                                            diagnostic.line + 1,
+                                            diagnostic.column + 1,
+                                            diagnostic.message
+                                        ))
+                                        .monospace()
+                                        .size(10.0)
+                                        .color(color),
+                                    )
+                                    .frame(false)
+                                    .wrap(),
+                                )
+                                .on_hover_text("Open this diagnostic")
+                                .clicked()
+                            {
+                                navigate = Some((
+                                    path.clone(),
+                                    diagnostic.line as usize,
+                                    diagnostic.column as usize,
+                                ));
+                            }
                         }
                     }
                     for line in &self.diagnostic_lines {
@@ -1065,11 +1678,164 @@ impl ForgeApp {
                         ui.label(RichText::new(line).monospace().size(10.0).color(color));
                     }
                 });
+                if let Some((path, line, column)) = navigate {
+                    self.navigate_to(path, line, column);
+                }
             }
         }
     }
 
-    fn charts(&self, ui: &mut egui::Ui) {
+    fn data_inspector(&self, ui: &mut egui::Ui) {
+        if self.vectors.is_empty() {
+            ui.label(
+                RichText::new("Emit `forge_vector:name=1,2,3` to inspect array-like data.")
+                    .monospace()
+                    .size(10.0)
+                    .color(MUTED),
+            );
+            return;
+        }
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for (name, values) in &self.vectors {
+                let min = values.iter().copied().reduce(f64::min).unwrap_or(0.0);
+                let max = values.iter().copied().reduce(f64::max).unwrap_or(0.0);
+                let mean = values.iter().sum::<f64>() / values.len().max(1) as f64;
+                ui.label(RichText::new(name).strong().color(CYAN));
+                egui::Grid::new(format!("data_summary_{name}"))
+                    .num_columns(4)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.label("Shape");
+                        ui.label(format!("[{}]", values.len()));
+                        ui.label("dtype");
+                        ui.label("f64");
+                        ui.end_row();
+                        ui.label("Min");
+                        ui.label(format!("{min:.5}"));
+                        ui.label("Max");
+                        ui.label(format!("{max:.5}"));
+                        ui.end_row();
+                        ui.label("Mean");
+                        ui.label(format!("{mean:.5}"));
+                        ui.label("Count");
+                        ui.label(values.len().to_string());
+                        ui.end_row();
+                    });
+                ui.label(RichText::new("Values").size(10.0).color(MUTED));
+                egui::ScrollArea::horizontal()
+                    .id_salt(format!("data_values_{name}"))
+                    .show(ui, |ui| {
+                        egui::Grid::new(format!("data_grid_{name}"))
+                            .striped(true)
+                            .show(ui, |ui| {
+                                for (index, _) in values.iter().enumerate().take(128) {
+                                    ui.label(
+                                        RichText::new(index.to_string()).monospace().size(9.0),
+                                    );
+                                }
+                                ui.end_row();
+                                for value in values.iter().take(128) {
+                                    ui.label(
+                                        RichText::new(format!("{value:.5}")).monospace().size(10.0),
+                                    );
+                                }
+                                ui.end_row();
+                            });
+                    });
+                if values.len() > 128 {
+                    ui.label(
+                        RichText::new(format!("Showing 128 of {} values", values.len()))
+                            .size(9.0)
+                            .color(MUTED),
+                    );
+                }
+                ui.separator();
+            }
+        });
+    }
+
+    fn experiments(&mut self, ui: &mut egui::Ui) {
+        if self.saved_runs.is_empty() {
+            ui.label(
+                RichText::new("Save a snapshot from Plots to compare training runs.").color(MUTED),
+            );
+            return;
+        }
+        ui.horizontal(|ui| {
+            ui.label("Metric");
+            egui::ComboBox::from_id_salt("comparison_metric")
+                .selected_text(&self.comparison_metric)
+                .show_ui(ui, |ui| {
+                    let mut names = self
+                        .saved_runs
+                        .iter()
+                        .flat_map(|run| run.metrics.keys().cloned())
+                        .collect::<Vec<_>>();
+                    names.sort();
+                    names.dedup();
+                    for name in names {
+                        ui.selectable_value(&mut self.comparison_metric, name.clone(), name);
+                    }
+                });
+            if ui.button("Export CSV").clicked() {
+                self.export_telemetry_csv();
+            }
+        });
+        let colors = [CYAN, EMBER, GREEN, RED, Color32::from_rgb(150, 105, 210)];
+        Plot::new("experiment_comparison")
+            .height(220.0)
+            .allow_drag(false)
+            .show(ui, |plot| {
+                for (index, run) in self.saved_runs.iter().enumerate() {
+                    if let Some(values) = run.metrics.get(&self.comparison_metric) {
+                        let points: PlotPoints = values.clone().into();
+                        plot.line(
+                            Line::new(run.name.clone(), points)
+                                .color(colors[index % colors.len()])
+                                .width(2.0),
+                        );
+                    }
+                }
+            });
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            egui::Grid::new("experiment_table")
+                .striped(true)
+                .show(ui, |ui| {
+                    ui.label(RichText::new("Run").strong());
+                    ui.label(RichText::new("Final").strong());
+                    ui.label(RichText::new("Steps").strong());
+                    ui.label(RichText::new("Execs").strong());
+                    ui.end_row();
+                    for run in &self.saved_runs {
+                        let values = run.metrics.get(&self.comparison_metric);
+                        let final_value = values
+                            .and_then(|values| values.last())
+                            .map(|point| format!("{:.6}", point[1]))
+                            .unwrap_or_else(|| "-".to_owned());
+                        ui.label(&run.name);
+                        ui.label(final_value);
+                        ui.label(values.map_or(0, Vec::len).to_string());
+                        ui.label(run.execution_count.to_string());
+                        ui.end_row();
+                    }
+                });
+        });
+    }
+
+    fn charts(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.experiment_name)
+                    .desired_width(110.0)
+                    .hint_text("Run name"),
+            );
+            if ui.button("Save run").clicked() {
+                self.save_experiment_run();
+            }
+            if ui.button("Export").clicked() {
+                self.export_telemetry_csv();
+            }
+        });
         if self.metrics.is_empty() && self.vectors.is_empty() {
             ui.label(
                 RichText::new(
@@ -1187,11 +1953,19 @@ impl eframe::App for ForgeApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_background(ui.ctx());
         let save = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S));
+        let new_file = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::N));
+        let find = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F));
         let run = ui.input(|i| i.modifiers.shift && i.key_pressed(egui::Key::Enter));
         let run_all = ui
             .input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Enter));
         if save {
             self.save_active();
+        }
+        if new_file {
+            self.create_new_file(None);
+        }
+        if find {
+            self.find_visible = true;
         }
         if run_all {
             self.enqueue_cells(0..self.cells().len());
@@ -1243,6 +2017,39 @@ impl eframe::App for ForgeApp {
             ))
             .show(ui, |ui| {
                 self.editor_tabs(ui);
+                if self.find_visible {
+                    let mut next = false;
+                    let mut replace = false;
+                    let mut replace_all = false;
+                    ui.horizontal(|ui| {
+                        ui.label("Find");
+                        let response = ui.add(
+                            egui::TextEdit::singleline(&mut self.find_query).desired_width(150.0),
+                        );
+                        ui.label("Replace");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.replace_query)
+                                .desired_width(150.0),
+                        );
+                        next = ui.button("Next").clicked()
+                            || (response.lost_focus()
+                                && ui.input(|input| input.key_pressed(egui::Key::Enter)));
+                        replace = ui.button("Replace").clicked();
+                        replace_all = ui.button("All").clicked();
+                        if ui.small_button("x").clicked() {
+                            self.find_visible = false;
+                        }
+                    });
+                    if next {
+                        self.find_next();
+                    }
+                    if replace {
+                        self.replace_current();
+                    }
+                    if replace_all {
+                        self.replace_all();
+                    }
+                }
                 ui.add_space(5.0);
                 let output = CodeEditor::default()
                     .id_source(format!("editor_{}", self.active_tab))
@@ -1266,6 +2073,7 @@ impl eframe::App for ForgeApp {
                 }
                 if let Some(range) = output.cursor_range {
                     self.cursor_offset = range.primary.index.0;
+                    self.select_cell_from_caret();
                     if output.response.has_focus() {
                         paint_editor_caret(ui, &output, range.primary, self.dark_mode);
                     }
@@ -1308,6 +2116,28 @@ impl eframe::App for ForgeApp {
                         }
                     }
                 }
+                if let Some((start, end)) = self.pending_editor_selection.take() {
+                    let mut state = output.state.clone();
+                    state
+                        .cursor
+                        .set_char_range(Some(egui::text::CCursorRange::two(
+                            egui::text::CCursor::new(start),
+                            egui::text::CCursor::new(end),
+                        )));
+                    state.store(ui.ctx(), output.response.id);
+                    output.response.request_focus();
+                    ui.ctx().request_repaint();
+                }
+                let (line, column) =
+                    line_column(&self.tabs[self.active_tab].content, self.cursor_offset);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(
+                        RichText::new(format!("Ln {line}, Col {column}"))
+                            .monospace()
+                            .size(10.0)
+                            .color(MUTED),
+                    );
+                });
             });
         self.sync_lsp();
         if let Some(offset) = definition_probe {
@@ -1320,6 +2150,8 @@ impl eframe::App for ForgeApp {
             self.request_lsp("definition");
             self.lsp_status = "Looking up definition...".to_owned();
         }
+        self.delete_confirmation(ui.ctx());
+        self.unsaved_confirmation(ui.ctx());
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
@@ -1356,6 +2188,55 @@ fn word_start_at(text: &str, offset: usize) -> Option<usize> {
         index -= 1;
     }
     Some(index)
+}
+
+fn char_to_byte(text: &str, char_offset: usize) -> usize {
+    text.char_indices()
+        .nth(char_offset)
+        .map(|(byte, _)| byte)
+        .unwrap_or(text.len())
+}
+
+fn cell_byte_ranges(text: &str) -> Vec<std::ops::Range<usize>> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+    let mut starts = vec![0];
+    for (offset, _) in text.match_indices("//# %%") {
+        if offset > 0 {
+            starts.push(offset);
+        }
+    }
+    starts
+        .iter()
+        .enumerate()
+        .map(|(index, start)| *start..starts.get(index + 1).copied().unwrap_or(text.len()))
+        .collect()
+}
+
+fn line_column(text: &str, char_offset: usize) -> (usize, usize) {
+    let mut line = 1;
+    let mut column = 1;
+    for character in text.chars().take(char_offset) {
+        if character == '\n' {
+            line += 1;
+            column = 1;
+        } else {
+            column += 1;
+        }
+    }
+    (line, column)
+}
+
+fn csv_field(value: &str) -> String {
+    if value
+        .chars()
+        .any(|character| matches!(character, ',' | '"' | '\n' | '\r'))
+    {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_owned()
+    }
 }
 
 fn paint_editor_caret(
@@ -1453,6 +2334,15 @@ for epoch in 0..epochs {
     }
 }
 
+fn blank_tab() -> EditorTab {
+    EditorTab {
+        path: None,
+        title: "Untitled.rs".to_owned(),
+        content: String::new(),
+        dirty: false,
+    }
+}
+
 fn file_title(path: &Path) -> String {
     path.file_name()
         .and_then(|n| n.to_str())
@@ -1474,40 +2364,52 @@ fn draw_file_nodes(
     ui: &mut egui::Ui,
     nodes: &[FileNode],
     selected: Option<&Path>,
-) -> Option<PathBuf> {
-    let mut clicked = None;
+) -> Option<ExplorerAction> {
+    let mut action = None;
     for node in nodes {
         if let Some(children) = &node.children {
             let shown = egui::CollapsingHeader::new(RichText::new(&node.name).color(TEXT))
                 .show(ui, |ui| draw_file_nodes(ui, children, selected));
-            if let Some(path) = shown.body_returned.flatten() {
-                clicked = Some(path);
+            shown.header_response.context_menu(|ui| {
+                if ui.button("New file here...").clicked() {
+                    action = Some(ExplorerAction::NewFile(node.path.clone()));
+                    ui.close();
+                }
+            });
+            if let Some(child_action) = shown.body_returned.flatten() {
+                action = Some(child_action);
             }
         } else {
             let editable = project::is_editable(&node.path);
             let active = selected == Some(node.path.as_path());
-            if ui
-                .selectable_label(
-                    active,
-                    RichText::new(format!("  {}", node.name))
-                        .monospace()
-                        .size(11.0)
-                        .color(if active {
-                            CYAN
-                        } else if editable {
-                            TEXT
-                        } else {
-                            MUTED
-                        }),
-                )
-                .clicked()
-                && editable
-            {
-                clicked = Some(node.path.clone());
+            let response = ui.selectable_label(
+                active,
+                RichText::new(format!("  {}", node.name))
+                    .monospace()
+                    .size(11.0)
+                    .color(if active {
+                        CYAN
+                    } else if editable {
+                        TEXT
+                    } else {
+                        MUTED
+                    }),
+            );
+            if response.clicked() && editable {
+                action = Some(ExplorerAction::Open(node.path.clone()));
             }
+            response.context_menu(|ui| {
+                if ui
+                    .button(RichText::new("Delete file...").color(RED))
+                    .clicked()
+                {
+                    action = Some(ExplorerAction::Delete(node.path.clone()));
+                    ui.close();
+                }
+            });
         }
     }
-    clicked
+    action
 }
 
 #[derive(Clone, Copy)]

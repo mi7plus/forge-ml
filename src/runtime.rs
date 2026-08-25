@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -43,14 +44,21 @@ pub enum Telemetry {
 pub struct RuntimeHandle {
     commands: Sender<CellCommand>,
     results: Receiver<CellResult>,
+    process: Arc<Mutex<Option<Arc<Mutex<std::process::Child>>>>>,
 }
 
 impl RuntimeHandle {
     pub fn spawn() -> Self {
         let (commands, command_rx) = channel();
         let (result_tx, results) = channel();
-        thread::spawn(move || runtime_loop(command_rx, result_tx));
-        Self { commands, results }
+        let process = Arc::new(Mutex::new(None));
+        let runtime_process = Arc::clone(&process);
+        thread::spawn(move || runtime_loop(command_rx, result_tx, runtime_process));
+        Self {
+            commands,
+            results,
+            process,
+        }
     }
 
     pub fn execute(&self, cell_id: usize, code: String) -> Result<(), String> {
@@ -65,12 +73,29 @@ impl RuntimeHandle {
             .map_err(|e| e.to_string())
     }
 
+    pub fn stop(&self) -> Result<(), String> {
+        let process = self
+            .process
+            .lock()
+            .map_err(|error| error.to_string())?
+            .clone();
+        if let Some(process) = process {
+            let mut child = process.lock().map_err(|error| error.to_string())?;
+            let _ = child.kill();
+        }
+        self.reset()
+    }
+
     pub fn try_recv(&self) -> Option<CellResult> {
         self.results.try_recv().ok()
     }
 }
 
-fn runtime_loop(commands: Receiver<CellCommand>, results: Sender<CellResult>) {
+fn runtime_loop(
+    commands: Receiver<CellCommand>,
+    results: Sender<CellResult>,
+    process: Arc<Mutex<Option<Arc<Mutex<std::process::Child>>>>>,
+) {
     let (mut context, mut streams) = match evcxr::EvalContext::new() {
         Ok(runtime) => runtime,
         Err(error) => {
@@ -78,6 +103,9 @@ fn runtime_loop(commands: Receiver<CellCommand>, results: Sender<CellResult>) {
             return;
         }
     };
+    if let Ok(mut slot) = process.lock() {
+        *slot = Some(context.process_handle());
+    }
     let _ = results.send(CellResult::Ready);
 
     while let Ok(command) = commands.recv() {
@@ -132,6 +160,9 @@ fn runtime_loop(commands: Receiver<CellCommand>, results: Sender<CellResult>) {
                 Ok((new_context, new_streams)) => {
                     context = new_context;
                     streams = new_streams;
+                    if let Ok(mut slot) = process.lock() {
+                        *slot = Some(context.process_handle());
+                    }
                     let _ = results.send(CellResult::Reset);
                 }
                 Err(error) => {
