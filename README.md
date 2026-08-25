@@ -16,9 +16,13 @@ Its workspace follows the scientific-IDE model popularized by Spyder: an editor-
 - Multiple editor tabs with independent unsaved-state protection
 - Run Cell, Run Above, and Run All execution flows with per-cell status/output
 - Restored project, open files, active file, window, and panel layout across launches
+- Recent-project history with safe unsaved-change handling
+- Persistent appearance settings for theme, editor font size, and caret blinking
 - Background Cargo diagnostics in the Problems inspector
 - Telemetry-driven line charts and vector bar visualizations
 - Project and Outline navigation tabs
+- Project-wide search with clickable line and column results
+- Clickable source outline for functions, structs, enums, traits, implementations, and modules
 - Spyder-style Variable Explorer table and Plots/Help/Problems tool panes
 - Interactive Rust console with persistent Evcxr state and command history
 - `rust-analyzer` document synchronization, diagnostics, completion, hover, and definition requests
@@ -29,6 +33,8 @@ Its workspace follows the scientific-IDE model popularized by Spyder: an editor-
 - `Ctrl+Shift+Enter`: run all cells
 - `Ctrl+S`: save the active file
 - `Ctrl+left-click`: open the definition of the clicked Rust symbol, including definitions in other files
+- `Ctrl+F`: find and replace in the active file
+- `Ctrl+Shift+F`: search all editable files in the open project
 
 Cells can publish visualization data through stdout:
 

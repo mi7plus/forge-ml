@@ -29,6 +29,14 @@ fn default_explorer_height() -> f32 {
     280.0
 }
 
+fn default_editor_font_size() -> f32 {
+    14.0
+}
+
+fn default_true() -> bool {
+    true
+}
+
 fn main() -> eframe::Result<()> {
     // Evcxr relaunches the current executable as its isolated evaluation runtime.
     // This hook turns that child into a headless runtime before eframe can open a window.
@@ -52,6 +60,7 @@ enum InspectorTab {
     Data,
     Charts,
     Experiments,
+    Search,
     Help,
     Problems,
 }
@@ -100,6 +109,13 @@ struct ExperimentRun {
     execution_count: usize,
 }
 
+struct ProjectSearchResult {
+    path: PathBuf,
+    line: usize,
+    column: usize,
+    preview: String,
+}
+
 struct EditorTab {
     path: Option<PathBuf>,
     title: String,
@@ -113,10 +129,10 @@ enum ExplorerAction {
     Delete(PathBuf),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum PendingUnsavedAction {
     CloseTab(usize),
-    OpenProject,
+    OpenProject(Option<PathBuf>),
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -128,6 +144,12 @@ struct SessionState {
     dark_mode: bool,
     #[serde(default = "default_explorer_height")]
     explorer_height: f32,
+    #[serde(default)]
+    recent_projects: Vec<PathBuf>,
+    #[serde(default = "default_editor_font_size")]
+    editor_font_size: f32,
+    #[serde(default = "default_true")]
+    caret_blink: bool,
 }
 
 struct ForgeApp {
@@ -176,6 +198,13 @@ struct ForgeApp {
     experiment_name: String,
     saved_runs: Vec<ExperimentRun>,
     comparison_metric: String,
+    project_search_query: String,
+    project_search_case_sensitive: bool,
+    project_search_results: Vec<ProjectSearchResult>,
+    recent_projects: Vec<PathBuf>,
+    settings_open: bool,
+    editor_font_size: f32,
+    caret_blink: bool,
 }
 
 impl ForgeApp {
@@ -191,9 +220,26 @@ impl ForgeApp {
         } else {
             default_explorer_height()
         };
+        let mut recent_projects = session.recent_projects.clone();
+        let has_saved_editor_settings = session.editor_font_size > 0.0;
+        let editor_font_size = if has_saved_editor_settings {
+            session.editor_font_size
+        } else {
+            default_editor_font_size()
+        };
+        let caret_blink = if has_saved_editor_settings {
+            session.caret_blink
+        } else {
+            default_true()
+        };
         let project = session
             .project_root
             .and_then(|root| Project::open(root).ok());
+        if let Some(root) = project.as_ref().map(|project| project.root.clone()) {
+            recent_projects.retain(|path| path != &root);
+            recent_projects.insert(0, root);
+            recent_projects.truncate(10);
+        }
         let mut tabs = session
             .open_files
             .into_iter()
@@ -264,6 +310,13 @@ impl ForgeApp {
             experiment_name: "run_1".to_owned(),
             saved_runs: Vec::new(),
             comparison_metric: "loss".to_owned(),
+            project_search_query: String::new(),
+            project_search_case_sensitive: false,
+            project_search_results: Vec::new(),
+            recent_projects,
+            settings_open: false,
+            editor_font_size,
+            caret_blink,
         }
     }
 
@@ -381,7 +434,7 @@ impl ForgeApp {
 
     fn open_project(&mut self) {
         if self.tabs.iter().any(|tab| tab.dirty) {
-            self.pending_unsaved_action = Some(PendingUnsavedAction::OpenProject);
+            self.pending_unsaved_action = Some(PendingUnsavedAction::OpenProject(None));
             return;
         }
         self.open_project_dialog();
@@ -394,10 +447,26 @@ impl ForgeApp {
         else {
             return;
         };
-        match Project::open(root) {
+        self.open_project_path(root);
+    }
+
+    fn request_open_project_path(&mut self, root: PathBuf) {
+        if self.tabs.iter().any(|tab| tab.dirty) {
+            self.pending_unsaved_action = Some(PendingUnsavedAction::OpenProject(Some(root)));
+        } else {
+            self.open_project_path(root);
+        }
+    }
+
+    fn open_project_path(&mut self, root: PathBuf) {
+        match Project::open(root.clone()) {
             Ok(project) => {
                 self.console = format!("Opened {}", project.root.display());
                 self.project = Some(project);
+                self.recent_projects.retain(|path| path != &root);
+                self.recent_projects.insert(0, root);
+                self.recent_projects.truncate(10);
+                self.last_lsp_hash = 0;
             }
             Err(error) => self.console = format!("Could not open project: {error}"),
         }
@@ -600,7 +669,7 @@ impl ForgeApp {
     }
 
     fn unsaved_confirmation(&mut self, ctx: &egui::Context) {
-        let Some(action) = self.pending_unsaved_action else {
+        let Some(action) = self.pending_unsaved_action.clone() else {
             return;
         };
         let dirty_names = self
@@ -623,15 +692,18 @@ impl ForgeApp {
                     }
                     if ui.button("Discard").clicked() {
                         self.pending_unsaved_action = None;
-                        match action {
+                        match action.clone() {
                             PendingUnsavedAction::CloseTab(index) => self.close_tab_now(index),
-                            PendingUnsavedAction::OpenProject => self.open_project_dialog(),
+                            PendingUnsavedAction::OpenProject(Some(path)) => {
+                                self.open_project_path(path)
+                            }
+                            PendingUnsavedAction::OpenProject(None) => self.open_project_dialog(),
                         }
                     }
                     if ui.button("Save").clicked() {
-                        let indices = match action {
-                            PendingUnsavedAction::CloseTab(index) => vec![index],
-                            PendingUnsavedAction::OpenProject => self
+                        let indices = match &action {
+                            PendingUnsavedAction::CloseTab(index) => vec![*index],
+                            PendingUnsavedAction::OpenProject(_) => self
                                 .tabs
                                 .iter()
                                 .enumerate()
@@ -640,9 +712,14 @@ impl ForgeApp {
                         };
                         if indices.into_iter().all(|index| self.save_tab(index)) {
                             self.pending_unsaved_action = None;
-                            match action {
+                            match action.clone() {
                                 PendingUnsavedAction::CloseTab(index) => self.close_tab_now(index),
-                                PendingUnsavedAction::OpenProject => self.open_project_dialog(),
+                                PendingUnsavedAction::OpenProject(Some(path)) => {
+                                    self.open_project_path(path)
+                                }
+                                PendingUnsavedAction::OpenProject(None) => {
+                                    self.open_project_dialog()
+                                }
                             }
                         }
                     }
@@ -821,6 +898,72 @@ impl ForgeApp {
             Ok(()) => self.console = format!("Exported telemetry to {}", path.display()),
             Err(error) => self.console = format!("Could not export {}: {error}", path.display()),
         }
+    }
+
+    fn run_project_search(&mut self) {
+        let query = self.project_search_query.clone();
+        if query.is_empty() {
+            self.project_search_results.clear();
+            return;
+        }
+        let Some(project) = &self.project else {
+            self.console = "Open a project before searching its files.".to_owned();
+            return;
+        };
+        let mut paths = Vec::new();
+        collect_editable_files(&project.files, &mut paths);
+        let needle = if self.project_search_case_sensitive {
+            query.clone()
+        } else {
+            query.to_ascii_lowercase()
+        };
+        let mut results = Vec::new();
+        for path in paths {
+            let content = self
+                .tabs
+                .iter()
+                .find(|tab| tab.path.as_ref() == Some(&path))
+                .map(|tab| tab.content.clone())
+                .or_else(|| std::fs::read_to_string(&path).ok());
+            let Some(content) = content else {
+                continue;
+            };
+            for (line_index, line) in content.lines().enumerate() {
+                let searchable = if self.project_search_case_sensitive {
+                    line.to_owned()
+                } else {
+                    line.to_ascii_lowercase()
+                };
+                let mut byte_start = 0;
+                while let Some(relative) = searchable[byte_start..].find(&needle) {
+                    let byte_column = byte_start + relative;
+                    results.push(ProjectSearchResult {
+                        path: path.clone(),
+                        line: line_index,
+                        column: line[..byte_column].chars().count(),
+                        preview: line.trim().to_owned(),
+                    });
+                    if results.len() >= 500 {
+                        break;
+                    }
+                    byte_start = byte_column + needle.len().max(1);
+                }
+                if results.len() >= 500 {
+                    break;
+                }
+            }
+            if results.len() >= 500 {
+                break;
+            }
+        }
+        let count = results.len();
+        self.project_search_results = results;
+        self.inspector_tab = InspectorTab::Search;
+        self.console = if count == 500 {
+            "Project search reached the 500-result limit.".to_owned()
+        } else {
+            format!("Found {count} project result(s).")
+        };
     }
 
     fn enqueue_cells(&mut self, ids: impl IntoIterator<Item = usize>) {
@@ -1092,6 +1235,25 @@ impl ForgeApp {
                 if ui.button("Open project...").clicked() {
                     self.open_project();
                 }
+                let recent = self.recent_projects.clone();
+                ui.menu_button("Open recent", |ui| {
+                    if recent.is_empty() {
+                        ui.label("No recent projects");
+                    }
+                    for path in recent {
+                        if ui.button(path.display().to_string()).clicked() {
+                            self.request_open_project_path(path);
+                            ui.close();
+                        }
+                    }
+                    if !self.recent_projects.is_empty() {
+                        ui.separator();
+                        if ui.button("Clear recent projects").clicked() {
+                            self.recent_projects.clear();
+                            ui.close();
+                        }
+                    }
+                });
                 if ui.button("Save   Ctrl+S").clicked() {
                     self.save_active();
                 }
@@ -1103,7 +1265,10 @@ impl ForgeApp {
                 ui.label("Editor commands use standard system shortcuts.");
             });
             ui.menu_button("Search", |ui| {
-                ui.label("Project-wide search is the next navigation tool.");
+                if ui.button("Find in files   Ctrl+Shift+F").clicked() {
+                    self.inspector_tab = InspectorTab::Search;
+                    ui.close();
+                }
             });
             ui.menu_button("Source", |ui| {
                 if ui.button("Run code analysis").clicked() {
@@ -1137,6 +1302,10 @@ impl ForgeApp {
                 ui.label("Debugger integration is not connected yet.");
             });
             ui.menu_button("Tools", |ui| {
+                if ui.button("Settings...").clicked() {
+                    self.settings_open = true;
+                    ui.close();
+                }
                 if ui.button("Restart Rust console").clicked() {
                     let _ = self.runtime.reset();
                     self.run_state = RunState::Booting;
@@ -1246,6 +1415,54 @@ impl ForgeApp {
                 );
             });
         });
+    }
+
+    fn settings_window(&mut self, ctx: &egui::Context) {
+        if !self.settings_open {
+            return;
+        }
+        let mut open = self.settings_open;
+        egui::Window::new("Forge ML settings")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .default_width(360.0)
+            .show(ctx, |ui| {
+                ui.heading("Appearance");
+                let mut dark = self.dark_mode;
+                ui.horizontal(|ui| {
+                    ui.label("Color theme");
+                    ui.selectable_value(&mut dark, false, "Light");
+                    ui.selectable_value(&mut dark, true, "Dark");
+                });
+                if dark != self.dark_mode {
+                    self.dark_mode = dark;
+                    configure_style(ctx, self.dark_mode);
+                }
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.label("Editor font size");
+                    ui.add(
+                        egui::Slider::new(&mut self.editor_font_size, 10.0..=24.0)
+                            .suffix(" px")
+                            .step_by(1.0),
+                    );
+                });
+                ui.checkbox(&mut self.caret_blink, "Blink editor caret");
+                ui.add_space(8.0);
+                ui.label(
+                    RichText::new("Changes apply immediately and are saved for the next session.")
+                        .size(10.0)
+                        .color(MUTED),
+                );
+                if ui.button("Restore appearance defaults").clicked() {
+                    self.dark_mode = false;
+                    self.editor_font_size = default_editor_font_size();
+                    self.caret_blink = default_true();
+                    configure_style(ctx, self.dark_mode);
+                }
+            });
+        self.settings_open = open;
     }
 
     fn file_explorer(&mut self, ui: &mut egui::Ui) {
@@ -1450,9 +1667,13 @@ impl ForgeApp {
         status_row(ui, "Runs", &self.execution_count.to_string(), CYAN);
     }
 
-    fn outline(&self, ui: &mut egui::Ui) {
-        ui.label(RichText::new(&self.active().title).strong().color(TEXT));
-        for (line_no, line) in self.active().content.lines().enumerate() {
+    fn outline(&mut self, ui: &mut egui::Ui) {
+        let title = self.active().title.clone();
+        let path = self.active().path.clone();
+        let content = self.active().content.clone();
+        ui.label(RichText::new(title).strong().color(TEXT));
+        let mut selected_line = None;
+        for (line_no, line) in content.lines().enumerate() {
             let line = line.trim();
             let symbol = ["fn ", "struct ", "enum ", "trait ", "impl ", "mod "]
                 .iter()
@@ -1466,12 +1687,34 @@ impl ForgeApp {
                     })
                 });
             if let Some(symbol) = symbol {
-                ui.label(
-                    RichText::new(format!("-  {symbol}  :{}", line_no + 1))
-                        .monospace()
-                        .size(11.0)
-                        .color(CYAN),
-                );
+                if ui
+                    .add(
+                        egui::Button::new(
+                            RichText::new(format!("-  {symbol}  :{}", line_no + 1))
+                                .monospace()
+                                .size(11.0)
+                                .color(CYAN),
+                        )
+                        .frame(false),
+                    )
+                    .on_hover_text("Go to symbol")
+                    .clicked()
+                {
+                    selected_line = Some(line_no);
+                }
+            }
+        }
+        if let Some(line) = selected_line {
+            if let Some(path) = path {
+                self.navigate_to(path, line, 0);
+            } else {
+                let offset = content
+                    .split_inclusive('\n')
+                    .take(line)
+                    .map(str::chars)
+                    .map(Iterator::count)
+                    .sum();
+                self.pending_editor_selection = Some((offset, offset));
             }
         }
         ui.add_space(8.0);
@@ -1523,6 +1766,7 @@ impl ForgeApp {
                     (InspectorTab::Data, "Data"),
                     (InspectorTab::Charts, "Plots"),
                     (InspectorTab::Experiments, "Runs"),
+                    (InspectorTab::Search, "Search"),
                     (InspectorTab::Help, "Help"),
                     (InspectorTab::Problems, "Problems"),
                 ] {
@@ -1572,6 +1816,7 @@ impl ForgeApp {
             InspectorTab::Data => self.data_inspector(ui),
             InspectorTab::Charts => self.charts(ui),
             InspectorTab::Experiments => self.experiments(ui),
+            InspectorTab::Search => self.project_search(ui),
             InspectorTab::Help => {
                 ui.heading("Rust language help");
                 ui.label(RichText::new(&self.lsp_status).color(MUTED));
@@ -1622,7 +1867,7 @@ impl ForgeApp {
                 ui.code("println!(\"forge_metric:loss={}\", loss);\nprintln!(\"forge_vector:w=1,2,3\");");
                 ui.separator();
                 ui.label(RichText::new("Shortcuts").strong().color(CYAN));
-                ui.label("Shift+Enter  Run cell\nCtrl+Shift+Enter  Run all\nCtrl+S  Save file\nCtrl+N  New file\nCtrl+F  Find and replace");
+                ui.label("Shift+Enter  Run cell\nCtrl+Shift+Enter  Run all\nCtrl+S  Save file\nCtrl+N  New file\nCtrl+F  Find and replace\nCtrl+Shift+F  Find in project");
             }
             InspectorTab::Problems => {
                 if ui.button("Run cargo check").clicked() {
@@ -1752,6 +1997,66 @@ impl ForgeApp {
                 ui.separator();
             }
         });
+    }
+
+    fn project_search(&mut self, ui: &mut egui::Ui) {
+        let mut run_search = false;
+        ui.horizontal(|ui| {
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut self.project_search_query)
+                    .desired_width(180.0)
+                    .hint_text("Search project..."),
+            );
+            run_search = ui.button("Find").clicked()
+                || (response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)));
+        });
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut self.project_search_case_sensitive, "Match case");
+            if ui.button("Clear").clicked() {
+                self.project_search_results.clear();
+            }
+        });
+        if run_search {
+            self.run_project_search();
+        }
+        ui.separator();
+        ui.label(
+            RichText::new(format!("{} result(s)", self.project_search_results.len()))
+                .size(10.0)
+                .color(MUTED),
+        );
+        let root = self.project.as_ref().map(|project| project.root.clone());
+        let mut navigate = None;
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for result in &self.project_search_results {
+                let shown_path = root
+                    .as_ref()
+                    .and_then(|root| result.path.strip_prefix(root).ok())
+                    .unwrap_or(&result.path);
+                let label = format!(
+                    "{}:{}:{}\n  {}",
+                    shown_path.display(),
+                    result.line + 1,
+                    result.column + 1,
+                    result.preview
+                );
+                if ui
+                    .add(
+                        egui::Button::new(RichText::new(label).monospace().size(10.0))
+                            .frame(false)
+                            .wrap(),
+                    )
+                    .on_hover_text("Open search result")
+                    .clicked()
+                {
+                    navigate = Some((result.path.clone(), result.line, result.column));
+                }
+                ui.separator();
+            }
+        });
+        if let Some((path, line, column)) = navigate {
+            self.navigate_to(path, line, column);
+        }
     }
 
     fn experiments(&mut self, ui: &mut egui::Ui) {
@@ -1955,6 +2260,8 @@ impl eframe::App for ForgeApp {
         let save = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S));
         let new_file = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::N));
         let find = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F));
+        let find_in_files =
+            ui.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::F));
         let run = ui.input(|i| i.modifiers.shift && i.key_pressed(egui::Key::Enter));
         let run_all = ui
             .input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Enter));
@@ -1964,7 +2271,9 @@ impl eframe::App for ForgeApp {
         if new_file {
             self.create_new_file(None);
         }
-        if find {
+        if find_in_files {
+            self.inspector_tab = InspectorTab::Search;
+        } else if find {
             self.find_visible = true;
         }
         if run_all {
@@ -2054,7 +2363,7 @@ impl eframe::App for ForgeApp {
                 let output = CodeEditor::default()
                     .id_source(format!("editor_{}", self.active_tab))
                     .with_rows(32)
-                    .with_fontsize(14.0)
+                    .with_fontsize(self.editor_font_size)
                     .with_theme(if self.dark_mode {
                         ColorTheme::GITHUB_DARK
                     } else {
@@ -2075,7 +2384,13 @@ impl eframe::App for ForgeApp {
                     self.cursor_offset = range.primary.index.0;
                     self.select_cell_from_caret();
                     if output.response.has_focus() {
-                        paint_editor_caret(ui, &output, range.primary, self.dark_mode);
+                        paint_editor_caret(
+                            ui,
+                            &output,
+                            range.primary,
+                            self.dark_mode,
+                            self.caret_blink,
+                        );
                     }
                 }
                 let ctrl_held = ui.input(|input| input.modifiers.ctrl);
@@ -2152,6 +2467,7 @@ impl eframe::App for ForgeApp {
         }
         self.delete_confirmation(ui.ctx());
         self.unsaved_confirmation(ui.ctx());
+        self.settings_window(ui.ctx());
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
@@ -2165,6 +2481,9 @@ impl eframe::App for ForgeApp {
             active_file: self.active().path.clone(),
             dark_mode: self.dark_mode,
             explorer_height: self.explorer_height,
+            recent_projects: self.recent_projects.clone(),
+            editor_font_size: self.editor_font_size,
+            caret_blink: self.caret_blink,
         };
         eframe::set_value(storage, STORAGE_KEY, &state);
     }
@@ -2244,11 +2563,13 @@ fn paint_editor_caret(
     output: &egui::text_edit::TextEditOutput,
     cursor: egui::text::CCursor,
     dark: bool,
+    blink: bool,
 ) {
-    ui.ctx()
-        .request_repaint_after(std::time::Duration::from_millis(50));
-    let blink_phase = ui.input(|input| input.time) % 1.0;
-    let bright_phase = blink_phase < 0.65;
+    if blink {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(50));
+    }
+    let bright_phase = !blink || ui.input(|input| input.time) % 1.0 < 0.65;
     let local = output.galley.pos_from_cursor(cursor);
     let x = output.galley_pos.x + local.min.x;
     let top = output.galley_pos.y + local.min.y - 1.0;
@@ -2410,6 +2731,16 @@ fn draw_file_nodes(
         }
     }
     action
+}
+
+fn collect_editable_files(nodes: &[FileNode], paths: &mut Vec<PathBuf>) {
+    for node in nodes {
+        if let Some(children) = &node.children {
+            collect_editable_files(children, paths);
+        } else if project::is_editable(&node.path) {
+            paths.push(node.path.clone());
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
