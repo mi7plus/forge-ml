@@ -50,7 +50,7 @@ fn read_directory(directory: &Path) -> io::Result<Vec<FileNode>> {
         .filter(|entry| {
             !matches!(
                 entry.file_name().to_str(),
-                Some(".forge" | ".git" | "target")
+                Some(".forge" | ".git" | ".venv" | "target")
             )
         })
         .map(|entry| {

@@ -51,6 +51,12 @@ pub struct SessionState {
     pub dataset_viewer_docked: bool,
     #[serde(default = "default_dataset_pane_height")]
     pub dataset_pane_height: f32,
+    #[serde(default)]
+    pub selected_python: Option<PathBuf>,
+    #[serde(default)]
+    pub selected_jupyter_kernel: String,
+    #[serde(default)]
+    pub python_environment_fingerprint: String,
 }
 
 #[cfg(test)]

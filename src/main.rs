@@ -11,6 +11,8 @@ mod notebook;
 mod packages;
 mod plot;
 mod project;
+mod publishing;
+mod python_kernel;
 mod python_runtime;
 mod runtime;
 mod session;
@@ -115,6 +117,7 @@ enum LeftTab {
 enum ConsoleTab {
     Console,
     History,
+    Python,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -258,6 +261,16 @@ struct ForgeApp {
     evaluation_report: EvaluationReport,
     leaderboard: Vec<LeaderboardEntry>,
     python_runtime_output: String,
+    python_runtimes: Vec<python_runtime::PythonRuntime>,
+    selected_python: Option<PathBuf>,
+    python_kernel: Option<python_kernel::PythonKernel>,
+    python_console_input: String,
+    python_console_output: String,
+    python_execution_id: usize,
+    python_mime_outputs: Vec<RichOutput>,
+    selected_jupyter_kernel: String,
+    jupyter_kernels: Vec<jupyter::KernelSpec>,
+    python_environment_fingerprint: String,
     job_queue: JobQueue,
     job_command: String,
     last_file_poll: Instant,
@@ -438,6 +451,16 @@ impl ForgeApp {
             evaluation_report: EvaluationReport::default(),
             leaderboard: Vec::new(),
             python_runtime_output: String::new(),
+            python_runtimes: Vec::new(),
+            selected_python: session.selected_python.clone(),
+            python_kernel: None,
+            python_console_input: String::new(),
+            python_console_output: String::new(),
+            python_execution_id: 0,
+            python_mime_outputs: Vec::new(),
+            selected_jupyter_kernel: session.selected_jupyter_kernel.clone(),
+            jupyter_kernels: Vec::new(),
+            python_environment_fingerprint: session.python_environment_fingerprint.clone(),
             job_queue: JobQueue::new(),
             job_command: "cargo run --release".into(),
             last_file_poll: Instant::now(),
@@ -1233,6 +1256,67 @@ impl ForgeApp {
         }
     }
 
+    fn discover_python_runtimes(&mut self) {
+        self.python_runtimes = python_runtime::discover();
+        if self.selected_python.is_none() {
+            self.selected_python = self
+                .python_runtimes
+                .first()
+                .map(|runtime| runtime.executable.clone());
+        }
+        self.python_runtime_output = if self.python_runtimes.is_empty() {
+            "No Python runtime found.".into()
+        } else {
+            self.python_runtimes
+                .iter()
+                .flat_map(python_runtime::compatibility)
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+    }
+
+    fn start_python_kernel(&mut self) {
+        let Some(executable) = self.selected_python.clone() else {
+            self.python_console_output = "Discover and select a Python runtime first.".into();
+            return;
+        };
+        if let Some(runtime) = self
+            .python_runtimes
+            .iter()
+            .find(|runtime| runtime.executable == executable)
+        {
+            self.python_environment_fingerprint =
+                experiment::stable_digest(runtime.packages.as_bytes());
+        }
+        match python_kernel::PythonKernel::spawn(&executable) {
+            Ok(kernel) => {
+                self.python_kernel = Some(kernel);
+                self.python_console_output = format!(
+                    "Python runtime ready: {}\nEnvironment: {}",
+                    executable.display(),
+                    self.python_environment_fingerprint
+                );
+            }
+            Err(error) => self.python_console_output = format!("Could not start Python: {error}"),
+        }
+    }
+
+    fn run_python_input(&mut self) {
+        if self.python_kernel.is_none() {
+            self.start_python_kernel();
+        }
+        let code = self.python_console_input.trim().to_owned();
+        if code.is_empty() {
+            return;
+        }
+        self.python_execution_id += 1;
+        if let Some(kernel) = &self.python_kernel {
+            if kernel.execute(self.python_execution_id, code).is_ok() {
+                self.python_console_input.clear();
+            }
+        }
+    }
+
     fn run_diagnostics(&mut self) {
         self.inspector_tab = InspectorTab::Problems;
         if let Some(project) = &self.project {
@@ -1454,6 +1538,15 @@ impl ForgeApp {
         self.poll_external_file_changes();
         if let Some(root) = self.project_root() {
             self.job_queue.poll(root);
+        }
+        if let Some(kernel) = &self.python_kernel {
+            while let Some(result) = kernel.try_recv() {
+                self.python_mime_outputs = result.mime;
+                self.python_mime_outputs
+                    .extend(python_kernel::mime_outputs(&result.output));
+                self.python_console_output
+                    .push_str(&format!("\nOut [{}]:\n{}", result.id, result.output));
+            }
         }
         ctx.request_repaint_after(Duration::from_millis(750));
         while let Some(result) = self.runtime.try_recv() {
@@ -2957,6 +3050,48 @@ impl ForgeApp {
             if ui.button("Licenses/metadata").clicked() {
                 self.package_output = packages::licenses(&root).unwrap_or_else(|e| e);
             }
+            if ui.button("Cargo package check").clicked() {
+                self.package_output = publishing::cargo_package(&root).unwrap_or_else(|e| e);
+            }
+            if ui.button("crates.io dry run").clicked() {
+                self.package_output =
+                    publishing::cargo_publish_dry_run(&root).unwrap_or_else(|e| e);
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("PyPI details").clicked() {
+                if self.python_runtimes.is_empty() {
+                    self.discover_python_runtimes();
+                }
+                self.package_output = self
+                    .python_runtimes
+                    .first()
+                    .map(|runtime| {
+                        python_runtime::pypi(runtime, &self.package_query).unwrap_or_else(|e| e)
+                    })
+                    .unwrap_or_else(|| {
+                        "No Python runtime is available for secure PyPI HTTPS discovery.".into()
+                    });
+            }
+            if ui.button("Environment tools").clicked() {
+                self.package_output = python_runtime::managers().join("\n");
+            }
+            if ui.button("Python build preview").clicked() {
+                self.package_output = self
+                    .selected_python
+                    .as_ref()
+                    .map(|python| publishing::python_build(&root, python).unwrap_or_else(|e| e))
+                    .unwrap_or_else(|| "Select a Python runtime first.".into());
+            }
+            if ui.button("Python smoke test").clicked() {
+                self.package_output = self
+                    .selected_python
+                    .as_ref()
+                    .map(|python| {
+                        publishing::python_smoke_test(&root, python).unwrap_or_else(|e| e)
+                    })
+                    .unwrap_or_else(|| "Select a Python runtime first.".into());
+            }
         });
         ui.separator();
         egui::ScrollArea::both().show(ui, |ui| {
@@ -3668,6 +3803,12 @@ impl ForgeApp {
             {
                 self.console_tab = ConsoleTab::History;
             }
+            if ui
+                .selectable_label(self.console_tab == ConsoleTab::Python, "Python runtime")
+                .clicked()
+            {
+                self.console_tab = ConsoleTab::Python;
+            }
             if let Some(ms) = self
                 .cell_records
                 .get(&self.selected_cell)
@@ -3681,6 +3822,7 @@ impl ForgeApp {
                 match self.console_tab {
                     ConsoleTab::Console => "Clear the visible console output",
                     ConsoleTab::History => "Clear the command history",
+                    ConsoleTab::Python => "Clear Python runtime output",
                 },
             )
             .clicked()
@@ -3696,6 +3838,10 @@ impl ForgeApp {
                         }
                     }
                     ConsoleTab::History => self.history.clear(),
+                    ConsoleTab::Python => {
+                        self.python_console_output.clear();
+                        self.python_mime_outputs.clear();
+                    }
                 }
             }
         });
@@ -3762,6 +3908,96 @@ impl ForgeApp {
                             );
                         }
                     });
+            }
+            ConsoleTab::Python => {
+                ui.horizontal(|ui| {
+                    if ui.button("Discover").clicked() {
+                        self.discover_python_runtimes();
+                    }
+                    egui::ComboBox::from_id_salt("python_runtime_selector")
+                        .selected_text(
+                            self.selected_python
+                                .as_ref()
+                                .map(|path| path.display().to_string())
+                                .unwrap_or_else(|| "No interpreter selected".into()),
+                        )
+                        .show_ui(ui, |ui| {
+                            for runtime in &self.python_runtimes {
+                                ui.selectable_value(
+                                    &mut self.selected_python,
+                                    Some(runtime.executable.clone()),
+                                    format!(
+                                        "{} · {}",
+                                        runtime.version,
+                                        runtime.executable.display()
+                                    ),
+                                );
+                            }
+                        });
+                    if ui.button("Start/restart").clicked() {
+                        self.start_python_kernel();
+                    }
+                    if ui.button("Create .venv").clicked() {
+                        if let (Some(root), Some(runtime)) = (
+                            self.project_root(),
+                            self.python_runtimes.iter().find(|runtime| {
+                                Some(&runtime.executable) == self.selected_python.as_ref()
+                            }),
+                        ) {
+                            self.python_console_output =
+                                python_runtime::create_venv(runtime, &root.join(".venv"))
+                                    .unwrap_or_else(|e| e);
+                        }
+                    }
+                });
+                ui.horizontal(|ui| {
+                    if ui.button("Jupyter kernels").clicked() {
+                        self.jupyter_kernels = jupyter::discover().unwrap_or_default();
+                    }
+                    egui::ComboBox::from_id_salt("python_jupyter_kernel")
+                        .selected_text(if self.selected_jupyter_kernel.is_empty() {
+                            "No Jupyter kernel selected"
+                        } else {
+                            &self.selected_jupyter_kernel
+                        })
+                        .show_ui(ui, |ui| {
+                            for kernel in &self.jupyter_kernels {
+                                if kernel.language.eq_ignore_ascii_case("python") {
+                                    ui.selectable_value(
+                                        &mut self.selected_jupyter_kernel,
+                                        kernel.name.clone(),
+                                        &kernel.display_name,
+                                    );
+                                }
+                            }
+                        });
+                });
+                egui::ScrollArea::vertical()
+                    .max_height((ui.available_height() - 62.0).max(40.0))
+                    .stick_to_bottom(true)
+                    .show(ui, |ui| {
+                        ui.label(RichText::new(&self.python_console_output).monospace());
+                        for output in &self.python_mime_outputs {
+                            ui.label(
+                                RichText::new(format!("{}: {}", output.mime, output.data))
+                                    .monospace()
+                                    .color(CYAN),
+                            );
+                        }
+                    });
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Py [ ]:").monospace().strong().color(CYAN));
+                    let response = ui.add(
+                        egui::TextEdit::singleline(&mut self.python_console_input)
+                            .desired_width(f32::INFINITY)
+                            .hint_text("Python code (persistent session)"),
+                    );
+                    if (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                        || ui.button("Run").clicked()
+                    {
+                        self.run_python_input();
+                    }
+                });
             }
         }
         ui.take_available_space();
@@ -4113,6 +4349,9 @@ impl eframe::App for ForgeApp {
             comparison_metric: self.comparison_metric.clone(),
             dataset_viewer_docked: self.dataset_viewer_docked,
             dataset_pane_height: self.dataset_pane_height,
+            selected_python: self.selected_python.clone(),
+            selected_jupyter_kernel: self.selected_jupyter_kernel.clone(),
+            python_environment_fingerprint: self.python_environment_fingerprint.clone(),
         };
         eframe::set_value(storage, STORAGE_KEY, &state);
     }

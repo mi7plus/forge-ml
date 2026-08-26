@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.6.0`
+Current application version: `0.7.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -237,22 +237,29 @@ Implementation notes:
 - Background commands execute one at a time from the project root and preserve captured output.
 - Dataset fingerprints and Cargo lockfile fingerprints make comparisons reproducible without copying source datasets.
 
-## 0.7 Python runtime and publishing previews
+## 0.7 Python runtime and publishing previews — implemented
 
-- [ ] Discover and create Python environments.
-- [ ] Add Python Jupyter kernels and console sessions.
-- [ ] Pass standard Jupyter MIME output from Python kernels.
-- [ ] Record the selected interpreter and environment lock state.
-- [ ] Add PyPI JSON discovery and version compatibility views.
-- [ ] Manage packages through uv, pip, Poetry, and Conda adapters.
-- [ ] Add crates.io package validation and publish dry run.
-- [ ] Add Python build, TestPyPI upload, and smoke-test workflow.
+- [x] Discover Python runtimes and explicitly create project `.venv` environments.
+- [x] Add Python Jupyter kernel selection and persistent console sessions.
+- [x] Pass MIME-typed output from Python runtime sessions.
+- [x] Persist the selected interpreter and Jupyter kernelspec.
+- [x] Add PyPI JSON discovery and version compatibility views.
+- [x] Detect uv, pip, Poetry, and Conda without taking ownership of user packages.
+- [x] Add crates.io package validation and publish dry run.
+- [~] Add Python build and smoke-test previews (uploads intentionally remain external).
+
+Implementation notes:
+
+- The Python console uses a persistent isolated interpreter namespace and captures stdout, stderr, and tracebacks.
+- PyPI metadata is read through Python's standard-library HTTPS client; Forge stores no registry credentials.
+- Creating `.venv` is explicit, and Forge never installs packages or bundles an ML framework.
+- Cargo publishing remains a local dry run; Python publishing stops at build and smoke-test validation.
 
 Scope boundary:
 
-- [ ] Do not bundle NumPy, pandas, SciPy, scikit-learn, PyTorch, TensorFlow, or CUDA.
-- [ ] Do not build Python-specific ML pipeline or training framework integrations.
-- [ ] Treat all packages beyond the runtime as user-managed project dependencies.
+- [x] Do not bundle NumPy, pandas, SciPy, scikit-learn, PyTorch, TensorFlow, or CUDA.
+- [x] Do not build Python-specific ML pipeline or training framework integrations.
+- [x] Treat all packages beyond the runtime as user-managed project dependencies.
 
 ## 0.8 databases and coordinated releases
 

@@ -83,6 +83,57 @@ pub fn compatibility(runtime: &PythonRuntime) -> Vec<String> {
     notes
 }
 
+pub fn pypi(runtime: &PythonRuntime, package: &str) -> Result<String, String> {
+    if package.trim().is_empty() {
+        return Err("Enter a PyPI package name first.".into());
+    }
+    let script = r#"import json,sys,urllib.request
+n=sys.argv[1]
+with urllib.request.urlopen('https://pypi.org/pypi/'+n+'/json',timeout=10) as r: d=json.load(r)
+i=d['info']; print(f"{i['name']} {i['version']}\n{i.get('summary','')}\nPython: {i.get('requires_python') or 'unspecified'}\nLicense: {i.get('license_expression') or i.get('license') or 'unspecified'}\nProject: {i.get('project_url') or i.get('home_page') or ''}")"#;
+    let output = Command::new(&runtime.executable)
+        .args(["-c", script, package.trim()])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().into())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().into())
+    }
+}
+
+pub fn managers() -> Vec<String> {
+    ["uv", "pip", "poetry", "conda"]
+        .into_iter()
+        .filter_map(|name| {
+            let result = if name == "pip" {
+                Command::new("python")
+                    .args(["-m", "pip", "--version"])
+                    .output()
+            } else {
+                Command::new(name).arg("--version").output()
+            };
+            result
+                .ok()
+                .filter(|output| output.status.success())
+                .map(|output| format!("{name}: {}", String::from_utf8_lossy(&output.stdout).trim()))
+        })
+        .collect()
+}
+
+pub fn create_venv(runtime: &PythonRuntime, path: &std::path::Path) -> Result<String, String> {
+    let output = Command::new(&runtime.executable)
+        .args(["-m", "venv"])
+        .arg(path)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(format!("Created Python environment at {}", path.display()))
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
