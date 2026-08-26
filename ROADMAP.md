@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.4.0`
+Current application version: `0.5.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -200,17 +200,25 @@ Implementation notes:
 - GitHub operations use the installed `gh` CLI, so tokens are never persisted by Forge ML.
 - Every executed code cell records the short Git commit and whether the working tree was dirty.
 
-## 0.5 Millwright Studio
+## 0.5 Millwright Studio — implemented
 
-- [ ] Add `TrainingObserver`/`TrainingEvent` to Millwright.
-- [ ] Add Forge's Millwright adapter.
-- [ ] Load Millwright tables and datasets directly into the data viewer.
-- [ ] Build the first visual pipeline editor.
-- [ ] Generate Rust pipeline code.
-- [ ] Display evaluation reports, confusion matrices, ROC, and residuals.
-- [ ] Show cross-validation and search progress.
-- [ ] Add AutoML leaderboard and explainability views.
-- [ ] Add Python package discovery and environment compatibility checks.
+- [x] Add Forge's `TrainingObserver`/`TrainingEvent` bridge for published Millwright.
+- [x] Add Forge's native adapter for published `millwright` 2.2.1.
+- [x] Load Millwright CSV/Parquet tables directly into the data viewer.
+- [x] Build the first visual pipeline editor.
+- [x] Generate Rust pipeline code.
+- [x] Display evaluation reports, confusion matrices, ROC, and residuals.
+- [x] Show cross-validation, trial, fold, and epoch progress.
+- [x] Add AutoML leaderboard and feature-importance views.
+- [x] Add Python runtime/package discovery and environment compatibility checks.
+
+Implementation notes:
+
+- Forge integrates only the published crates.io package; local Millwright checkouts are ignored.
+- Millwright/Polars remains behind the optional `millwright` feature to protect default binary size.
+- Runtime cells can stream `forge_training:<json>` and `forge_evaluation:<json>` records into Studio.
+- Generated pipelines use Millwright's Rust API and open as editable notebook cells.
+- Python inspection is read-only runtime discovery; packages and ML frameworks remain user-managed.
 
 ## 0.6 experiments and provenance
 

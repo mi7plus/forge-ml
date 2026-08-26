@@ -168,6 +168,29 @@ impl DataWorkspace {
         );
         Ok(name)
     }
+    #[cfg(feature = "millwright")]
+    pub fn import_millwright(&mut self, path: &Path) -> Result<String, String> {
+        let table = match path
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "csv" => millwright::table::Table::from_csv(path),
+            "parquet" => millwright::table::Table::from_parquet(path),
+            _ => return Err("Millwright imports CSV and Parquet tables.".into()),
+        }
+        .map_err(|error| error.to_string())?;
+        let name = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("millwright_dataset")
+            .to_owned();
+        self.tables
+            .insert(name.clone(), Dataset::from_millwright(&table)?);
+        Ok(name)
+    }
     pub fn clear(&mut self) {
         self.metrics.clear();
         self.vectors.clear();

@@ -5,10 +5,12 @@ mod git;
 mod github;
 mod jupyter;
 mod lsp;
+mod millwright_studio;
 mod notebook;
 mod packages;
 mod plot;
 mod project;
+mod python_runtime;
 mod runtime;
 mod session;
 
@@ -24,6 +26,10 @@ use forge_protocol::RunId;
 use forge_protocol::TableData;
 use forge_storage::{WorkspaceRecovery, WorkspaceStore};
 use lsp::{Diagnostic as LspDiagnostic, LspCommand, LspEvent, LspHandle};
+use millwright_studio::{
+    ChannelObserver, EvaluationReport, LeaderboardEntry, PipelineDesign, PipelineStep,
+    TrainingEvent, TrainingObserver,
+};
 use notebook::{
     cell_byte_ranges, is_notebook_document, lsp_document, notebook_lsp_prefix_chars,
     prepare_runtime_code, CellKind, NotebookDocument, RichOutput,
@@ -94,6 +100,7 @@ enum InspectorTab {
     Git,
     Packages,
     GitHub,
+    Studio,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -238,6 +245,12 @@ struct ForgeApp {
     github_input: String,
     github_output: String,
     jupyter_output: String,
+    pipeline_design: PipelineDesign,
+    training_events: Vec<TrainingEvent>,
+    training_observer: ChannelObserver,
+    evaluation_report: EvaluationReport,
+    leaderboard: Vec<LeaderboardEntry>,
+    python_runtime_output: String,
     last_file_poll: Instant,
     pending_editor_history: Option<EditorHistoryCommand>,
 }
@@ -401,6 +414,16 @@ impl ForgeApp {
             github_input: String::new(),
             github_output: String::new(),
             jupyter_output: String::new(),
+            pipeline_design: PipelineDesign {
+                name: "pipeline".into(),
+                target: "target".into(),
+                steps: Vec::new(),
+            },
+            training_events: Vec::new(),
+            training_observer: ChannelObserver::default(),
+            evaluation_report: EvaluationReport::default(),
+            leaderboard: Vec::new(),
+            python_runtime_output: String::new(),
             last_file_poll: Instant::now(),
             pending_editor_history: None,
         }
@@ -1424,6 +1447,25 @@ impl ForgeApp {
                     } else {
                         output
                     };
+                    let (training_events, reports) =
+                        millwright_studio::parse_runtime_output(&self.console);
+                    for event in training_events {
+                        self.training_observer.observe(event);
+                    }
+                    for event in self.training_observer.drain() {
+                        if let TrainingEvent::TrialCompleted { trial, score } = &event {
+                            self.leaderboard.push(LeaderboardEntry {
+                                model: format!("trial {trial}"),
+                                score: *score,
+                                duration_ms: elapsed_ms,
+                                parameters: String::new(),
+                            });
+                        }
+                        self.training_events.push(event);
+                    }
+                    if let Some(report) = reports.into_iter().last() {
+                        self.evaluation_report = report;
+                    }
                     for envelope in events {
                         self.data.apply(envelope.event);
                     }
@@ -1654,6 +1696,11 @@ impl ForgeApp {
             ui.menu_button("Tools", |ui| {
                 if ui.button("Import dataset...").clicked() {
                     self.import_dataset();
+                    ui.close();
+                }
+                #[cfg(feature = "millwright")]
+                if ui.button("Import via Millwright...").clicked() {
+                    self.import_millwright_dataset();
                     ui.close();
                 }
                 if ui.button("Git workbench").clicked() {
@@ -2267,6 +2314,7 @@ impl ForgeApp {
                 (InspectorTab::Git, "Git"),
                 (InspectorTab::Packages, "Crates"),
                 (InspectorTab::GitHub, "GitHub"),
+                (InspectorTab::Studio, "Studio"),
             ] {
                 if ui
                     .selectable_label(self.inspector_tab == tab, label)
@@ -2431,6 +2479,159 @@ impl ForgeApp {
             InspectorTab::Git => self.git_inspector(ui),
             InspectorTab::Packages => self.packages_inspector(ui),
             InspectorTab::GitHub => self.github_inspector(ui),
+            InspectorTab::Studio => self.millwright_studio(ui),
+        }
+    }
+
+    fn millwright_studio(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Millwright Studio");
+        ui.horizontal(|ui| {
+            ui.label("Pipeline");
+            ui.text_edit_singleline(&mut self.pipeline_design.name);
+            ui.label("Target");
+            ui.text_edit_singleline(&mut self.pipeline_design.target);
+        });
+        ui.horizontal_wrapped(|ui| {
+            for step in [
+                PipelineStep::Impute,
+                PipelineStep::Standardize,
+                PipelineStep::OneHotEncode,
+                PipelineStep::RandomForest,
+                PipelineStep::LogisticRegression,
+                PipelineStep::LinearRegression,
+            ] {
+                if ui.small_button(format!("+ {}", step.label())).clicked() {
+                    self.pipeline_design.steps.push(step);
+                }
+            }
+            if ui.small_button("Remove last").clicked() {
+                self.pipeline_design.steps.pop();
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            for (index, step) in self.pipeline_design.steps.iter().enumerate() {
+                ui.label(RichText::new(format!("{}  {}", index + 1, step.label())).color(CYAN));
+                if index + 1 < self.pipeline_design.steps.len() {
+                    ui.label("→");
+                }
+            }
+        });
+        if ui.button("Generate Rust notebook cell").clicked() {
+            let code = self.pipeline_design.rust_code();
+            self.tabs.push(EditorTab {
+                title: format!("{}.rs", self.pipeline_design.name),
+                path: None,
+                content: format!("//# %% generated Millwright pipeline\n{code}"),
+                dirty: true,
+                disk_hash: None,
+                external_change_pending: false,
+            });
+            self.active_tab = self.tabs.len() - 1;
+            self.selected_cell = 0;
+        }
+        ui.separator();
+        ui.strong("Training progress");
+        if self.training_events.is_empty() {
+            ui.label("Emit `forge_training:<json>` from a Rust cell to stream trials, folds, epochs, and scores.");
+        }
+        egui::ScrollArea::vertical()
+            .max_height(130.0)
+            .show(ui, |ui| {
+                for event in self.training_events.iter().rev().take(100) {
+                    ui.label(RichText::new(format!("{event:?}")).monospace().size(9.0));
+                }
+            });
+        if !self.leaderboard.is_empty() {
+            self.leaderboard.sort_by(|a, b| b.score.total_cmp(&a.score));
+            ui.collapsing("AutoML leaderboard", |ui| {
+                egui::Grid::new("automl_leaderboard")
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.strong("Model");
+                        ui.strong("Score");
+                        ui.strong("Time");
+                        ui.strong("Parameters");
+                        ui.end_row();
+                        for entry in &self.leaderboard {
+                            ui.label(&entry.model);
+                            ui.label(format!("{:.5}", entry.score));
+                            ui.label(format!("{} ms", entry.duration_ms));
+                            ui.label(&entry.parameters);
+                            ui.end_row();
+                        }
+                    });
+            });
+        }
+        ui.collapsing("Evaluation and explainability", |ui| {
+            ui.label(format!(
+                "Accuracy: {}   RMSE: {}",
+                self.evaluation_report
+                    .accuracy
+                    .map(|v| format!("{v:.4}"))
+                    .unwrap_or_else(|| "—".into()),
+                self.evaluation_report
+                    .rmse
+                    .map(|v| format!("{v:.4}"))
+                    .unwrap_or_else(|| "—".into())
+            ));
+            if !self.evaluation_report.confusion.is_empty() {
+                egui::Grid::new("confusion_matrix")
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for row in &self.evaluation_report.confusion {
+                            for value in row {
+                                ui.label(value.to_string());
+                            }
+                            ui.end_row();
+                        }
+                    });
+            }
+            if !self.evaluation_report.roc.is_empty() {
+                Plot::new("roc_curve").height(150.0).show(ui, |plot_ui| {
+                    plot_ui.line(Line::new(
+                        "ROC",
+                        PlotPoints::from(self.evaluation_report.roc.clone()),
+                    ));
+                });
+            }
+            if !self.evaluation_report.residuals.is_empty() {
+                Plot::new("residuals").height(150.0).show(ui, |plot_ui| {
+                    let points = self
+                        .evaluation_report
+                        .residuals
+                        .iter()
+                        .enumerate()
+                        .map(|(i, v)| [i as f64, *v])
+                        .collect::<Vec<_>>();
+                    plot_ui.line(Line::new("Residuals", PlotPoints::from(points)));
+                });
+            }
+            for (feature, importance) in &self.evaluation_report.feature_importance {
+                ui.add(
+                    egui::ProgressBar::new(*importance as f32)
+                        .text(format!("{feature}  {importance:.3}")),
+                );
+            }
+        });
+        if ui.button("Discover Python runtimes").clicked() {
+            let runtimes = python_runtime::discover();
+            self.python_runtime_output = if runtimes.is_empty() {
+                "No Python runtime found.".into()
+            } else {
+                runtimes
+                    .iter()
+                    .flat_map(python_runtime::compatibility)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+        }
+        if !self.python_runtime_output.is_empty() {
+            ui.collapsing("Python runtime compatibility", |ui| {
+                ui.code(&self.python_runtime_output);
+                ui.label(
+                    "Packages remain user-managed; Forge does not bundle Python ML frameworks.",
+                );
+            });
         }
     }
 
@@ -2525,6 +2726,25 @@ impl ForgeApp {
                 self.console = format!("Imported {} as `{name}`.", path.display());
             }
             Err(error) => self.console = format!("Could not import dataset: {error}"),
+        }
+    }
+
+    #[cfg(feature = "millwright")]
+    fn import_millwright_dataset(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Import Millwright table")
+            .add_filter("Millwright tables", &["csv", "parquet"])
+            .pick_file()
+        else {
+            return;
+        };
+        match self.data.import_millwright(&path) {
+            Ok(name) => {
+                self.open_dataset = Some(format!("table:{name}"));
+                self.inspector_tab = InspectorTab::Data;
+                self.console = format!("Loaded `{name}` through published Millwright 2.2.1.");
+            }
+            Err(error) => self.console = format!("Millwright import failed: {error}"),
         }
     }
 

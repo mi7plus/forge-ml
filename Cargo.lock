@@ -2060,7 +2060,7 @@ dependencies = [
 
 [[package]]
 name = "forge_ide"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "arrow",
  "csv",
@@ -3248,9 +3248,9 @@ dependencies = [
 
 [[package]]
 name = "millwright"
-version = "0.2.1"
+version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97d86da86d5b887a39cdda14cb02552648151ff597f4d746a03c3b23c8e03b3a"
+checksum = "5486a58af8617088869f33fd1e9146296e8e7baf9af760bc7761424115479d71"
 dependencies = [
  "polars",
 ]
