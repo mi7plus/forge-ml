@@ -3,6 +3,7 @@ mod diagnostics;
 mod experiment;
 mod git;
 mod github;
+mod jobs;
 mod jupyter;
 mod lsp;
 mod millwright_studio;
@@ -20,11 +21,12 @@ use eframe::egui;
 use egui::{Color32, Frame, Margin, Panel, RichText, Stroke};
 use egui_code_editor::{CodeEditor, ColorTheme, Syntax};
 use egui_plot::{Line, Plot, PlotPoints};
-use experiment::ExperimentRun;
+use experiment::{capture_provenance, ExperimentRun};
 #[cfg(test)]
 use forge_protocol::RunId;
 use forge_protocol::TableData;
 use forge_storage::{WorkspaceRecovery, WorkspaceStore};
+use jobs::{JobQueue, JobState};
 use lsp::{Diagnostic as LspDiagnostic, LspCommand, LspEvent, LspHandle};
 use millwright_studio::{
     ChannelObserver, EvaluationReport, LeaderboardEntry, PipelineDesign, PipelineStep,
@@ -227,6 +229,11 @@ struct ForgeApp {
     pending_editor_selection: Option<(usize, usize)>,
     run_all_after_reset: bool,
     experiment_name: String,
+    experiment_tags: String,
+    experiment_notes: String,
+    experiment_github_issue: String,
+    experiment_github_pr: String,
+    experiment_github_action: String,
     saved_runs: Vec<ExperimentRun>,
     comparison_metric: String,
     project_search_query: String,
@@ -251,6 +258,8 @@ struct ForgeApp {
     evaluation_report: EvaluationReport,
     leaderboard: Vec<LeaderboardEntry>,
     python_runtime_output: String,
+    job_queue: JobQueue,
+    job_command: String,
     last_file_poll: Instant,
     pending_editor_history: Option<EditorHistoryCommand>,
 }
@@ -396,6 +405,11 @@ impl ForgeApp {
             pending_editor_selection: None,
             run_all_after_reset: false,
             experiment_name: session.experiment_name,
+            experiment_tags: String::new(),
+            experiment_notes: String::new(),
+            experiment_github_issue: String::new(),
+            experiment_github_pr: String::new(),
+            experiment_github_action: String::new(),
             saved_runs,
             comparison_metric: session.comparison_metric,
             project_search_query: String::new(),
@@ -424,6 +438,8 @@ impl ForgeApp {
             evaluation_report: EvaluationReport::default(),
             leaderboard: Vec::new(),
             python_runtime_output: String::new(),
+            job_queue: JobQueue::new(),
+            job_command: "cargo run --release".into(),
             last_file_poll: Instant::now(),
             pending_editor_history: None,
         }
@@ -998,13 +1014,39 @@ impl ForgeApp {
         } else {
             self.experiment_name.trim().to_owned()
         };
-        let run = ExperimentRun::snapshot(
+        let mut run = ExperimentRun::snapshot(
             name.clone(),
             &self.data.metrics,
             &self.data.vectors,
             self.execution_count,
         );
+        run.tags = self
+            .experiment_tags
+            .split(',')
+            .map(str::trim)
+            .filter(|tag| !tag.is_empty())
+            .map(str::to_owned)
+            .collect();
+        run.notes = self.experiment_notes.trim().to_owned();
+        run.github.issue = (!self.experiment_github_issue.trim().is_empty())
+            .then(|| self.experiment_github_issue.trim().to_owned());
+        run.github.pull_request = (!self.experiment_github_pr.trim().is_empty())
+            .then(|| self.experiment_github_pr.trim().to_owned());
+        run.github.action_run = (!self.experiment_github_action.trim().is_empty())
+            .then(|| self.experiment_github_action.trim().to_owned());
+        run.provenance = capture_provenance(
+            self.project.as_ref().map(|project| project.root.as_path()),
+            self.data.fingerprints(),
+        );
         if let Some(store) = &self.workspace_store {
+            let artifact = PathBuf::from("runs").join(run.id.as_str()).join("run.json");
+            run.artifacts.push(artifact.display().to_string());
+            if let Ok(payload) = serde_json::to_vec_pretty(&run) {
+                if let Err(error) = store.write_artifact(&artifact, &payload) {
+                    self.console = format!("Could not persist run artifact: {error}");
+                    return;
+                }
+            }
             if let Err(error) = store.save_experiment(&run.id, &run.name, &run) {
                 self.console = format!("Could not persist experiment snapshot: {error}");
                 return;
@@ -1410,6 +1452,9 @@ impl ForgeApp {
 
     fn poll_background(&mut self, ctx: &egui::Context) {
         self.poll_external_file_changes();
+        if let Some(root) = self.project_root() {
+            self.job_queue.poll(root);
+        }
         ctx.request_repaint_after(Duration::from_millis(750));
         while let Some(result) = self.runtime.try_recv() {
             match result {
@@ -2531,6 +2576,56 @@ impl ForgeApp {
         }
         ui.separator();
         ui.strong("Training progress");
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.job_command)
+                    .hint_text("background training command"),
+            );
+            if ui.button("Queue job").clicked() {
+                if let Some(root) = self.project_root() {
+                    match self.job_queue.enqueue(self.job_command.clone(), root) {
+                        Ok(id) => self.console = format!("Queued training job {id}."),
+                        Err(error) => self.console = error,
+                    }
+                }
+            }
+        });
+        let active = self
+            .job_queue
+            .jobs
+            .iter()
+            .filter(|job| job.state == JobState::Running)
+            .count();
+        let queued = self
+            .job_queue
+            .jobs
+            .iter()
+            .filter(|job| job.state == JobState::Queued)
+            .count();
+        ui.label(format!(
+            "Workers: {active}/1 active · {queued} queued · ETA {}",
+            self.job_queue
+                .eta()
+                .map(|eta| format!("{:.1}s", eta.as_secs_f64()))
+                .unwrap_or_else(|| "calculating".into())
+        ));
+        for job in self.job_queue.jobs.iter().rev().take(8) {
+            ui.collapsing(
+                format!(
+                    "Job {} · {:?} · {:.1}s · queued {:.1}s ago",
+                    job.id,
+                    job.state,
+                    job.elapsed.as_secs_f64(),
+                    job.queued_at.elapsed().as_secs_f64()
+                ),
+                |ui| {
+                    ui.code(&job.command);
+                    if !job.output.is_empty() {
+                        ui.code(&job.output);
+                    }
+                },
+            );
+        }
         if self.training_events.is_empty() {
             ui.label("Emit `forge_training:<json>` from a Rust cell to stream trials, folds, epochs, and scores.");
         }
@@ -3350,6 +3445,8 @@ impl ForgeApp {
                 }
             });
         let mut run_to_delete = None;
+        let mut run_to_clone = None;
+        let mut run_to_toggle_archive = None;
         egui::ScrollArea::vertical()
             .id_salt("experiment_run_table")
             .show(ui, |ui| {
@@ -3360,6 +3457,9 @@ impl ForgeApp {
                         ui.label(RichText::new("Final").strong());
                         ui.label(RichText::new("Steps").strong());
                         ui.label(RichText::new("Execs").strong());
+                        ui.label(RichText::new("Status").strong());
+                        ui.label("");
+                        ui.label("");
                         ui.label("");
                         ui.end_row();
                         for (index, run) in self.saved_runs.iter().enumerate() {
@@ -3372,6 +3472,16 @@ impl ForgeApp {
                             ui.label(final_value);
                             ui.label(values.map_or(0, Vec::len).to_string());
                             ui.label(run.execution_count.to_string());
+                            ui.label(if run.archived { "Archived" } else { "Active" });
+                            if ui.small_button("Clone").clicked() {
+                                run_to_clone = Some(index);
+                            }
+                            if ui
+                                .small_button(if run.archived { "Restore" } else { "Archive" })
+                                .clicked()
+                            {
+                                run_to_toggle_archive = Some(index);
+                            }
                             if compact_icon_button(
                                 ui,
                                 egui_phosphor_icons::icons::TRASH,
@@ -3382,9 +3492,54 @@ impl ForgeApp {
                                 run_to_delete = Some(index);
                             }
                             ui.end_row();
+                            ui.label("");
+                            ui.label(
+                                RichText::new(format!("tags: {}", run.tags.join(", ")))
+                                    .size(9.0)
+                                    .color(MUTED),
+                            );
+                            ui.label(
+                                RichText::new(format!(
+                                    "git: {}{}",
+                                    run.provenance
+                                        .git_commit
+                                        .chars()
+                                        .take(10)
+                                        .collect::<String>(),
+                                    if run.provenance.git_dirty {
+                                        " dirty"
+                                    } else {
+                                        ""
+                                    }
+                                ))
+                                .size(9.0)
+                                .color(MUTED),
+                            );
+                            ui.label(
+                                RichText::new(format!("artifacts: {}", run.artifacts.len()))
+                                    .size(9.0)
+                                    .color(MUTED),
+                            );
+                            ui.label(RichText::new(run.notes.clone()).size(9.0).color(MUTED));
+                            ui.end_row();
                         }
                     });
             });
+        if let Some(index) = run_to_clone {
+            let child = self.saved_runs[index]
+                .clone_as_child(format!("{}_clone", self.saved_runs[index].name));
+            if let Some(store) = &self.workspace_store {
+                let _ = store.save_experiment(&child.id, &child.name, &child);
+            }
+            self.saved_runs.push(child);
+        }
+        if let Some(index) = run_to_toggle_archive {
+            self.saved_runs[index].archived = !self.saved_runs[index].archived;
+            if let Some(store) = &self.workspace_store {
+                let run = &self.saved_runs[index];
+                let _ = store.save_experiment(&run.id, &run.name, run);
+            }
+        }
         if let Some(index) = run_to_delete {
             let run = self.saved_runs.remove(index);
             if let Some(store) = &self.workspace_store {
@@ -3421,6 +3576,24 @@ impl ForgeApp {
                 self.data.vectors.clear();
                 self.console = "Cleared current datasets and plots.".to_owned();
             }
+        });
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.experiment_tags)
+                    .hint_text("tags, comma separated"),
+            );
+            ui.add(egui::TextEdit::singleline(&mut self.experiment_notes).hint_text("run notes"));
+        });
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.experiment_github_issue)
+                    .hint_text("GitHub issue URL"),
+            );
+            ui.add(egui::TextEdit::singleline(&mut self.experiment_github_pr).hint_text("PR URL"));
+            ui.add(
+                egui::TextEdit::singleline(&mut self.experiment_github_action)
+                    .hint_text("Actions run URL"),
+            );
         });
         if !self.data.has_telemetry() {
             ui.label(
@@ -4572,6 +4745,14 @@ mod editor_tests {
                 metrics,
                 vectors: HashMap::new(),
                 execution_count: 2,
+                created_at_unix: 0,
+                tags: Vec::new(),
+                notes: String::new(),
+                archived: false,
+                parent_id: None,
+                artifacts: Vec::new(),
+                provenance: Default::default(),
+                github: Default::default(),
             }],
             experiment_name: "next_run".to_owned(),
             comparison_metric: "accuracy".to_owned(),

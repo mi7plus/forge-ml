@@ -39,7 +39,7 @@ impl WorkspaceStore {
                     payload TEXT NOT NULL,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                  );
-                 PRAGMA user_version = 1;",
+                 PRAGMA user_version = 2;",
             )
             .map_err(|error| error.to_string())?;
         Ok(Self {

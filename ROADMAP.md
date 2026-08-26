@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.5.0`
+Current application version: `0.6.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -220,14 +220,22 @@ Implementation notes:
 - Generated pipelines use Millwright's Rust API and open as editable notebook cells.
 - Python inspection is read-only runtime discovery; packages and ML frameworks remain user-managed.
 
-## 0.6 experiments and provenance
+## 0.6 experiments and provenance — implemented
 
-- [ ] Persist full run metadata and artifacts.
-- [ ] Add tags, notes, archive, clone, compare, and parent/child runs.
-- [ ] Capture dataset, Git, Cargo, toolchain, environment, and hardware fingerprints.
-- [ ] Add training job queue and background execution.
-- [ ] Add active trial/fold progress, ETA, and worker monitoring.
-- [ ] Associate runs with GitHub issues, pull requests, and Actions.
+- [x] Persist full run metadata and per-run JSON artifacts.
+- [x] Add tags, notes, archive, clone, compare, and parent/child runs.
+- [x] Capture dataset, Git, Cargo lockfile, toolchain, environment, and hardware fingerprints.
+- [x] Add a serialized background training job queue.
+- [x] Add active trial/fold progress, elapsed time, ETA, and worker monitoring.
+- [x] Associate runs with GitHub issues, pull requests, and Actions.
+
+Implementation notes:
+
+- Existing 0.2–0.5 experiment JSON receives backward-compatible defaults on load.
+- Every saved run writes `.forge/artifacts/runs/<run-id>/run.json` atomically.
+- Cloning a run assigns a new stable ID and records the source run as its parent.
+- Background commands execute one at a time from the project root and preserve captured output.
+- Dataset fingerprints and Cargo lockfile fingerprints make comparisons reproducible without copying source datasets.
 
 ## 0.7 Python runtime and publishing previews
 

@@ -116,6 +116,15 @@ pub struct DataWorkspace {
 }
 
 impl DataWorkspace {
+    pub fn fingerprints(&self) -> HashMap<String, String> {
+        self.tables
+            .iter()
+            .map(|(name, dataset)| {
+                let bytes = serde_json::to_vec(&dataset.table).unwrap_or_default();
+                (name.clone(), crate::experiment::stable_digest(&bytes))
+            })
+            .collect()
+    }
     pub fn apply(&mut self, event: ForgeEvent) {
         match event {
             ForgeEvent::Metric { name, value } => {
