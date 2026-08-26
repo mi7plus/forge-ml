@@ -64,6 +64,13 @@ pub fn switch(root: &Path, name: &str, create: bool) -> Result<String, String> {
         run(root, &["switch", name.trim()])
     }
 }
+pub fn provenance(root: &Path) -> (String, bool) {
+    let commit = run(root, &["rev-parse", "--short", "HEAD"]).unwrap_or_else(|_| "unknown".into());
+    let dirty = run(root, &["status", "--porcelain"])
+        .map(|value| value != "Done." && !value.trim().is_empty())
+        .unwrap_or(false);
+    (commit, dirty)
+}
 
 fn run(root: &Path, args: &[&str]) -> Result<String, String> {
     let output = Command::new("git")

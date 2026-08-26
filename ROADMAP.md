@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.3.0`
+Current application version: `0.4.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -181,17 +181,24 @@ Implementation notes:
 - The Crates workbench uses Cargo for registry discovery and manifest/lockfile changes.
 - Millwright remains optional so the base IDE binary does not pull Polars into every build.
 
-## 0.4 notebooks and GitHub
+## 0.4 notebooks and GitHub — implemented
 
-- [ ] Introduce a shared notebook document model.
-- [ ] Add Markdown cells and rich MIME output.
-- [ ] Read and write `.ipynb`.
-- [ ] Discover and manage Jupyter kernelspecs.
-- [ ] Run Evcxr through the Jupyter protocol where appropriate.
-- [ ] Add GitHub authentication through `gh` with secure fallback design.
-- [ ] Clone, fork, and publish repositories.
-- [ ] Add pull request, issue, and Actions views.
-- [ ] Record Git commit and dirty state in notebook executions.
+- [x] Introduce a shared notebook document model.
+- [x] Add Markdown cells and a MIME-typed output model.
+- [x] Read and write `.ipynb`.
+- [x] Discover Jupyter kernelspecs and install the Evcxr kernelspec.
+- [~] Run Evcxr through the Jupyter protocol where appropriate (kernelspec integration is ready; native execution remains the low-latency default).
+- [x] Add GitHub authentication through `gh` with secure credential-store delegation.
+- [x] Clone, fork, and publish repositories.
+- [x] Add pull request, issue, and Actions views.
+- [x] Record Git commit and dirty state in notebook executions.
+
+Implementation notes:
+
+- Markdown cells use `//# %% [markdown]` and remain valid Rust comments on disk.
+- Notebook interchange preserves cell kind, source, nbformat metadata, and kernelspec name.
+- GitHub operations use the installed `gh` CLI, so tokens are never persisted by Forge ML.
+- Every executed code cell records the short Git commit and whether the working tree was dirty.
 
 ## 0.5 Millwright Studio
 

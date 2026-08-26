@@ -1,4 +1,139 @@
+use serde::{Deserialize, Serialize};
 use std::path::Path;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum CellKind {
+    Code,
+    Markdown,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NotebookCell {
+    pub kind: CellKind,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RichOutput {
+    pub mime: String,
+    pub data: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NotebookDocument {
+    pub cells: Vec<NotebookCell>,
+    pub kernel: String,
+}
+
+impl NotebookDocument {
+    pub fn parse_rust(source: &str) -> Self {
+        let cells = cell_byte_ranges(source)
+            .into_iter()
+            .map(|range| {
+                let raw = &source[range];
+                let markdown = raw
+                    .lines()
+                    .next()
+                    .is_some_and(|line| line.contains("[markdown]"));
+                let source = if markdown {
+                    raw.lines()
+                        .skip(1)
+                        .map(|line| {
+                            line.trim_start()
+                                .strip_prefix("//#")
+                                .unwrap_or(line)
+                                .trim_start()
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                } else {
+                    raw.to_owned()
+                };
+                NotebookCell {
+                    kind: if markdown {
+                        CellKind::Markdown
+                    } else {
+                        CellKind::Code
+                    },
+                    source,
+                }
+            })
+            .collect();
+        Self {
+            cells,
+            kernel: "rust".into(),
+        }
+    }
+
+    pub fn to_rust(&self) -> String {
+        self.cells
+            .iter()
+            .enumerate()
+            .map(|(index, cell)| match cell.kind {
+                CellKind::Code => {
+                    if index == 0 && cell.source.trim_start().starts_with("//# %%") {
+                        cell.source.clone()
+                    } else {
+                        format!("//# %%\n{}", cell.source)
+                    }
+                }
+                CellKind::Markdown => format!(
+                    "//# %% [markdown]\n{}",
+                    cell.source
+                        .lines()
+                        .map(|line| format!("//# {line}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                ),
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    pub fn from_ipynb(text: &str) -> Result<Self, String> {
+        let value: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+        let kernel = value["metadata"]["kernelspec"]["name"]
+            .as_str()
+            .unwrap_or("rust")
+            .to_owned();
+        let cells = value["cells"]
+            .as_array()
+            .ok_or("Notebook has no cells")?
+            .iter()
+            .map(|cell| {
+                let kind = if cell["cell_type"] == "markdown" {
+                    CellKind::Markdown
+                } else {
+                    CellKind::Code
+                };
+                let source = match &cell["source"] {
+                    serde_json::Value::Array(lines) => {
+                        lines.iter().filter_map(|v| v.as_str()).collect::<String>()
+                    }
+                    serde_json::Value::String(text) => text.clone(),
+                    _ => String::new(),
+                };
+                NotebookCell { kind, source }
+            })
+            .collect();
+        Ok(Self { cells, kernel })
+    }
+
+    pub fn to_ipynb(&self) -> Result<String, String> {
+        let cells = self
+            .cells
+            .iter()
+            .map(|cell| {
+                serde_json::json!({
+                    "cell_type": if cell.kind == CellKind::Markdown { "markdown" } else { "code" },
+            "metadata": {}, "source": cell.source.split_inclusive('\n').collect::<Vec<_>>(),
+                    "execution_count": serde_json::Value::Null, "outputs": []
+                })
+            })
+            .collect::<Vec<_>>();
+        serde_json::to_string_pretty(&serde_json::json!({"cells": cells, "metadata": {"kernelspec": {"display_name": self.kernel, "language": "rust", "name": self.kernel}}, "nbformat": 4, "nbformat_minor": 5})).map_err(|e| e.to_string())
+    }
+}
 
 pub fn is_notebook_document(text: &str) -> bool {
     text.contains("//# %%")
@@ -167,6 +302,18 @@ mod tests {
     #[test]
     fn leaves_regular_documents_unchanged() {
         assert_eq!(lsp_document("fn main() {}"), ("fn main() {}".into(), 0));
+    }
+
+    #[test]
+    fn markdown_and_ipynb_round_trip() {
+        let source = "//# %% [markdown]\n//# # Results\n//# hello\n//# %%\nlet score = 0.9;";
+        let notebook = NotebookDocument::parse_rust(source);
+        assert_eq!(notebook.cells[0].kind, CellKind::Markdown);
+        assert!(notebook.cells[0].source.contains("# Results"));
+        let ipynb = notebook.to_ipynb().unwrap();
+        let restored = NotebookDocument::from_ipynb(&ipynb).unwrap();
+        assert_eq!(restored.cells, notebook.cells);
+        assert!(restored.to_rust().contains("[markdown]"));
     }
 
     #[test]

@@ -2,6 +2,8 @@ mod data;
 mod diagnostics;
 mod experiment;
 mod git;
+mod github;
+mod jupyter;
 mod lsp;
 mod notebook;
 mod packages;
@@ -24,7 +26,7 @@ use forge_storage::{WorkspaceRecovery, WorkspaceStore};
 use lsp::{Diagnostic as LspDiagnostic, LspCommand, LspEvent, LspHandle};
 use notebook::{
     cell_byte_ranges, is_notebook_document, lsp_document, notebook_lsp_prefix_chars,
-    prepare_runtime_code,
+    prepare_runtime_code, CellKind, NotebookDocument, RichOutput,
 };
 use plot::{metric_line, vector_bars};
 use project::{FileNode, Project};
@@ -91,6 +93,7 @@ enum InspectorTab {
     Problems,
     Git,
     Packages,
+    GitHub,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -133,6 +136,9 @@ struct CellRecord {
     state: Option<CellState>,
     output: String,
     elapsed_ms: Option<u128>,
+    git_commit: Option<String>,
+    git_dirty: bool,
+    rich_outputs: Vec<RichOutput>,
 }
 
 struct ProjectSearchResult {
@@ -229,6 +235,9 @@ struct ForgeApp {
     git_branch_name: String,
     package_query: String,
     package_output: String,
+    github_input: String,
+    github_output: String,
+    jupyter_output: String,
     last_file_poll: Instant,
     pending_editor_history: Option<EditorHistoryCommand>,
 }
@@ -389,6 +398,9 @@ impl ForgeApp {
             git_branch_name: String::new(),
             package_query: String::new(),
             package_output: String::new(),
+            github_input: String::new(),
+            github_output: String::new(),
+            jupyter_output: String::new(),
             last_file_poll: Instant::now(),
             pending_editor_history: None,
         }
@@ -409,16 +421,13 @@ impl ForgeApp {
                 vec![(self.active().title.clone(), self.active().content.clone())]
             };
         }
-        self.active()
-            .content
-            .split("//# %%")
-            .filter_map(|raw| {
-                let raw = raw.trim();
-                if raw.is_empty() {
-                    return None;
-                }
-                let (title, body) = raw.split_once('\n').unwrap_or((raw, ""));
-                Some((title.trim().to_owned(), body.trim().to_owned()))
+        NotebookDocument::parse_rust(&self.active().content)
+            .cells
+            .into_iter()
+            .enumerate()
+            .map(|(index, cell)| match cell.kind {
+                CellKind::Code => (format!("Cell {}", index + 1), cell.source),
+                CellKind::Markdown => (format!("Markdown {}", index + 1), String::new()),
             })
             .collect()
     }
@@ -1125,12 +1134,23 @@ impl ForgeApp {
         let Some((_, code)) = self.cells().get(cell_id).cloned() else {
             return;
         };
+        if code.trim().is_empty() {
+            self.cell_records.entry(cell_id).or_default().state = Some(CellState::Passed);
+            self.run_next();
+            return;
+        }
         let code = prepare_runtime_code(&code, self.active().path.as_deref());
         if self.runtime.execute(cell_id, code).is_ok() {
             self.run_state = RunState::Running(cell_id);
+            let provenance = self.project_root().map(|root| git::provenance(&root));
             let record = self.cell_records.entry(cell_id).or_default();
             record.state = Some(CellState::Running);
             record.output.clear();
+            record.rich_outputs.clear();
+            if let Some((commit, dirty)) = provenance {
+                record.git_commit = Some(commit);
+                record.git_dirty = dirty;
+            }
             self.console = format!("Compiling cell {}...", cell_id + 1);
         }
     }
@@ -1389,6 +1409,14 @@ impl ForgeApp {
                         let record = self.cell_records.entry(cell_id).or_default();
                         record.state = Some(CellState::Passed);
                         record.output = output.clone();
+                        record.rich_outputs = if output.is_empty() {
+                            Vec::new()
+                        } else {
+                            vec![RichOutput {
+                                mime: "text/plain".into(),
+                                data: output.clone(),
+                            }]
+                        };
                         record.elapsed_ms = Some(elapsed_ms);
                     }
                     self.console = if output.is_empty() {
@@ -1542,6 +1570,14 @@ impl ForgeApp {
                 if ui.button("Open project...").clicked() {
                     self.open_project();
                 }
+                if ui.button("Import Jupyter notebook...").clicked() {
+                    self.import_ipynb();
+                    ui.close();
+                }
+                if ui.button("Export as .ipynb...").clicked() {
+                    self.export_ipynb();
+                    ui.close();
+                }
                 let recent = self.recent_projects.clone();
                 ui.menu_button("Open recent", |ui| {
                     if recent.is_empty() {
@@ -1626,6 +1662,16 @@ impl ForgeApp {
                 }
                 if ui.button("Rust packages").clicked() {
                     self.inspector_tab = InspectorTab::Packages;
+                    ui.close();
+                }
+                if ui.button("Discover Jupyter kernels").clicked() {
+                    self.discover_jupyter();
+                    ui.close();
+                }
+                if ui.button("Install Evcxr Jupyter kernel").clicked() {
+                    self.jupyter_output = jupyter::install_evcxr().unwrap_or_else(|e| e);
+                    self.hover_text = self.jupyter_output.clone();
+                    self.inspector_tab = InspectorTab::Help;
                     ui.close();
                 }
                 if ui.button("Settings...").clicked() {
@@ -2220,6 +2266,7 @@ impl ForgeApp {
                 (InspectorTab::Problems, "Problems"),
                 (InspectorTab::Git, "Git"),
                 (InspectorTab::Packages, "Crates"),
+                (InspectorTab::GitHub, "GitHub"),
             ] {
                 if ui
                     .selectable_label(self.inspector_tab == tab, label)
@@ -2383,7 +2430,80 @@ impl ForgeApp {
             }
             InspectorTab::Git => self.git_inspector(ui),
             InspectorTab::Packages => self.packages_inspector(ui),
+            InspectorTab::GitHub => self.github_inspector(ui),
         }
+    }
+
+    fn import_ipynb(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Jupyter notebook", &["ipynb"])
+            .pick_file()
+        else {
+            return;
+        };
+        let result = std::fs::read_to_string(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|text| NotebookDocument::from_ipynb(&text));
+        match result {
+            Ok(notebook) => {
+                self.tabs.push(EditorTab {
+                    title: format!("{}.rs", file_title(&path)),
+                    path: None,
+                    content: notebook.to_rust(),
+                    dirty: true,
+                    disk_hash: None,
+                    external_change_pending: false,
+                });
+                self.active_tab = self.tabs.len() - 1;
+                self.selected_cell = 0;
+                self.console = format!(
+                    "Imported {} using kernel `{}`.",
+                    path.display(),
+                    notebook.kernel
+                );
+            }
+            Err(error) => self.console = format!("Could not import notebook: {error}"),
+        }
+    }
+
+    fn export_ipynb(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Jupyter notebook", &["ipynb"])
+            .set_file_name("notebook.ipynb")
+            .save_file()
+        else {
+            return;
+        };
+        let notebook = NotebookDocument::parse_rust(&self.active().content);
+        match notebook
+            .to_ipynb()
+            .and_then(|text| std::fs::write(&path, text).map_err(|e| e.to_string()))
+        {
+            Ok(()) => self.console = format!("Exported {}.", path.display()),
+            Err(error) => self.console = format!("Could not export notebook: {error}"),
+        }
+    }
+
+    fn discover_jupyter(&mut self) {
+        self.jupyter_output = jupyter::discover()
+            .map(|kernels| {
+                kernels
+                    .into_iter()
+                    .map(|kernel| {
+                        format!(
+                            "{} ({}) [{}]\n  {}",
+                            kernel.display_name,
+                            kernel.name,
+                            kernel.language,
+                            kernel.resource_dir.display()
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .unwrap_or_else(|e| e);
+        self.inspector_tab = InspectorTab::Help;
+        self.hover_text = format!("Jupyter kernels\n\n{}", self.jupyter_output);
     }
 
     fn import_dataset(&mut self) {
@@ -2529,6 +2649,66 @@ impl ForgeApp {
                 "Search crates.io or inspect this project's dependencies."
             } else {
                 &self.package_output
+            });
+        });
+    }
+
+    fn github_inspector(&mut self, ui: &mut egui::Ui) {
+        let root = self.project_root();
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.github_input).hint_text("owner/repo or title"),
+            );
+            if ui.button("Auth status").clicked() {
+                self.github_output = github::auth_status().unwrap_or_else(|e| e);
+            }
+            if ui.button("Clone...").clicked() {
+                if let Some(destination) = rfd::FileDialog::new().pick_folder() {
+                    self.github_output =
+                        github::clone(&self.github_input, &destination).unwrap_or_else(|e| e);
+                }
+            }
+        });
+        if let Some(root) = root {
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("Repository").clicked() {
+                    self.github_output = github::repos(&root).unwrap_or_else(|e| e);
+                }
+                if ui.button("Fork").clicked() {
+                    self.github_output = github::fork(&root).unwrap_or_else(|e| e);
+                }
+                if ui.button("Publish").clicked() {
+                    self.github_output =
+                        github::publish(&root, &self.github_input).unwrap_or_else(|e| e);
+                }
+                if ui.button("Pull requests").clicked() {
+                    self.github_output = github::prs(&root).unwrap_or_else(|e| e);
+                }
+                if ui.button("Create PR").clicked() {
+                    self.github_output =
+                        github::create_pr(&root, &self.github_input).unwrap_or_else(|e| e);
+                }
+                if ui.button("Issues").clicked() {
+                    self.github_output = github::issues(&root).unwrap_or_else(|e| e);
+                }
+                if ui.button("Create issue").clicked() {
+                    self.github_output =
+                        github::create_issue(&root, &self.github_input).unwrap_or_else(|e| e);
+                }
+                if ui.button("Actions").clicked() {
+                    self.github_output = github::actions(&root).unwrap_or_else(|e| e);
+                }
+            });
+        } else {
+            ui.label("Open a project for repository, PR, issue, and Actions operations.");
+        }
+        ui.label(RichText::new("Authentication is delegated to GitHub CLI's secure credential store (`gh auth login`).").size(9.0).color(MUTED));
+        ui.separator();
+        egui::ScrollArea::both().show(ui, |ui| {
+            ui.code(if self.github_output.is_empty() {
+                "Check authentication or open a repository."
+            } else {
+                &self.github_output
             });
         });
     }
@@ -3140,6 +3320,19 @@ impl ForgeApp {
                     .max_height((ui.available_height() - 34.0).max(30.0))
                     .stick_to_bottom(true)
                     .show(ui, |ui| {
+                        if let Some(record) = self.cell_records.get(&self.selected_cell) {
+                            if let Some(commit) = &record.git_commit {
+                                ui.label(
+                                    RichText::new(format!(
+                                        "Git: {commit}{} · {} MIME output(s)",
+                                        if record.git_dirty { " + dirty" } else { "" },
+                                        record.rich_outputs.len()
+                                    ))
+                                    .size(9.0)
+                                    .color(MUTED),
+                                );
+                            }
+                        }
                         ui.label(RichText::new(shown).monospace().color(
                             if self.run_state == RunState::Failed {
                                 RED

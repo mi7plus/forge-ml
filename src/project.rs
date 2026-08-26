@@ -40,7 +40,7 @@ impl Project {
 pub fn is_editable(path: &Path) -> bool {
     matches!(
         path.extension().and_then(|value| value.to_str()),
-        Some("rs" | "toml" | "md" | "txt" | "json" | "yaml" | "yml")
+        Some("rs" | "toml" | "md" | "txt" | "json" | "ipynb" | "yaml" | "yml")
     )
 }
 
