@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.2.0`
+Current application version: `0.3.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -159,19 +159,27 @@ Implementation notes:
 - Runtime startup failures are automatically retried twice without terminating the GUI.
 - Legacy `forge_metric`, `forge_vector`, and `forge_table` output remains compatible.
 
-## 0.3 data, Git, and Rust packages
+## 0.3 data, Git, and Rust packages — implemented
 
-- [ ] Introduce Arrow-backed datasets.
-- [ ] Add virtualized table rendering.
-- [ ] Add sorting, column resizing, visibility, pinning, and selection.
-- [ ] Add CSV, TSV, Parquet, Arrow IPC, and JSON Lines ingestion.
-- [ ] Integrate Millwright `Table` and `Profile` for EDA.
-- [ ] Add dataset profiles, missingness, correlations, alerts, and lineage.
-- [ ] Add local Git status and project-tree decorations.
-- [ ] Add diff, staging, commits, branches, pull, and push.
-- [ ] Add crates.io search and crate detail views.
-- [ ] Add/remove/update Cargo dependencies and feature flags.
-- [ ] Add dependency tree, duplicate version, audit, and license views.
+- [x] Introduce Arrow-backed datasets.
+- [x] Add virtualized table rendering.
+- [~] Add sorting, column resizing, visibility, pinning, and selection (sorting landed first).
+- [x] Add CSV, TSV, Parquet, Arrow IPC, and JSON Lines ingestion.
+- [x] Add an optional native Millwright `Table` adapter (`millwright` feature).
+- [~] Add dataset profiles, missingness, correlations, alerts, and lineage (column statistics and source lineage landed).
+- [x] Add local Git status and project-tree decorations.
+- [x] Add diff, staging, commits, branch switching/creation, pull, and push.
+- [x] Add crates.io search and crate detail views through Cargo.
+- [x] Add/remove/update Cargo dependencies and feature flags through `cargo add` specifications.
+- [x] Add dependency tree, duplicate version, audit, and license views.
+
+Implementation notes:
+
+- Imported data is normalized into an Arrow `RecordBatch` while retaining a display-oriented table projection.
+- Large filtered datasets render only visible rows; column headers support numeric-aware sorting.
+- The Git workbench uses the installed Git CLI and never stores credentials itself.
+- The Crates workbench uses Cargo for registry discovery and manifest/lockfile changes.
+- Millwright remains optional so the base IDE binary does not pull Polars into every build.
 
 ## 0.4 notebooks and GitHub
 

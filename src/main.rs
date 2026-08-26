@@ -1,8 +1,10 @@
 mod data;
 mod diagnostics;
 mod experiment;
+mod git;
 mod lsp;
 mod notebook;
+mod packages;
 mod plot;
 mod project;
 mod runtime;
@@ -87,6 +89,8 @@ enum InspectorTab {
     Search,
     Help,
     Problems,
+    Git,
+    Packages,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -175,6 +179,8 @@ struct ForgeApp {
     data: DataWorkspace,
     open_dataset: Option<String>,
     dataset_filter: String,
+    dataset_sort_column: Option<usize>,
+    dataset_sort_descending: bool,
     dataset_viewer_docked: bool,
     dataset_pane_height: f32,
     inspector_tab: InspectorTab,
@@ -218,6 +224,11 @@ struct ForgeApp {
     editor_font_size: f32,
     caret_blink: bool,
     completion_popup_open: bool,
+    git_output: String,
+    git_commit_message: String,
+    git_branch_name: String,
+    package_query: String,
+    package_output: String,
     last_file_poll: Instant,
     pending_editor_history: Option<EditorHistoryCommand>,
 }
@@ -328,6 +339,8 @@ impl ForgeApp {
             data: DataWorkspace::default(),
             open_dataset: None,
             dataset_filter: String::new(),
+            dataset_sort_column: None,
+            dataset_sort_descending: false,
             dataset_viewer_docked,
             dataset_pane_height,
             inspector_tab: InspectorTab::Variables,
@@ -371,6 +384,11 @@ impl ForgeApp {
             editor_font_size,
             caret_blink,
             completion_popup_open: false,
+            git_output: String::new(),
+            git_commit_message: String::new(),
+            git_branch_name: String::new(),
+            package_query: String::new(),
+            package_output: String::new(),
             last_file_poll: Instant::now(),
             pending_editor_history: None,
         }
@@ -1598,6 +1616,18 @@ impl ForgeApp {
                 ui.label("Debugger integration is not connected yet.");
             });
             ui.menu_button("Tools", |ui| {
+                if ui.button("Import dataset...").clicked() {
+                    self.import_dataset();
+                    ui.close();
+                }
+                if ui.button("Git workbench").clicked() {
+                    self.inspector_tab = InspectorTab::Git;
+                    ui.close();
+                }
+                if ui.button("Rust packages").clicked() {
+                    self.inspector_tab = InspectorTab::Packages;
+                    ui.close();
+                }
                 if ui.button("Settings...").clicked() {
                     self.settings_open = true;
                     ui.close();
@@ -2188,6 +2218,8 @@ impl ForgeApp {
                 (InspectorTab::Search, "Search"),
                 (InspectorTab::Help, "Help"),
                 (InspectorTab::Problems, "Problems"),
+                (InspectorTab::Git, "Git"),
+                (InspectorTab::Packages, "Crates"),
             ] {
                 if ui
                     .selectable_label(self.inspector_tab == tab, label)
@@ -2349,7 +2381,156 @@ impl ForgeApp {
                     self.navigate_to(path, line, column);
                 }
             }
+            InspectorTab::Git => self.git_inspector(ui),
+            InspectorTab::Packages => self.packages_inspector(ui),
         }
+    }
+
+    fn import_dataset(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Import dataset")
+            .add_filter(
+                "Datasets",
+                &["csv", "tsv", "jsonl", "ndjson", "parquet", "arrow", "ipc"],
+            )
+            .pick_file()
+        else {
+            return;
+        };
+        match self.data.import(&path) {
+            Ok(name) => {
+                self.open_dataset = Some(format!("table:{name}"));
+                self.dataset_filter.clear();
+                self.inspector_tab = InspectorTab::Data;
+                self.console = format!("Imported {} as `{name}`.", path.display());
+            }
+            Err(error) => self.console = format!("Could not import dataset: {error}"),
+        }
+    }
+
+    fn project_root(&self) -> Option<PathBuf> {
+        self.project.as_ref().map(|project| project.root.clone())
+    }
+
+    fn git_inspector(&mut self, ui: &mut egui::Ui) {
+        let Some(root) = self.project_root() else {
+            ui.label("Open a Git project first.");
+            return;
+        };
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Refresh").clicked() {
+                self.git_output = git::snapshot(&root)
+                    .map(|s| format!("Branch: {}\n{}", s.branch, s.summary))
+                    .unwrap_or_else(|e| e);
+                if let Some(p) = &mut self.project {
+                    p.refresh_git_status();
+                }
+            }
+            if ui.button("Diff").clicked() {
+                self.git_output = git::diff(&root, false).unwrap_or_else(|e| e);
+            }
+            if ui.button("Staged diff").clicked() {
+                self.git_output = git::diff(&root, true).unwrap_or_else(|e| e);
+            }
+            if ui.button("Stage all").clicked() {
+                self.git_output = git::stage_all(&root).unwrap_or_else(|e| e);
+            }
+            if ui.button("Unstage all").clicked() {
+                self.git_output = git::unstage_all(&root).unwrap_or_else(|e| e);
+            }
+            if ui.button("Branches").clicked() {
+                self.git_output = git::branches(&root).unwrap_or_else(|e| e);
+            }
+            if ui.button("Pull").clicked() {
+                self.git_output = git::pull(&root).unwrap_or_else(|e| e);
+            }
+            if ui.button("Push").clicked() {
+                self.git_output = git::push(&root).unwrap_or_else(|e| e);
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.git_commit_message)
+                    .hint_text("Commit message"),
+            );
+            if ui.button("Commit").clicked() {
+                self.git_output =
+                    git::commit(&root, &self.git_commit_message).unwrap_or_else(|e| e);
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.add(egui::TextEdit::singleline(&mut self.git_branch_name).hint_text("Branch name"));
+            if ui.button("Switch").clicked() {
+                self.git_output =
+                    git::switch(&root, &self.git_branch_name, false).unwrap_or_else(|e| e);
+            }
+            if ui.button("Create branch").clicked() {
+                self.git_output =
+                    git::switch(&root, &self.git_branch_name, true).unwrap_or_else(|e| e);
+            }
+        });
+        ui.separator();
+        egui::ScrollArea::both().show(ui, |ui| {
+            ui.code(if self.git_output.is_empty() {
+                "Refresh to inspect repository status."
+            } else {
+                &self.git_output
+            });
+        });
+    }
+
+    fn packages_inspector(&mut self, ui: &mut egui::Ui) {
+        let Some(root) = self.project_root() else {
+            ui.label("Open a Cargo project first.");
+            return;
+        };
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.package_query)
+                    .hint_text("crate or crate@version"),
+            );
+            if ui.button("Search").clicked() {
+                self.package_output =
+                    packages::search(&root, &self.package_query).unwrap_or_else(|e| e);
+            }
+            if ui.button("Info").clicked() {
+                self.package_output =
+                    packages::info(&root, &self.package_query).unwrap_or_else(|e| e);
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Add").clicked() {
+                self.package_output =
+                    packages::add(&root, &self.package_query).unwrap_or_else(|e| e);
+            }
+            if ui.button("Remove").clicked() {
+                self.package_output =
+                    packages::remove(&root, &self.package_query).unwrap_or_else(|e| e);
+            }
+            if ui.button("Update lockfile").clicked() {
+                self.package_output = packages::update(&root).unwrap_or_else(|e| e);
+            }
+            if ui.button("Dependency tree").clicked() {
+                self.package_output = packages::tree(&root, false).unwrap_or_else(|e| e);
+            }
+            if ui.button("Duplicate versions").clicked() {
+                self.package_output = packages::tree(&root, true).unwrap_or_else(|e| e);
+            }
+            if ui.button("Audit").clicked() {
+                self.package_output = packages::audit(&root).unwrap_or_else(|e| e);
+            }
+            if ui.button("Licenses/metadata").clicked() {
+                self.package_output = packages::licenses(&root).unwrap_or_else(|e| e);
+            }
+        });
+        ui.separator();
+        egui::ScrollArea::both().show(ui, |ui| {
+            ui.code(if self.package_output.is_empty() {
+                "Search crates.io or inspect this project's dependencies."
+            } else {
+                &self.package_output
+            });
+        });
     }
 
     fn data_inspector(&mut self, ui: &mut egui::Ui) {
@@ -2411,6 +2592,16 @@ impl ForgeApp {
                             dataset_to_delete = Some((true, name.clone()));
                         }
                     });
+                    if let Some(source) = &data.source {
+                        ui.label(
+                            RichText::new(format!(
+                                "Source: {source} · Arrow batch: {} rows",
+                                data.batch.num_rows()
+                            ))
+                            .size(9.0)
+                            .color(MUTED),
+                        );
+                    }
                     egui::Grid::new(format!("table_preview_{name}"))
                         .striped(true)
                         .show(ui, |ui| {
@@ -2434,6 +2625,40 @@ impl ForgeApp {
                                 .color(MUTED),
                         );
                     }
+                    egui::CollapsingHeader::new("Column profile").show(ui, |ui| {
+                        egui::Grid::new(format!("profile_{name}"))
+                            .striped(true)
+                            .show(ui, |ui| {
+                                for label in ["Column", "Missing", "Unique", "Min", "Max", "Mean"] {
+                                    ui.strong(label);
+                                }
+                                ui.end_row();
+                                for profile in data.profile() {
+                                    ui.label(profile.name);
+                                    ui.label(profile.missing.to_string());
+                                    ui.label(profile.unique.to_string());
+                                    ui.label(
+                                        profile
+                                            .min
+                                            .map(|v| format!("{v:.4}"))
+                                            .unwrap_or_else(|| "—".into()),
+                                    );
+                                    ui.label(
+                                        profile
+                                            .max
+                                            .map(|v| format!("{v:.4}"))
+                                            .unwrap_or_else(|| "—".into()),
+                                    );
+                                    ui.label(
+                                        profile
+                                            .mean
+                                            .map(|v| format!("{v:.4}"))
+                                            .unwrap_or_else(|| "—".into()),
+                                    );
+                                    ui.end_row();
+                                }
+                            });
+                    });
                     ui.separator();
                 }
                 for (name, values) in &self.data.vectors {
@@ -2526,7 +2751,11 @@ impl ForgeApp {
         let selection = self.open_dataset.as_ref()?;
         let (kind, name) = selection.split_once(':').unwrap_or(("", selection));
         let data = match kind {
-            "table" => self.data.tables.get(name).cloned(),
+            "table" => self
+                .data
+                .tables
+                .get(name)
+                .map(|dataset| dataset.table.clone()),
             "vector" => self.data.vectors.get(name).map(|values| TableData {
                 columns: vec!["value".to_owned()],
                 rows: values.iter().map(|value| vec![value.to_string()]).collect(),
@@ -2561,7 +2790,14 @@ impl ForgeApp {
                 self.dataset_viewer_docked = false;
             }
         });
-        draw_dataset_table(ui, &data, &mut self.dataset_filter, "docked");
+        draw_dataset_table(
+            ui,
+            &data,
+            &mut self.dataset_filter,
+            &mut self.dataset_sort_column,
+            &mut self.dataset_sort_descending,
+            "docked",
+        );
     }
 
     fn dataset_window(&mut self, ctx: &egui::Context) {
@@ -2590,7 +2826,14 @@ impl ForgeApp {
                         dock = true;
                     }
                 });
-                draw_dataset_table(ui, &data, &mut self.dataset_filter, "floating");
+                draw_dataset_table(
+                    ui,
+                    &data,
+                    &mut self.dataset_filter,
+                    &mut self.dataset_sort_column,
+                    &mut self.dataset_sort_descending,
+                    "floating",
+                );
             });
         if dock {
             self.dataset_viewer_docked = true;
@@ -3289,7 +3532,14 @@ impl eframe::App for ForgeApp {
     }
 }
 
-fn draw_dataset_table(ui: &mut egui::Ui, data: &TableData, filter: &mut String, id_salt: &str) {
+fn draw_dataset_table(
+    ui: &mut egui::Ui,
+    data: &TableData,
+    filter: &mut String,
+    sort_column: &mut Option<usize>,
+    sort_descending: &mut bool,
+    id_salt: &str,
+) {
     ui.horizontal(|ui| {
         ui.label(format!(
             "{} rows × {} columns",
@@ -3309,7 +3559,7 @@ fn draw_dataset_table(ui: &mut egui::Ui, data: &TableData, filter: &mut String, 
     });
     ui.separator();
     let needle = filter.to_lowercase();
-    let matching_rows = data
+    let mut matching_rows = data
         .rows
         .iter()
         .enumerate()
@@ -3319,22 +3569,65 @@ fn draw_dataset_table(ui: &mut egui::Ui, data: &TableData, filter: &mut String, 
                     .iter()
                     .any(|value| value.to_lowercase().contains(&needle))
         })
-        .take(10_000)
         .collect::<Vec<_>>();
+    if let Some(column) = *sort_column {
+        matching_rows.sort_by(|(_, left), (_, right)| {
+            let left = left.get(column).map(String::as_str).unwrap_or_default();
+            let right = right.get(column).map(String::as_str).unwrap_or_default();
+            let ordering = match (left.parse::<f64>(), right.parse::<f64>()) {
+                (Ok(left), Ok(right)) => left.total_cmp(&right),
+                _ => left.to_lowercase().cmp(&right.to_lowercase()),
+            };
+            if *sort_descending {
+                ordering.reverse()
+            } else {
+                ordering
+            }
+        });
+    }
     egui::ScrollArea::both()
         .id_salt(("dataset_table_scroll", id_salt))
         .auto_shrink([false, false])
-        .show(ui, |ui| {
+        .show_rows(ui, 22.0, matching_rows.len() + 1, |ui, range| {
             egui::Grid::new(("dataset_viewer_grid", id_salt))
                 .striped(true)
                 .min_col_width(90.0)
                 .show(ui, |ui| {
-                    ui.label(RichText::new("#").strong().color(MUTED));
-                    for column in &data.columns {
-                        ui.label(RichText::new(column).strong().color(CYAN));
+                    if range.start == 0 {
+                        ui.label(RichText::new("#").strong().color(MUTED));
+                        for (index, column) in data.columns.iter().enumerate() {
+                            let arrow = if *sort_column == Some(index) {
+                                if *sort_descending {
+                                    " ↓"
+                                } else {
+                                    " ↑"
+                                }
+                            } else {
+                                ""
+                            };
+                            if ui
+                                .button(
+                                    RichText::new(format!("{column}{arrow}"))
+                                        .strong()
+                                        .color(CYAN),
+                                )
+                                .clicked()
+                            {
+                                if *sort_column == Some(index) {
+                                    *sort_descending = !*sort_descending;
+                                } else {
+                                    *sort_column = Some(index);
+                                    *sort_descending = false;
+                                }
+                            }
+                        }
+                        ui.end_row();
                     }
-                    ui.end_row();
-                    for (index, row) in &matching_rows {
+                    for (index, row) in matching_rows
+                        .iter()
+                        .skip(range.start.saturating_sub(1))
+                        .take(range.len())
+                    {
                         ui.label(
                             RichText::new(index.to_string())
                                 .monospace()
@@ -3348,13 +3641,14 @@ fn draw_dataset_table(ui: &mut egui::Ui, data: &TableData, filter: &mut String, 
                     }
                 });
         });
-    if matching_rows.len() == 10_000 {
-        ui.label(
-            RichText::new("Showing the first 10,000 matching rows.")
-                .size(9.0)
-                .color(MUTED),
-        );
-    }
+    ui.label(
+        RichText::new(format!(
+            "{} matching rows · virtualized rendering",
+            matching_rows.len()
+        ))
+        .size(9.0)
+        .color(MUTED),
+    );
 }
 
 fn word_start_at(text: &str, offset: usize) -> Option<usize> {
@@ -3635,9 +3929,14 @@ fn draw_file_nodes(
         } else {
             let editable = project::is_editable(&node.path);
             let active = selected == Some(node.path.as_path());
+            let marker = node
+                .git_status
+                .as_deref()
+                .map(|status| format!(" [{status}]"))
+                .unwrap_or_default();
             let response = ui.selectable_label(
                 active,
-                RichText::new(format!("  {}", node.name))
+                RichText::new(format!("  {}{marker}", node.name))
                     .monospace()
                     .size(11.0)
                     .color(if active {
