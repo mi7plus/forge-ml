@@ -12,13 +12,13 @@ Legend:
 
 ## Current status
 
-Current application version: `0.1.5`
+Current application version: `0.2.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
-snapshots, and an initial tabular data viewer. The largest constraint is that
-most application behavior remains concentrated in `src/main.rs`, while tables,
-plots, and metrics still use stdout-oriented prototype protocols.
+snapshots, and an initial tabular data viewer. Foundation modules now isolate
+protocol, storage, notebook, data, plot, experiment, and persisted UI concerns;
+tables, plots, and metrics still enter through a compatibility stdout adapter.
 
 ## Implemented prototype capabilities
 
@@ -130,25 +130,34 @@ plots, and metrics still use stdout-oriented prototype protocols.
 - [ ] Add UI-level tests for docking and divider persistence where practical.
 - [x] Package the dataset-viewer and planning milestone as release `0.1.5`.
 
-## Next: 0.2 foundation
+## 0.2 foundation — implemented
 
-- [ ] Create a Cargo workspace for Forge subsystems.
-- [ ] Extract runtime, notebook, data, plot, experiment, and UI state modules.
-- [ ] Define stable dataset, run, plot, kernel, and artifact IDs.
-- [ ] Define `ForgeEvent` with schema versioning.
-- [ ] Adapt existing stdout telemetry into `ForgeEvent`.
-- [ ] Add project-local `.forge/` storage.
-- [ ] Add SQLite experiment metadata and artifact directories.
-- [ ] Add crash-safe writes and workspace recovery.
-- [ ] Align Cargo, installer, and displayed versions.
-- [ ] Evaluate and perform an isolated Evcxr upgrade.
-- [ ] Add integration tests for runtime crashes, cancellation, and persistence.
+- [x] Create a Cargo workspace with protocol and storage subsystem crates.
+- [x] Extract runtime, notebook, data, plot, experiment, and persisted UI state modules.
+- [x] Define stable dataset, run, plot, kernel, and artifact IDs.
+- [x] Define versioned `ForgeEvent` envelopes.
+- [x] Adapt existing stdout telemetry into `ForgeEvent`.
+- [x] Add project-local `.forge/` storage.
+- [x] Add SQLite experiment metadata and artifact directories.
+- [x] Add crash-safe writes and workspace recovery.
+- [x] Align Cargo, installer, displayed, and LSP client versions.
+- [x] Upgrade Evcxr from 0.18 to 0.22 in isolation.
+- [x] Add protocol, storage, recovery, artifact safety, and subsystem tests.
 
 Exit criteria:
 
 - The application restores a project without losing layout or experiment state.
 - Kernel crashes do not crash the GUI.
 - Major subsystems no longer depend directly on the `ForgeApp` structure.
+
+Implementation notes:
+
+- `.forge/workspace.sqlite3` stores project experiment metadata in WAL mode.
+- `.forge/recovery.json` uses replace-with-backup writes for crash recovery.
+- Project recovery includes open files, the active file, and adjustable pane layout.
+- `.forge/artifacts/` rejects absolute and traversing paths.
+- Runtime startup failures are automatically retried twice without terminating the GUI.
+- Legacy `forge_metric`, `forge_vector`, and `forge_table` output remains compatible.
 
 ## 0.3 data, Git, and Rust packages
 

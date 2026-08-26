@@ -1,19 +1,33 @@
+mod data;
 mod diagnostics;
+mod experiment;
 mod lsp;
+mod notebook;
+mod plot;
 mod project;
 mod runtime;
+mod session;
 
+use data::DataWorkspace;
 use diagnostics::DiagnosticsHandle;
 use eframe::egui;
 use egui::{Color32, Frame, Margin, Panel, RichText, Stroke};
 use egui_code_editor::{CodeEditor, ColorTheme, Syntax};
-use egui_plot::{Bar, BarChart, Line, Plot, PlotPoints};
-use forge_protocol::{ForgeEvent, RunId, TableData};
+use egui_plot::{Line, Plot, PlotPoints};
+use experiment::ExperimentRun;
+#[cfg(test)]
+use forge_protocol::RunId;
+use forge_protocol::TableData;
 use forge_storage::{WorkspaceRecovery, WorkspaceStore};
 use lsp::{Diagnostic as LspDiagnostic, LspCommand, LspEvent, LspHandle};
+use notebook::{
+    cell_byte_ranges, is_notebook_document, lsp_document, notebook_lsp_prefix_chars,
+    prepare_runtime_code,
+};
+use plot::{metric_line, vector_bars};
 use project::{FileNode, Project};
 use runtime::{CellResult, RuntimeHandle, VariableMeta};
-use serde::{Deserialize, Serialize};
+use session::SessionState;
 use std::collections::{HashMap, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -27,6 +41,7 @@ const GREEN: Color32 = Color32::from_rgb(46, 157, 96);
 const RED: Color32 = Color32::from_rgb(212, 72, 85);
 const STORAGE_KEY: &str = "forge_ml_session_v1";
 const CONSOLE_CELL_ID: usize = usize::MAX;
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn default_explorer_height() -> f32 {
     280.0
@@ -36,6 +51,7 @@ fn default_editor_font_size() -> f32 {
     14.0
 }
 
+#[cfg(test)]
 fn default_dataset_pane_height() -> f32 {
     280.0
 }
@@ -48,11 +64,12 @@ fn main() -> eframe::Result<()> {
     // Evcxr relaunches the current executable as its isolated evaluation runtime.
     // This hook turns that child into a headless runtime before eframe can open a window.
     evcxr::runtime_hook();
+    let app_name = format!("Forge ML {APP_VERSION}");
     eframe::run_native(
-        "Forge ML",
+        &app_name,
         eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
-                .with_title("Forge ML - Rust compute studio")
+                .with_title(format!("Forge ML {APP_VERSION} - Rust compute studio"))
                 .with_inner_size([1380.0, 860.0])
                 .with_min_inner_size([980.0, 640.0]),
             ..Default::default()
@@ -114,16 +131,6 @@ struct CellRecord {
     elapsed_ms: Option<u128>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-struct ExperimentRun {
-    #[serde(default)]
-    id: RunId,
-    name: String,
-    metrics: HashMap<String, Vec<[f64; 2]>>,
-    vectors: HashMap<String, Vec<f64>>,
-    execution_count: usize,
-}
-
 struct ProjectSearchResult {
     path: PathBuf,
     line: usize,
@@ -152,41 +159,6 @@ enum PendingUnsavedAction {
     OpenProject(Option<PathBuf>),
 }
 
-#[derive(Default, Serialize, Deserialize)]
-struct SessionState {
-    project_root: Option<PathBuf>,
-    open_files: Vec<PathBuf>,
-    active_file: Option<PathBuf>,
-    #[serde(default)]
-    dark_mode: bool,
-    #[serde(default = "default_explorer_height")]
-    explorer_height: f32,
-    #[serde(default)]
-    recent_projects: Vec<PathBuf>,
-    #[serde(default = "default_editor_font_size")]
-    editor_font_size: f32,
-    #[serde(default = "default_true")]
-    caret_blink: bool,
-    #[serde(default)]
-    saved_runs: Vec<ExperimentRun>,
-    #[serde(default = "default_experiment_name")]
-    experiment_name: String,
-    #[serde(default = "default_comparison_metric")]
-    comparison_metric: String,
-    #[serde(default = "default_true")]
-    dataset_viewer_docked: bool,
-    #[serde(default = "default_dataset_pane_height")]
-    dataset_pane_height: f32,
-}
-
-fn default_experiment_name() -> String {
-    "run_1".to_owned()
-}
-
-fn default_comparison_metric() -> String {
-    "loss".to_owned()
-}
-
 struct ForgeApp {
     tabs: Vec<EditorTab>,
     active_tab: usize,
@@ -198,10 +170,9 @@ struct ForgeApp {
     cell_records: HashMap<usize, CellRecord>,
     console: String,
     runtime: RuntimeHandle,
+    runtime_restart_attempts: usize,
     variables: Vec<VariableMeta>,
-    metrics: HashMap<String, Vec<[f64; 2]>>,
-    vectors: HashMap<String, Vec<f64>>,
-    tables: HashMap<String, TableData>,
+    data: DataWorkspace,
     open_dataset: Option<String>,
     dataset_filter: String,
     dataset_viewer_docked: bool,
@@ -290,6 +261,13 @@ impl ForgeApp {
             .as_ref()
             .and_then(|store| store.load_recovery().ok())
             .unwrap_or_default();
+        let explorer_height = recovery.explorer_height.unwrap_or(explorer_height);
+        let dataset_pane_height = recovery
+            .dataset_pane_height
+            .unwrap_or(session.dataset_pane_height);
+        let dataset_viewer_docked = recovery
+            .dataset_viewer_docked
+            .unwrap_or(session.dataset_viewer_docked);
         let open_files = if recovery.open_files.is_empty() {
             session.open_files.clone()
         } else {
@@ -345,14 +323,13 @@ impl ForgeApp {
             cell_records: HashMap::new(),
             console: "Starting isolated Rust runtime...".to_owned(),
             runtime: RuntimeHandle::spawn(),
+            runtime_restart_attempts: 0,
             variables: Vec::new(),
-            metrics: HashMap::new(),
-            vectors: HashMap::new(),
-            tables: HashMap::new(),
+            data: DataWorkspace::default(),
             open_dataset: None,
             dataset_filter: String::new(),
-            dataset_viewer_docked: session.dataset_viewer_docked,
-            dataset_pane_height: session.dataset_pane_height,
+            dataset_viewer_docked,
+            dataset_pane_height,
             inspector_tab: InspectorTab::Variables,
             diagnostics: DiagnosticsHandle::spawn(),
             diagnostic_lines: vec!["Run diagnostics to check the current Cargo project.".to_owned()],
@@ -555,6 +532,15 @@ impl ForgeApp {
                         self.saved_runs = runs;
                     }
                     if let Ok(recovery) = store.load_recovery() {
+                        if let Some(height) = recovery.explorer_height {
+                            self.explorer_height = height;
+                        }
+                        if let Some(height) = recovery.dataset_pane_height {
+                            self.dataset_pane_height = height;
+                        }
+                        if let Some(docked) = recovery.dataset_viewer_docked {
+                            self.dataset_viewer_docked = docked;
+                        }
                         let mut restored_tabs = recovery
                             .open_files
                             .into_iter()
@@ -953,7 +939,7 @@ impl ForgeApp {
     }
 
     fn save_experiment_run(&mut self) {
-        if self.metrics.is_empty() && self.vectors.is_empty() {
+        if !self.data.has_telemetry() {
             self.console = "Run telemetry-producing cells before saving an experiment.".to_owned();
             return;
         }
@@ -962,13 +948,12 @@ impl ForgeApp {
         } else {
             self.experiment_name.trim().to_owned()
         };
-        let run = ExperimentRun {
-            id: RunId::new(),
-            name: name.clone(),
-            metrics: self.metrics.clone(),
-            vectors: self.vectors.clone(),
-            execution_count: self.execution_count,
-        };
+        let run = ExperimentRun::snapshot(
+            name.clone(),
+            &self.data.metrics,
+            &self.data.vectors,
+            self.execution_count,
+        );
         if let Some(store) = &self.workspace_store {
             if let Err(error) = store.save_experiment(&run.id, &run.name, &run) {
                 self.console = format!("Could not persist experiment snapshot: {error}");
@@ -982,7 +967,7 @@ impl ForgeApp {
     }
 
     fn export_telemetry_csv(&mut self) {
-        if self.metrics.is_empty() && self.vectors.is_empty() && self.saved_runs.is_empty() {
+        if !self.data.has_telemetry() && self.saved_runs.is_empty() {
             self.console = "There is no telemetry to export.".to_owned();
             return;
         }
@@ -995,13 +980,12 @@ impl ForgeApp {
         let Some(path) = dialog.save_file() else {
             return;
         };
-        let current = ExperimentRun {
-            id: RunId::new(),
-            name: "current".to_owned(),
-            metrics: self.metrics.clone(),
-            vectors: self.vectors.clone(),
-            execution_count: self.execution_count,
-        };
+        let current = ExperimentRun::snapshot(
+            "current".to_owned(),
+            &self.data.metrics,
+            &self.data.vectors,
+            self.execution_count,
+        );
         let runs = std::iter::once(&current).chain(self.saved_runs.iter());
         let mut csv = "run,kind,series,index,value,executions\n".to_owned();
         for run in runs {
@@ -1370,6 +1354,7 @@ impl ForgeApp {
             match result {
                 CellResult::Ready => {
                     self.run_state = RunState::Ready;
+                    self.runtime_restart_attempts = 0;
                     self.console = "Runtime ready.".to_owned();
                 }
                 CellResult::Success {
@@ -1394,18 +1379,7 @@ impl ForgeApp {
                         output
                     };
                     for envelope in events {
-                        match envelope.event {
-                            ForgeEvent::Metric { name, value } => {
-                                let series = self.metrics.entry(name).or_default();
-                                series.push([series.len() as f64, value]);
-                            }
-                            ForgeEvent::Vector { name, values } => {
-                                self.vectors.insert(name, values);
-                            }
-                            ForgeEvent::Table { name, data } => {
-                                self.tables.insert(name, data);
-                            }
-                        }
+                        self.data.apply(envelope.event);
                     }
                     if cell_id != CONSOLE_CELL_ID {
                         self.run_next();
@@ -1432,9 +1406,7 @@ impl ForgeApp {
                     self.run_state = RunState::Ready;
                     self.execution_count = 0;
                     self.variables.clear();
-                    self.metrics.clear();
-                    self.vectors.clear();
-                    self.tables.clear();
+                    self.data.clear();
                     self.open_dataset = None;
                     self.cell_records.clear();
                     self.console = "Runtime state cleared.".to_owned();
@@ -1443,8 +1415,20 @@ impl ForgeApp {
                     }
                 }
                 CellResult::RuntimeError(message) => {
-                    self.run_state = RunState::Failed;
-                    self.console = format!("Runtime unavailable\n\n{message}");
+                    if self.runtime_restart_attempts < 2 {
+                        self.runtime_restart_attempts += 1;
+                        self.run_state = RunState::Booting;
+                        self.run_queue.clear();
+                        self.runtime = RuntimeHandle::spawn();
+                        self.console = format!(
+                            "Rust kernel failed and is restarting (attempt {}/2).\n\n{message}",
+                            self.runtime_restart_attempts
+                        );
+                    } else {
+                        self.run_state = RunState::Failed;
+                        self.console =
+                            format!("Runtime unavailable after recovery attempts\n\n{message}");
+                    }
                 }
             }
             ctx.request_repaint();
@@ -1637,7 +1621,9 @@ impl ForgeApp {
                 ui.label("Drag pane dividers to resize the workspace.");
             });
             ui.menu_button("Help", |ui| {
-                ui.label("Forge ML - interactive Rust scientific environment");
+                ui.label(format!(
+                    "Forge ML {APP_VERSION} - interactive Rust scientific environment"
+                ));
             });
         });
     }
@@ -2367,7 +2353,7 @@ impl ForgeApp {
     }
 
     fn data_inspector(&mut self, ui: &mut egui::Ui) {
-        if self.vectors.is_empty() && self.tables.is_empty() {
+        if self.data.vectors.is_empty() && self.data.tables.is_empty() {
             ui.label(
                 RichText::new(
                     "Emit `forge_vector:name=1,2,3` or `forge_table:name={...}` to inspect data.",
@@ -2383,8 +2369,8 @@ impl ForgeApp {
             .on_hover_text("Remove all live datasets and their vector plots")
             .clicked()
         {
-            self.vectors.clear();
-            self.tables.clear();
+            self.data.vectors.clear();
+            self.data.tables.clear();
             self.open_dataset = None;
             self.console = "Cleared all live datasets.".to_owned();
             return;
@@ -2393,10 +2379,10 @@ impl ForgeApp {
         egui::ScrollArea::vertical()
             .id_salt("data_inspector_vectors")
             .show(ui, |ui| {
-                let mut table_names = self.tables.keys().cloned().collect::<Vec<_>>();
+                let mut table_names = self.data.tables.keys().cloned().collect::<Vec<_>>();
                 table_names.sort();
                 for name in table_names {
-                    let data = &self.tables[&name];
+                    let data = &self.data.tables[&name];
                     ui.horizontal(|ui| {
                         if ui
                             .button(RichText::new(&name).strong().color(CYAN))
@@ -2450,7 +2436,7 @@ impl ForgeApp {
                     }
                     ui.separator();
                 }
-                for (name, values) in &self.vectors {
+                for (name, values) in &self.data.vectors {
                     let min = values.iter().copied().reduce(f64::min).unwrap_or(0.0);
                     let max = values.iter().copied().reduce(f64::max).unwrap_or(0.0);
                     let mean = values.iter().sum::<f64>() / values.len().max(1) as f64;
@@ -2528,9 +2514,9 @@ impl ForgeApp {
             });
         if let Some((is_table, name)) = dataset_to_delete {
             if is_table {
-                self.tables.remove(&name);
+                self.data.tables.remove(&name);
             } else {
-                self.vectors.remove(&name);
+                self.data.vectors.remove(&name);
             }
             self.console = format!("Deleted dataset `{name}`.");
         }
@@ -2540,8 +2526,8 @@ impl ForgeApp {
         let selection = self.open_dataset.as_ref()?;
         let (kind, name) = selection.split_once(':').unwrap_or(("", selection));
         let data = match kind {
-            "table" => self.tables.get(name).cloned(),
-            "vector" => self.vectors.get(name).map(|values| TableData {
+            "table" => self.data.tables.get(name).cloned(),
+            "vector" => self.data.vectors.get(name).map(|values| TableData {
                 columns: vec!["value".to_owned()],
                 rows: values.iter().map(|value| vec![value.to_string()]).collect(),
             }),
@@ -2782,18 +2768,18 @@ impl ForgeApp {
             if ui.button("Export").clicked() {
                 self.export_telemetry_csv();
             }
-            if (!self.metrics.is_empty() || !self.vectors.is_empty())
+            if self.data.has_telemetry()
                 && ui
                     .button("Clear current")
                     .on_hover_text("Clear all current datasets and plots")
                     .clicked()
             {
-                self.metrics.clear();
-                self.vectors.clear();
+                self.data.metrics.clear();
+                self.data.vectors.clear();
                 self.console = "Cleared current datasets and plots.".to_owned();
             }
         });
-        if self.metrics.is_empty() && self.vectors.is_empty() {
+        if !self.data.has_telemetry() {
             ui.label(
                 RichText::new(
                     "Emit `forge_metric:loss=0.42` or `forge_vector:weights=1,2,3` from a cell.",
@@ -2804,7 +2790,7 @@ impl ForgeApp {
             );
         }
         let mut metric_to_delete = None;
-        for (name, values) in &self.metrics {
+        for (name, values) in &self.data.metrics {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(name).strong().color(EMBER));
                 if compact_icon_button(
@@ -2817,20 +2803,17 @@ impl ForgeApp {
                     metric_to_delete = Some(name.clone());
                 }
             });
-            let points: PlotPoints = values.clone().into();
             Plot::new(format!("metric_{name}"))
                 .height(175.0)
                 .allow_drag(false)
-                .show(ui, |p| {
-                    p.line(Line::new(name, points).color(EMBER).width(2.0))
-                });
+                .show(ui, |plot| plot.line(metric_line(name, values, EMBER)));
         }
         if let Some(name) = metric_to_delete {
-            self.metrics.remove(&name);
+            self.data.metrics.remove(&name);
             self.console = format!("Deleted plot `{name}`.");
         }
         let mut vector_to_delete = None;
-        for (name, values) in &self.vectors {
+        for (name, values) in &self.data.vectors {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(name).strong().color(CYAN));
                 if compact_icon_button(
@@ -2843,18 +2826,13 @@ impl ForgeApp {
                     vector_to_delete = Some(name.clone());
                 }
             });
-            let bars = values
-                .iter()
-                .enumerate()
-                .map(|(i, value)| Bar::new(i as f64, *value))
-                .collect();
             Plot::new(format!("vector_{name}"))
                 .height(175.0)
                 .allow_drag(false)
-                .show(ui, |p| p.bar_chart(BarChart::new(name, bars).color(CYAN)));
+                .show(ui, |plot| plot.bar_chart(vector_bars(name, values, CYAN)));
         }
         if let Some(name) = vector_to_delete {
-            self.vectors.remove(&name);
+            self.data.vectors.remove(&name);
             self.console = format!("Deleted dataset and plot `{name}`.");
         }
     }
@@ -3279,6 +3257,9 @@ impl eframe::App for ForgeApp {
                 .filter_map(|tab| tab.path.clone())
                 .collect(),
             active_file: self.active().path.clone(),
+            explorer_height: Some(self.explorer_height),
+            dataset_pane_height: Some(self.dataset_pane_height),
+            dataset_viewer_docked: Some(self.dataset_viewer_docked),
         };
         if let Some(store) = &self.workspace_store {
             if let Err(error) = store.save_recovery(&recovery) {
@@ -3401,154 +3382,6 @@ fn char_to_byte(text: &str, char_offset: usize) -> usize {
         .nth(char_offset)
         .map(|(byte, _)| byte)
         .unwrap_or(text.len())
-}
-
-fn is_notebook_document(text: &str) -> bool {
-    text.contains("//# %%")
-}
-
-fn notebook_lsp_prefix_chars() -> usize {
-    "fn __forge_notebook__() {\n".chars().count()
-}
-
-fn lsp_document(text: &str) -> (String, usize) {
-    if is_notebook_document(text) {
-        let prefix = "fn __forge_notebook__() {\n";
-        (format!("{prefix}{text}\n}}\n"), prefix.chars().count())
-    } else {
-        (text.to_owned(), 0)
-    }
-}
-
-fn prepare_runtime_code(code: &str, source_path: Option<&Path>) -> String {
-    let source_directory = source_path.and_then(Path::parent);
-    let mut output = Vec::new();
-    let mut explicit_path_attribute = false;
-    for line in code.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("#[path") {
-            let rewritten = source_directory
-                .and_then(|directory| rewrite_path_attribute(line, directory))
-                .unwrap_or_else(|| line.to_owned());
-            output.push(rewritten);
-            explicit_path_attribute = true;
-            continue;
-        }
-        if !explicit_path_attribute {
-            if let Some(module_name) = trimmed
-                .strip_prefix("mod ")
-                .and_then(|value| value.strip_suffix(';'))
-                .map(str::trim)
-                .filter(|name| {
-                    name.chars()
-                        .all(|character| character == '_' || character.is_alphanumeric())
-                })
-            {
-                if let Some(directory) = source_directory {
-                    let flat = directory.join(format!("{module_name}.rs"));
-                    let nested = directory.join(module_name).join("mod.rs");
-                    let module_path = [flat, nested].into_iter().find(|path| path.is_file());
-                    if let Some(module_path) = module_path {
-                        output.push(format!("#[path = \"{}\"]", rust_path(&module_path)));
-                    }
-                }
-            }
-        }
-        output.push(line.to_owned());
-        explicit_path_attribute = false;
-    }
-    let mut prepared = output.join("\n");
-    if code.contains("// forge: expose-main") {
-        if let Some(exposed) = expose_main_body(&prepared) {
-            prepared = exposed;
-        }
-    } else if !is_notebook_document(code)
-        && code.lines().any(|line| {
-            let line = line.trim_start();
-            line.starts_with("fn main(") || line.starts_with("pub fn main(")
-        })
-    {
-        prepared.push_str("\nmain();");
-    }
-    prepared
-}
-
-fn expose_main_body(code: &str) -> Option<String> {
-    let main_start = code
-        .lines()
-        .scan(0, |offset, line| {
-            let start = *offset;
-            *offset += line.len() + 1;
-            Some((start, line))
-        })
-        .find_map(|(start, line)| {
-            let trimmed = line.trim_start();
-            (trimmed.starts_with("fn main(") || trimmed.starts_with("pub fn main("))
-                .then_some(start + line.len() - trimmed.len())
-        })?;
-    let body_start = code[main_start..].find('{')? + main_start;
-    let mut depth = 0_usize;
-    let mut body_end = None;
-    for (offset, character) in code[body_start..].char_indices() {
-        match character {
-            '{' => depth += 1,
-            '}' => {
-                depth = depth.checked_sub(1)?;
-                if depth == 0 {
-                    body_end = Some(body_start + offset);
-                    break;
-                }
-            }
-            _ => {}
-        }
-    }
-    let body_end = body_end?;
-    let mut exposed = String::new();
-    exposed.push_str(code[..main_start].trim_end());
-    exposed.push('\n');
-    exposed.push_str(code[body_end + 1..].trim());
-    exposed.push('\n');
-    exposed.push_str(code[body_start + 1..body_end].trim());
-    Some(exposed)
-}
-
-fn rewrite_path_attribute(line: &str, source_directory: &Path) -> Option<String> {
-    let first_quote = line.find('"')?;
-    let second_quote = line[first_quote + 1..].find('"')? + first_quote + 1;
-    let declared = Path::new(&line[first_quote + 1..second_quote]);
-    if declared.is_absolute() {
-        return Some(line.to_owned());
-    }
-    let resolved = source_directory.join(declared);
-    let mut rewritten = String::new();
-    rewritten.push_str(&line[..first_quote + 1]);
-    rewritten.push_str(&rust_path(&resolved));
-    rewritten.push_str(&line[second_quote..]);
-    Some(rewritten)
-}
-
-fn rust_path(path: &Path) -> String {
-    path.canonicalize()
-        .unwrap_or_else(|_| path.to_owned())
-        .to_string_lossy()
-        .replace('\\', "/")
-}
-
-fn cell_byte_ranges(text: &str) -> Vec<std::ops::Range<usize>> {
-    if text.is_empty() {
-        return Vec::new();
-    }
-    let mut starts = vec![0];
-    for (offset, _) in text.match_indices("//# %%") {
-        if offset > 0 {
-            starts.push(offset);
-        }
-    }
-    starts
-        .iter()
-        .enumerate()
-        .map(|(index, start)| *start..starts.get(index + 1).copied().unwrap_or(text.len()))
-        .collect()
 }
 
 fn line_column(text: &str, char_offset: usize) -> (usize, usize) {
@@ -4040,39 +3873,5 @@ mod editor_tests {
         assert_eq!(restored.saved_runs[0].execution_count, 2);
         assert_eq!(restored.experiment_name, "next_run");
         assert_eq!(restored.comparison_metric, "accuracy");
-    }
-
-    #[test]
-    fn wraps_notebooks_for_rust_analyzer_and_preserves_offsets() {
-        let source = "//# %% setup\nlet value = 42;";
-        let (wrapped, prefix_chars) = lsp_document(source);
-        assert!(wrapped.starts_with("fn __forge_notebook__() {\n"));
-        assert!(wrapped.contains(source));
-        assert_eq!(prefix_chars, notebook_lsp_prefix_chars());
-        let raw_offset = source.find("value").unwrap();
-        let mapped_offset = raw_offset + prefix_chars;
-        assert_eq!(mapped_offset - prefix_chars, raw_offset);
-    }
-
-    #[test]
-    fn leaves_regular_rust_documents_unchanged_for_rust_analyzer() {
-        let source = "fn main() {}";
-        let (mapped, prefix_chars) = lsp_document(source);
-        assert_eq!(mapped, source);
-        assert_eq!(prefix_chars, 0);
-    }
-
-    #[test]
-    fn resolves_relative_module_paths_for_the_evcxr_runtime() {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let source_path = root.join("examples/navigation_demo.rs");
-        let source = std::fs::read_to_string(&source_path).unwrap();
-        let prepared = prepare_runtime_code(&source, Some(&source_path));
-        let model_path = rust_path(&root.join("examples/support/model.rs"));
-        assert!(prepared.starts_with(&format!("#[path = \"{model_path}\"]")));
-        assert!(prepared.contains("mod model;"));
-        assert!(!prepared.contains("fn main()"));
-        assert!(prepared.contains("let model: LinearModel = LinearModel::new"));
-        assert!(prepared.contains("forge_vector:predictions"));
     }
 }

@@ -9,6 +9,12 @@ use std::path::{Path, PathBuf};
 pub struct WorkspaceRecovery {
     pub open_files: Vec<PathBuf>,
     pub active_file: Option<PathBuf>,
+    #[serde(default)]
+    pub explorer_height: Option<f32>,
+    #[serde(default)]
+    pub dataset_pane_height: Option<f32>,
+    #[serde(default)]
+    pub dataset_viewer_docked: Option<bool>,
 }
 
 pub struct WorkspaceStore {
@@ -32,7 +38,8 @@ impl WorkspaceStore {
                     name TEXT NOT NULL,
                     payload TEXT NOT NULL,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                 );",
+                 );
+                 PRAGMA user_version = 1;",
             )
             .map_err(|error| error.to_string())?;
         Ok(Self {
@@ -104,10 +111,14 @@ impl WorkspaceStore {
     }
 
     pub fn write_artifact(&self, relative_path: &Path, bytes: &[u8]) -> Result<PathBuf, String> {
-        let path = self.artifacts_dir.join(relative_path);
-        if !path.starts_with(&self.artifacts_dir) {
-            return Err("artifact path escapes the workspace artifact directory".into());
+        if relative_path.is_absolute()
+            || relative_path
+                .components()
+                .any(|component| !matches!(component, std::path::Component::Normal(_)))
+        {
+            return Err("artifact path must be a safe relative path".into());
         }
+        let path = self.artifacts_dir.join(relative_path);
         atomic_write(&path, bytes).map_err(|error| error.to_string())?;
         Ok(path)
     }
@@ -130,10 +141,29 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
             .unwrap_or("forge")
     ));
     fs::write(&temp, bytes)?;
-    if path.exists() {
-        fs::remove_file(path)?;
+    if !path.exists() {
+        return fs::rename(temp, path);
     }
-    fs::rename(temp, path)
+    let backup = parent.join(format!(
+        ".{}.backup",
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("forge")
+    ));
+    if backup.exists() {
+        fs::remove_file(&backup)?;
+    }
+    fs::rename(path, &backup)?;
+    match fs::rename(&temp, path) {
+        Ok(()) => {
+            fs::remove_file(backup)?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = fs::rename(backup, path);
+            Err(error)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -170,6 +200,9 @@ mod tests {
         let recovery = WorkspaceRecovery {
             open_files: vec![root.join("src/main.rs")],
             active_file: Some(root.join("src/main.rs")),
+            explorer_height: Some(310.0),
+            dataset_pane_height: Some(260.0),
+            dataset_viewer_docked: Some(true),
         };
         store.save_recovery(&recovery).unwrap();
         assert_eq!(store.load_recovery().unwrap(), recovery);
@@ -186,6 +219,9 @@ mod tests {
             .write_artifact(Path::new("models/model.bin"), b"model")
             .unwrap();
         assert_eq!(fs::read(path).unwrap(), b"model");
+        assert!(store
+            .write_artifact(Path::new("../outside.bin"), b"bad")
+            .is_err());
         drop(store);
         fs::remove_dir_all(root).unwrap();
     }

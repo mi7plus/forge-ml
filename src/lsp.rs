@@ -205,7 +205,7 @@ fn start_server(root: PathBuf, events: &Sender<LspEvent>) -> std::io::Result<Ser
     let root_uri = file_uri(&root);
     send(
         &mut server.stdin,
-        &json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":std::process::id(),"rootUri":root_uri,"capabilities":{"textDocument":{"completion":{"completionItem":{"snippetSupport":false}},"hover":{},"definition":{},"publishDiagnostics":{}}},"clientInfo":{"name":"forge-ml","version":"0.1.0"}}}),
+        &json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":std::process::id(),"rootUri":root_uri,"capabilities":{"textDocument":{"completion":{"completionItem":{"snippetSupport":false}},"hover":{},"definition":{},"publishDiagnostics":{}}},"clientInfo":{"name":"forge-ml","version":env!("CARGO_PKG_VERSION")}}}),
     )?;
     send(
         &mut server.stdin,
