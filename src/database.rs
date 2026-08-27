@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+const MAX_PREVIEW_ROWS: usize = 10_000;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum ConnectionKind {
     SQLite,
@@ -42,6 +44,7 @@ pub struct ProfileConnector<'a> {
 }
 impl DatabaseConnector for ProfileConnector<'_> {
     fn query(&self, sql: &str) -> Result<TableData, String> {
+        validate_query(sql)?;
         match self.profile.kind {
             ConnectionKind::SQLite => {
                 sqlite(&resolve(self.project_root, &self.profile.location), sql)
@@ -105,6 +108,7 @@ fn sqlite(path: &Path, sql: &str) -> Result<TableData, String> {
                 .collect::<Vec<_>>())
         })
         .map_err(|e| e.to_string())?
+        .take(MAX_PREVIEW_ROWS)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
     Ok(TableData { columns, rows })
@@ -143,8 +147,22 @@ fn cli_csv(
             row.map(|row| row.iter().map(str::to_owned).collect())
                 .map_err(|e| e.to_string())
         })
+        .take(MAX_PREVIEW_ROWS)
         .collect::<Result<_, _>>()?;
     Ok(TableData { columns, rows })
+}
+
+fn validate_query(sql: &str) -> Result<(), String> {
+    if sql.trim().is_empty() {
+        return Err("Enter a SQL statement first.".into());
+    }
+    if sql.contains('\0') {
+        return Err("SQL may not contain NUL bytes.".into());
+    }
+    if sql.len() > 1_000_000 {
+        return Err("SQL statements are limited to 1 MB.".into());
+    }
+    Ok(())
 }
 
 pub fn store_secret(key: &str, secret: &str) -> Result<(), String> {
@@ -184,5 +202,10 @@ mod tests {
         let table = sqlite(&path, "select * from sample").unwrap();
         assert_eq!(table.rows[0], ["1", "a"]);
         let _ = std::fs::remove_file(path);
+    }
+    #[test]
+    fn rejects_empty_and_oversized_queries() {
+        assert!(validate_query("").is_err());
+        assert!(validate_query(&"x".repeat(1_000_001)).is_err());
     }
 }

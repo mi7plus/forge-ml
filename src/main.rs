@@ -12,6 +12,7 @@ mod lsp;
 mod millwright_studio;
 mod model_registry;
 mod notebook;
+mod object_storage;
 mod packages;
 mod plot;
 mod project;
@@ -116,6 +117,7 @@ enum InspectorTab {
     Database,
     DeepLearning,
     Deploy,
+    Storage,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -263,6 +265,8 @@ struct ForgeApp {
     git_branch_name: String,
     package_query: String,
     package_output: String,
+    cargo_registry: String,
+    python_registry: String,
     github_input: String,
     github_output: String,
     jupyter_output: String,
@@ -312,6 +316,15 @@ struct ForgeApp {
     registry_alias: String,
     registry_artifact: String,
     registry_output: String,
+    object_profiles: Vec<object_storage::ObjectProfile>,
+    object_name: String,
+    object_provider: object_storage::Provider,
+    object_bucket: String,
+    object_prefix: String,
+    object_endpoint: String,
+    object_key: String,
+    object_output: String,
+    github_enterprise_host: String,
     last_file_poll: Instant,
     pending_editor_history: Option<EditorHistoryCommand>,
 }
@@ -388,6 +401,10 @@ impl ForgeApp {
         let remote_profiles = workspace_store
             .as_ref()
             .and_then(|store| store.load_remote_profiles().ok())
+            .unwrap_or_default();
+        let object_profiles = workspace_store
+            .as_ref()
+            .and_then(|store| store.load_object_profiles().ok())
             .unwrap_or_default();
         if let Some(root) = project.as_ref().map(|project| project.root.clone()) {
             recent_projects.retain(|path| path != &root);
@@ -489,6 +506,8 @@ impl ForgeApp {
             git_branch_name: String::new(),
             package_query: String::new(),
             package_output: String::new(),
+            cargo_registry: String::new(),
+            python_registry: "https://pypi.org".into(),
             github_input: String::new(),
             github_output: String::new(),
             jupyter_output: String::new(),
@@ -542,6 +561,15 @@ impl ForgeApp {
             registry_alias: "production".into(),
             registry_artifact: String::new(),
             registry_output: String::new(),
+            object_profiles,
+            object_name: "datasets".into(),
+            object_provider: object_storage::Provider::S3,
+            object_bucket: String::new(),
+            object_prefix: String::new(),
+            object_endpoint: String::new(),
+            object_key: String::new(),
+            object_output: String::new(),
+            github_enterprise_host: String::new(),
             last_file_poll: Instant::now(),
             pending_editor_history: None,
         }
@@ -699,6 +727,7 @@ impl ForgeApp {
                     self.database_profiles = store.load_connections().unwrap_or_default();
                     self.sql_history = store.load_query_history().unwrap_or_default();
                     self.remote_profiles = store.load_remote_profiles().unwrap_or_default();
+                    self.object_profiles = store.load_object_profiles().unwrap_or_default();
                     self.database_selected = 0;
                     if let Ok(runs) = store.load_experiments::<ExperimentRun>() {
                         self.saved_runs = runs;
@@ -2552,6 +2581,7 @@ impl ForgeApp {
                 (InspectorTab::Database, "SQL"),
                 (InspectorTab::DeepLearning, "Deep"),
                 (InspectorTab::Deploy, "Deploy"),
+                (InspectorTab::Storage, "Storage"),
             ] {
                 if ui
                     .selectable_label(self.inspector_tab == tab, label)
@@ -2720,7 +2750,128 @@ impl ForgeApp {
             InspectorTab::Database => self.database_inspector(ui),
             InspectorTab::DeepLearning => self.deep_learning_inspector(ui),
             InspectorTab::Deploy => self.deployment_inspector(ui),
+            InspectorTab::Storage => self.object_storage_inspector(ui),
         }
+    }
+
+    fn object_storage_inspector(&mut self, ui: &mut egui::Ui) {
+        let Some(root) = self.project_root() else {
+            ui.label("Open a project to configure object-storage profiles.");
+            return;
+        };
+        ui.heading("Object storage");
+        ui.label(RichText::new("AWS and rclone own authentication. Forge stores profile metadata only and limits previews to 200 objects.").color(MUTED));
+        ui.horizontal_wrapped(|ui| {
+            ui.add(egui::TextEdit::singleline(&mut self.object_name).hint_text("profile name"));
+            egui::ComboBox::from_id_salt("object_provider")
+                .selected_text(self.object_provider.label())
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut self.object_provider,
+                        object_storage::Provider::S3,
+                        "S3 / compatible",
+                    );
+                    ui.selectable_value(
+                        &mut self.object_provider,
+                        object_storage::Provider::Rclone,
+                        "rclone remote",
+                    );
+                });
+            ui.add(
+                egui::TextEdit::singleline(&mut self.object_bucket).hint_text("bucket or remote"),
+            );
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.add(egui::TextEdit::singleline(&mut self.object_prefix).hint_text("prefix"));
+            ui.add(
+                egui::TextEdit::singleline(&mut self.object_endpoint)
+                    .hint_text("optional HTTPS endpoint"),
+            );
+            if ui.button("Save profile").clicked() {
+                let profile = object_storage::ObjectProfile {
+                    name: self.object_name.clone(),
+                    provider: self.object_provider,
+                    bucket: self.object_bucket.clone(),
+                    prefix: self.object_prefix.clone(),
+                    endpoint: self.object_endpoint.clone(),
+                    credential_hint: if self.object_provider == object_storage::Provider::S3 {
+                        "AWS CLI credential chain".into()
+                    } else {
+                        "rclone configuration".into()
+                    },
+                };
+                self.object_output = profile
+                    .validate()
+                    .and_then(|()| {
+                        self.object_profiles.retain(|p| p.name != profile.name);
+                        self.object_profiles.push(profile);
+                        self.workspace_store
+                            .as_ref()
+                            .ok_or_else(|| "Workspace storage unavailable".to_owned())?
+                            .save_object_profiles(&self.object_profiles)
+                    })
+                    .map(|()| "Saved object-storage profile without credentials.".into())
+                    .unwrap_or_else(|e| e);
+            }
+        });
+        let mut selected = None;
+        for (index, profile) in self.object_profiles.iter().enumerate() {
+            ui.horizontal(|ui| {
+                ui.label(format!(
+                    "{} · {} · {} / {}",
+                    profile.name,
+                    profile.provider.label(),
+                    profile.bucket,
+                    profile.prefix
+                ));
+                if ui.small_button("Use").clicked() {
+                    selected = Some(index);
+                }
+            });
+        }
+        if let Some(index) = selected {
+            let profile = self.object_profiles[index].clone();
+            self.object_name = profile.name;
+            self.object_provider = profile.provider;
+            self.object_bucket = profile.bucket;
+            self.object_prefix = profile.prefix;
+            self.object_endpoint = profile.endpoint;
+        }
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("List objects").clicked() {
+                let profile = object_storage::ObjectProfile {
+                    name: self.object_name.clone(),
+                    provider: self.object_provider,
+                    bucket: self.object_bucket.clone(),
+                    prefix: self.object_prefix.clone(),
+                    endpoint: self.object_endpoint.clone(),
+                    credential_hint: String::new(),
+                };
+                self.object_output = profile.list(200).unwrap_or_else(|e| e);
+            }
+            ui.add(
+                egui::TextEdit::singleline(&mut self.object_key)
+                    .hint_text("object key to download"),
+            );
+            if ui.button("Download to project cache").clicked() {
+                let profile = object_storage::ObjectProfile {
+                    name: self.object_name.clone(),
+                    provider: self.object_provider,
+                    bucket: self.object_bucket.clone(),
+                    prefix: self.object_prefix.clone(),
+                    endpoint: self.object_endpoint.clone(),
+                    credential_hint: String::new(),
+                };
+                self.object_output = profile
+                    .download(&self.object_key, &root)
+                    .map(|p| format!("Downloaded {}", p.display()))
+                    .unwrap_or_else(|e| e);
+            }
+        });
+        ui.separator();
+        egui::ScrollArea::both().show(ui, |ui| {
+            ui.code(&self.object_output);
+        });
     }
 
     fn deployment_inspector(&mut self, ui: &mut egui::Ui) {
@@ -3645,12 +3796,23 @@ impl ForgeApp {
             );
             if ui.button("Search").clicked() {
                 self.package_output =
-                    packages::search(&root, &self.package_query).unwrap_or_else(|e| e);
+                    packages::search_registry(&root, &self.package_query, &self.cargo_registry)
+                        .unwrap_or_else(|e| e);
             }
             if ui.button("Info").clicked() {
                 self.package_output =
                     packages::info(&root, &self.package_query).unwrap_or_else(|e| e);
             }
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.cargo_registry)
+                    .hint_text("Cargo registry name (blank = crates.io)"),
+            );
+            ui.add(
+                egui::TextEdit::singleline(&mut self.python_registry)
+                    .hint_text("Python registry HTTPS base URL"),
+            );
         });
         ui.horizontal_wrapped(|ui| {
             if ui.button("Add").clicked() {
@@ -3693,7 +3855,12 @@ impl ForgeApp {
                     .python_runtimes
                     .first()
                     .map(|runtime| {
-                        python_runtime::pypi(runtime, &self.package_query).unwrap_or_else(|e| e)
+                        python_runtime::pypi_index(
+                            runtime,
+                            &self.package_query,
+                            &self.python_registry,
+                        )
+                        .unwrap_or_else(|e| e)
                     })
                     .unwrap_or_else(|| {
                         "No Python runtime is available for secure PyPI HTTPS discovery.".into()
@@ -3752,6 +3919,16 @@ impl ForgeApp {
                     self.github_output =
                         github::clone(&self.github_input, &destination).unwrap_or_else(|e| e);
                 }
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.github_enterprise_host)
+                    .hint_text("GitHub Enterprise hostname"),
+            );
+            if ui.button("Enterprise auth status").clicked() {
+                self.github_output = github::enterprise_auth_status(&self.github_enterprise_host)
+                    .unwrap_or_else(|e| e);
             }
         });
         if let Some(root) = root {

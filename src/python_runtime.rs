@@ -83,16 +83,22 @@ pub fn compatibility(runtime: &PythonRuntime) -> Vec<String> {
     notes
 }
 
-pub fn pypi(runtime: &PythonRuntime, package: &str) -> Result<String, String> {
+pub fn pypi_index(runtime: &PythonRuntime, package: &str, index: &str) -> Result<String, String> {
     if package.trim().is_empty() {
         return Err("Enter a PyPI package name first.".into());
     }
+    let base = url::Url::parse(index).map_err(|e| format!("Invalid Python registry URL: {e}"))?;
+    if base.scheme() != "https"
+        && !matches!(base.host_str(), Some("localhost" | "127.0.0.1" | "::1"))
+    {
+        return Err("Python registry URLs must use HTTPS unless they target localhost".into());
+    }
     let script = r#"import json,sys,urllib.request
-n=sys.argv[1]
-with urllib.request.urlopen('https://pypi.org/pypi/'+n+'/json',timeout=10) as r: d=json.load(r)
+n=sys.argv[1]; base=sys.argv[2].rstrip('/')
+with urllib.request.urlopen(base+'/pypi/'+n+'/json',timeout=10) as r: d=json.load(r)
 i=d['info']; print(f"{i['name']} {i['version']}\n{i.get('summary','')}\nPython: {i.get('requires_python') or 'unspecified'}\nLicense: {i.get('license_expression') or i.get('license') or 'unspecified'}\nProject: {i.get('project_url') or i.get('home_page') or ''}")"#;
     let output = Command::new(&runtime.executable)
-        .args(["-c", script, package.trim()])
+        .args(["-c", script, package.trim(), base.as_str()])
         .output()
         .map_err(|e| e.to_string())?;
     if output.status.success() {
@@ -149,5 +155,14 @@ mod tests {
         assert!(notes
             .iter()
             .any(|line| line.contains("scikit-learn not installed")));
+    }
+    #[test]
+    fn rejects_insecure_python_registry() {
+        let runtime = PythonRuntime {
+            executable: "python".into(),
+            version: String::new(),
+            packages: String::new(),
+        };
+        assert!(pypi_index(&runtime, "demo", "http://packages.example.com").is_err());
     }
 }

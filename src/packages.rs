@@ -23,6 +23,40 @@ pub fn search(root: &Path, query: &str) -> Result<String, String> {
     }
     cargo(root, &["search", query.trim(), "--limit", "20"])
 }
+pub fn search_registry(root: &Path, query: &str, registry: &str) -> Result<String, String> {
+    if registry.trim().is_empty() {
+        search(root, query)
+    } else {
+        if query.trim().is_empty() {
+            return Err("Enter a crate name first.".into());
+        }
+        validate_registry(registry)?;
+        cargo(
+            root,
+            &[
+                "search",
+                query.trim(),
+                "--limit",
+                "20",
+                "--registry",
+                registry.trim(),
+            ],
+        )
+    }
+}
+fn validate_registry(name: &str) -> Result<(), String> {
+    if name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+    {
+        Ok(())
+    } else {
+        Err(
+            "Cargo registry names may contain only letters, numbers, dashes, and underscores"
+                .into(),
+        )
+    }
+}
 pub fn info(root: &Path, name: &str) -> Result<String, String> {
     cargo(root, &["info", name.trim()])
 }
@@ -79,5 +113,9 @@ mod tests {
     #[test]
     fn empty_search_is_rejected() {
         assert!(search(Path::new("."), "").is_err());
+    }
+    #[test]
+    fn rejects_unsafe_registry_names() {
+        assert!(search_registry(Path::new("."), "serde", "bad name").is_err());
     }
 }

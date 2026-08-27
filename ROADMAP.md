@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.10.0`
+Current application version: `0.11.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -302,8 +302,8 @@ Implementation notes:
 
 - [~] Complete data, notebook, experiment, and model exports (portable data, Markdown/HTML notebooks, and run bundles landed in 0.10).
 - [~] Add Millwright ONNX, registry, rollback, and service generation UI (format-neutral registry and service generation landed; native Millwright ONNX invocation remains).
-- [ ] Add database and object-storage connector hardening.
-- [ ] Add private Cargo/Python registries and GitHub Enterprise validation.
+- [~] Add database and object-storage connector hardening (bounded database previews and secured CLI-backed object profiles landed; broader driver validation remains).
+- [x] Add private Cargo/Python registries and GitHub Enterprise validation.
 - [ ] Add signed releases, update channels, provenance, and attestations.
 - [ ] Complete accessibility and keyboard navigation review.
 - [ ] Complete cross-platform packaging and upgrade tests.
@@ -326,6 +326,25 @@ Implementation notes:
 - Millwright remains the published crates.io dependency. Forge accepts its exported artifacts but does not depend on a local checkout.
 - Generated prediction endpoints are intentionally pass-through scaffolds until the user selects an inference runtime compatible with the registered format.
 - PDF reports, reproducible whole-project bundles, selected-row exports, and direct Millwright ONNX API invocation remain part of 1.0 hardening.
+
+## 0.11 storage and enterprise connections — implemented
+
+- [x] Add project-local S3-compatible and rclone object-storage profiles.
+- [x] Delegate S3/rclone authentication to their established credential chains.
+- [x] Add bounded object listings and explicit downloads into `.forge/object-cache`.
+- [x] Require HTTPS for remote object endpoints and private Python registries, with localhost development exceptions.
+- [x] Reject traversing object keys and redact common secret assignments from CLI errors.
+- [x] Add timeouts to object-storage CLI operations and cap listings at 1,000 entries.
+- [x] Cap database query previews at 10,000 rows and reject empty, NUL-containing, or oversized statements.
+- [x] Add named private Cargo-registry search through project Cargo configuration.
+- [x] Add private PyPI-compatible JSON discovery without installing packages.
+- [x] Add validated GitHub Enterprise authentication checks through `gh`.
+
+Implementation notes:
+
+- Forge stores no object-storage, registry, or GitHub tokens in project files.
+- Cargo, Python, AWS CLI, rclone, and GitHub CLI remain the owners of authentication and trust configuration.
+- Object downloads require an explicit key and are confined to the project cache.
 
 ## Known technical risks
 

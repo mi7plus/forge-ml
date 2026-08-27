@@ -31,6 +31,26 @@ pub fn gh(root: Option<&Path>, args: &[&str]) -> Result<String, String> {
 pub fn auth_status() -> Result<String, String> {
     gh(None, &["auth", "status"])
 }
+pub fn enterprise_auth_status(host: &str) -> Result<String, String> {
+    let host = validate_host(host)?;
+    gh(None, &["auth", "status", "--hostname", host])
+}
+pub fn validate_host(host: &str) -> Result<&str, String> {
+    let host = host.trim();
+    if host.is_empty() {
+        return Err("Enter a GitHub Enterprise hostname".into());
+    }
+    if host.contains('/')
+        || host.contains(':')
+        || host.contains(char::is_whitespace)
+        || !host.contains('.')
+    {
+        return Err(
+            "Enter a hostname such as github.company.example, without a URL path or port".into(),
+        );
+    }
+    Ok(host)
+}
 pub fn repos(root: &Path) -> Result<String, String> {
     gh(Some(root), &["repo", "view"])
 }
@@ -101,5 +121,10 @@ mod tests {
     #[test]
     fn clone_requires_repo() {
         assert!(clone("", Path::new(".")).is_err());
+    }
+    #[test]
+    fn validates_enterprise_hosts() {
+        assert!(validate_host("github.example.com").is_ok());
+        assert!(validate_host("https://github.example.com/path").is_err());
     }
 }

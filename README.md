@@ -37,6 +37,8 @@ See the [development plan](DEVELOPMENT_PLAN.md) for the target architecture and 
 - Compressed experiment bundles containing the run manifest and referenced artifacts
 - Project-local versioned model registry with promotion/rollback aliases
 - Generated Rust/Axum inference services with Docker and Compose templates
+- S3-compatible and rclone object-storage profiles with bounded browsing and project-local downloads
+- Private Cargo and PyPI-compatible registry discovery plus GitHub Enterprise authentication validation
 
 ## Notebook controls
 
