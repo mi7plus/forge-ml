@@ -116,6 +116,16 @@ pub struct DataWorkspace {
 }
 
 impl DataWorkspace {
+    pub fn insert_table(
+        &mut self,
+        name: String,
+        table: TableData,
+        source: String,
+    ) -> Result<(), String> {
+        self.tables
+            .insert(name, Dataset::from_table(table, Some(source))?);
+        Ok(())
+    }
     pub fn fingerprints(&self) -> HashMap<String, String> {
         self.tables
             .iter()

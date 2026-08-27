@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.7.0`
+Current application version: `0.8.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -261,16 +261,24 @@ Scope boundary:
 - [x] Do not build Python-specific ML pipeline or training framework integrations.
 - [x] Treat all packages beyond the runtime as user-managed project dependencies.
 
-## 0.8 databases and coordinated releases
+## 0.8 databases and coordinated releases — implemented
 
-- [ ] Add ADBC connector foundation.
-- [ ] Add SQLite, DuckDB, and PostgreSQL.
-- [ ] Add connection profiles, schema browser, SQL editor, and query history.
-- [ ] Stream query results into Arrow datasets.
-- [ ] Store credentials in OS credential managers.
-- [ ] Coordinate Millwright crate and Python wheel versions.
-- [ ] Generate Maturin, TestPyPI, PyPI, crates.io, and GitHub Release workflows.
-- [ ] Support PyPI Trusted Publishing and release provenance.
+- [x] Add an `adbc_core` connector foundation.
+- [x] Add embedded SQLite plus DuckDB and PostgreSQL CLI adapters.
+- [x] Add project connection profiles, schema browser, SQL editor, and query history.
+- [x] Load query results into Arrow-backed datasets.
+- [x] Store database passwords in native OS credential managers.
+- [x] Report Forge, published Millwright, and Python wheel versions together.
+- [x] Add Python/PyPI, crates.io, checksums, provenance, and GitHub Release workflow stages.
+- [x] Support PyPI Trusted Publishing through GitHub OIDC and build provenance attestations.
+
+Implementation notes:
+
+- Connection profile JSON never includes passwords; it stores only an opaque credential key.
+- SQLite is embedded. DuckDB and PostgreSQL use their official CLIs, keeping their native libraries out of the default binary.
+- Query results are normalized to the same Arrow-backed dataset path as file and Millwright imports.
+- ADBC core is linked as the common API foundation; concrete driver-manager installation remains user-controlled.
+- The coordinated release workflow requires explicit dispatch inputs before any registry publishing occurs.
 
 ## 0.9 deep learning and remote execution
 

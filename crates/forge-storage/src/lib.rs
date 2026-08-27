@@ -39,7 +39,7 @@ impl WorkspaceStore {
                     payload TEXT NOT NULL,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                  );
-                 PRAGMA user_version = 2;",
+                 PRAGMA user_version = 3;",
             )
             .map_err(|error| error.to_string())?;
         Ok(Self {
@@ -108,6 +108,34 @@ impl WorkspaceStore {
         }
         let bytes = fs::read(path).map_err(|error| error.to_string())?;
         serde_json::from_slice(&bytes).map_err(|error| error.to_string())
+    }
+
+    pub fn save_connections<T: Serialize>(&self, profiles: &T) -> Result<(), String> {
+        atomic_json_write(&self.forge_dir.join("connections.json"), profiles)
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn load_connections<T: DeserializeOwned + Default>(&self) -> Result<T, String> {
+        let path = self.forge_dir.join("connections.json");
+        if !path.is_file() {
+            return Ok(T::default());
+        }
+        serde_json::from_slice(&fs::read(path).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn save_query_history<T: Serialize>(&self, history: &T) -> Result<(), String> {
+        atomic_json_write(&self.forge_dir.join("query-history.json"), history)
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn load_query_history<T: DeserializeOwned + Default>(&self) -> Result<T, String> {
+        let path = self.forge_dir.join("query-history.json");
+        if !path.is_file() {
+            return Ok(T::default());
+        }
+        serde_json::from_slice(&fs::read(path).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())
     }
 
     pub fn write_artifact(&self, relative_path: &Path, bytes: &[u8]) -> Result<PathBuf, String> {

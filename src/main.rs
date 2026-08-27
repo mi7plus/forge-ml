@@ -1,4 +1,5 @@
 mod data;
+mod database;
 mod diagnostics;
 mod experiment;
 mod git;
@@ -14,10 +15,12 @@ mod project;
 mod publishing;
 mod python_kernel;
 mod python_runtime;
+mod release;
 mod runtime;
 mod session;
 
 use data::DataWorkspace;
+use database::{ConnectionKind, ConnectionProfile, DatabaseConnector, ProfileConnector};
 use diagnostics::DiagnosticsHandle;
 use eframe::egui;
 use egui::{Color32, Frame, Margin, Panel, RichText, Stroke};
@@ -105,6 +108,7 @@ enum InspectorTab {
     Packages,
     GitHub,
     Studio,
+    Database,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -273,6 +277,16 @@ struct ForgeApp {
     python_environment_fingerprint: String,
     job_queue: JobQueue,
     job_command: String,
+    database_profiles: Vec<ConnectionProfile>,
+    database_selected: usize,
+    database_name: String,
+    database_kind: ConnectionKind,
+    database_location: String,
+    database_username: String,
+    database_secret: String,
+    sql_editor: String,
+    sql_output: String,
+    sql_history: Vec<String>,
     last_file_poll: Instant,
     pending_editor_history: Option<EditorHistoryCommand>,
 }
@@ -338,6 +352,14 @@ impl ForgeApp {
         } else {
             persisted_runs
         };
+        let database_profiles = workspace_store
+            .as_ref()
+            .and_then(|store| store.load_connections().ok())
+            .unwrap_or_default();
+        let sql_history = workspace_store
+            .as_ref()
+            .and_then(|store| store.load_query_history().ok())
+            .unwrap_or_default();
         if let Some(root) = project.as_ref().map(|project| project.root.clone()) {
             recent_projects.retain(|path| path != &root);
             recent_projects.insert(0, root);
@@ -463,6 +485,16 @@ impl ForgeApp {
             python_environment_fingerprint: session.python_environment_fingerprint.clone(),
             job_queue: JobQueue::new(),
             job_command: "cargo run --release".into(),
+            database_profiles,
+            database_selected: 0,
+            database_name: "local".into(),
+            database_kind: ConnectionKind::SQLite,
+            database_location: "data.sqlite3".into(),
+            database_username: String::new(),
+            database_secret: String::new(),
+            sql_editor: "SELECT 1 AS value;".into(),
+            sql_output: String::new(),
+            sql_history,
             last_file_poll: Instant::now(),
             pending_editor_history: None,
         }
@@ -617,6 +649,9 @@ impl ForgeApp {
                 self.project = Some(project);
                 self.workspace_store = WorkspaceStore::open(&root).ok();
                 if let Some(store) = &self.workspace_store {
+                    self.database_profiles = store.load_connections().unwrap_or_default();
+                    self.sql_history = store.load_query_history().unwrap_or_default();
+                    self.database_selected = 0;
                     if let Ok(runs) = store.load_experiments::<ExperimentRun>() {
                         self.saved_runs = runs;
                     }
@@ -2453,6 +2488,7 @@ impl ForgeApp {
                 (InspectorTab::Packages, "Crates"),
                 (InspectorTab::GitHub, "GitHub"),
                 (InspectorTab::Studio, "Studio"),
+                (InspectorTab::Database, "SQL"),
             ] {
                 if ui
                     .selectable_label(self.inspector_tab == tab, label)
@@ -2618,7 +2654,163 @@ impl ForgeApp {
             InspectorTab::Packages => self.packages_inspector(ui),
             InspectorTab::GitHub => self.github_inspector(ui),
             InspectorTab::Studio => self.millwright_studio(ui),
+            InspectorTab::Database => self.database_inspector(ui),
         }
+    }
+
+    fn database_inspector(&mut self, ui: &mut egui::Ui) {
+        let Some(root) = self.project_root() else {
+            ui.label("Open a project to use project-scoped connection profiles.");
+            return;
+        };
+        ui.heading("SQL workbench");
+        ui.horizontal_wrapped(|ui| {
+            ui.text_edit_singleline(&mut self.database_name);
+            egui::ComboBox::from_id_salt("database_kind")
+                .selected_text(self.database_kind.label())
+                .show_ui(ui, |ui| {
+                    for kind in [
+                        ConnectionKind::SQLite,
+                        ConnectionKind::DuckDb,
+                        ConnectionKind::PostgreSql,
+                        ConnectionKind::Adbc,
+                    ] {
+                        ui.selectable_value(&mut self.database_kind, kind, kind.label());
+                    }
+                });
+            ui.add(
+                egui::TextEdit::singleline(&mut self.database_location)
+                    .hint_text("file path, DSN, or ADBC driver"),
+            );
+            ui.add(egui::TextEdit::singleline(&mut self.database_username).hint_text("username"));
+            ui.add(
+                egui::TextEdit::singleline(&mut self.database_secret)
+                    .password(true)
+                    .hint_text("password (never saved in project)"),
+            );
+            if ui.button("Save profile").clicked() {
+                let credential_key = format!("{}:{}", root.display(), self.database_name.trim());
+                if !self.database_secret.is_empty() {
+                    if let Err(error) =
+                        database::store_secret(&credential_key, &self.database_secret)
+                    {
+                        self.sql_output = format!("Credential store failed: {error}");
+                        return;
+                    }
+                    self.database_secret.clear();
+                }
+                let profile = ConnectionProfile {
+                    name: self.database_name.trim().to_owned(),
+                    kind: self.database_kind,
+                    location: self.database_location.trim().to_owned(),
+                    username: self.database_username.trim().to_owned(),
+                    credential_key,
+                };
+                if let Some(existing) = self
+                    .database_profiles
+                    .iter_mut()
+                    .find(|existing| existing.name == profile.name)
+                {
+                    *existing = profile;
+                } else {
+                    self.database_profiles.push(profile);
+                }
+                if let Some(store) = &self.workspace_store {
+                    self.sql_output = store
+                        .save_connections(&self.database_profiles)
+                        .map(|_| "Connection profile saved without plaintext credentials.".into())
+                        .unwrap_or_else(|e| e);
+                }
+            }
+        });
+        ui.horizontal(|ui| {
+            egui::ComboBox::from_id_salt("database_profile")
+                .selected_text(
+                    self.database_profiles
+                        .get(self.database_selected)
+                        .map(|profile| profile.name.as_str())
+                        .unwrap_or("No profile"),
+                )
+                .show_ui(ui, |ui| {
+                    for (index, profile) in self.database_profiles.iter().enumerate() {
+                        ui.selectable_value(
+                            &mut self.database_selected,
+                            index,
+                            format!("{} · {}", profile.name, profile.kind.label()),
+                        );
+                    }
+                });
+            if ui.button("Schema").clicked() {
+                if let Some(profile) = self.database_profiles.get(self.database_selected) {
+                    match (ProfileConnector {
+                        profile,
+                        project_root: &root,
+                    })
+                    .schema()
+                    {
+                        Ok(table) => {
+                            let name = format!("{}_schema", profile.name);
+                            let _ = self.data.insert_table(
+                                name.clone(),
+                                table,
+                                format!("{} schema", profile.name),
+                            );
+                            self.open_dataset = Some(format!("table:{name}"));
+                        }
+                        Err(error) => self.sql_output = error,
+                    }
+                }
+            }
+            ui.label(format!("ADBC core: {}", database::adbc_marker()));
+        });
+        ui.add(
+            egui::TextEdit::multiline(&mut self.sql_editor)
+                .font(egui::TextStyle::Monospace)
+                .desired_rows(6)
+                .hint_text("SQL query"),
+        );
+        if ui.button("Run query into data viewer").clicked() {
+            if let Some(profile) = self.database_profiles.get(self.database_selected) {
+                match (ProfileConnector {
+                    profile,
+                    project_root: &root,
+                })
+                .query(&self.sql_editor)
+                {
+                    Ok(table) => {
+                        let name = format!("{}_query_{}", profile.name, self.sql_history.len() + 1);
+                        let rows = table.rows.len();
+                        if let Err(error) = self.data.insert_table(
+                            name.clone(),
+                            table,
+                            format!("{} SQL", profile.name),
+                        ) {
+                            self.sql_output = error;
+                        } else {
+                            self.open_dataset = Some(format!("table:{name}"));
+                            self.sql_history.push(self.sql_editor.clone());
+                            if let Some(store) = &self.workspace_store {
+                                let _ = store.save_query_history(&self.sql_history);
+                            }
+                            self.sql_output =
+                                format!("Loaded {rows} rows into Arrow-backed dataset `{name}`.");
+                        }
+                    }
+                    Err(error) => self.sql_output = error,
+                }
+            }
+        }
+        ui.label(&self.sql_output);
+        ui.collapsing("Query history", |ui| {
+            for query in self.sql_history.iter().rev() {
+                if ui
+                    .button(RichText::new(query).monospace().size(9.0))
+                    .clicked()
+                {
+                    self.sql_editor = query.clone();
+                }
+            }
+        });
     }
 
     fn millwright_studio(&mut self, ui: &mut egui::Ui) {
@@ -3091,6 +3283,15 @@ impl ForgeApp {
                         publishing::python_smoke_test(&root, python).unwrap_or_else(|e| e)
                     })
                     .unwrap_or_else(|| "Select a Python runtime first.".into());
+            }
+            if ui.button("Release versions").clicked() {
+                self.package_output = release::version_report(&root);
+            }
+            if ui.button("Release provenance preview").clicked() {
+                self.package_output = release::checksums(&root).unwrap_or_else(|e| e);
+            }
+            if ui.button("Generate release workflow").clicked() {
+                self.package_output = release::install_workflow(&root).unwrap_or_else(|e| e);
             }
         });
         ui.separator();

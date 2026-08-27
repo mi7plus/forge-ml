@@ -1,6 +1,6 @@
 [package]
 name = "forge_ide"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 
 [workspace]
@@ -23,8 +23,12 @@ forge-storage = { path = "crates/forge-storage" }
 arrow = { version = "56", features = ["csv", "json", "ipc"] }
 parquet = { version = "56", features = ["arrow"] }
 csv = "1.3"
+rusqlite = { version = "0.37", features = ["bundled"] }
+adbc_core = { version = "0.24", optional = true }
+keyring = "4.1"
 millwright = { version = "2.2.1", default-features = false, features = ["eda"], optional = true }
 
 [features]
 default = []
 millwright = ["dep:millwright"]
+adbc = ["dep:adbc_core"]
