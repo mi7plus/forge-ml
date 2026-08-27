@@ -36,6 +36,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - Notebook export to `.ipynb`, Markdown, and self-contained HTML
 - Compressed experiment bundles containing the run manifest and referenced artifacts
 - Project-local versioned model registry with promotion/rollback aliases
+- SHA-256 model integrity, immutable version enforcement, and tamper-aware deployment readiness
 - Native Millwright 2.2 ONNX export/round-trip cells using the published crates.io API
 - Self-contained Rust/Axum inference services with real Millwright ONNX inference, health, readiness, metadata, Docker, Compose, and Kubernetes templates
 - Framework-neutral request/error/latency and feature-drift monitoring records in the deployment pane

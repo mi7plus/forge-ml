@@ -2326,7 +2326,7 @@ dependencies = [
 
 [[package]]
 name = "forge_ide"
-version = "0.19.0"
+version = "0.20.0"
 dependencies = [
  "adbc_core",
  "arrow",
@@ -2346,6 +2346,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "sysinfo",
  "url",
  "zip",

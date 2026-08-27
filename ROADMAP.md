@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.19.0`
+Current application version: `0.20.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -483,6 +483,24 @@ Implementation notes:
 - The inference runtime is linked only into generated ONNX service projects, not Forge's default desktop binary.
 - Generated projects depend on `millwright = 2.2.1` from crates.io with its `serve` feature; local Millwright repositories are not consulted.
 - Millwright's tract-backed loader handles ordinary ONNX graphs. ONNX-ML tree operators may require a different runtime adapter, which remains explicit rather than silently falling back.
+
+## 0.20 immutable model integrity — implemented
+
+- [x] Record SHA-256 and byte size for every newly registered model artifact.
+- [x] Make repeated registration of identical model/version bytes idempotent.
+- [x] Reject attempts to overwrite an existing model version with different bytes.
+- [x] Copy new artifacts through a temporary file before atomically publishing the registry path.
+- [x] Verify registered hashes and sizes whenever a model version or alias is resolved.
+- [x] Reject service generation when a registered artifact has been modified after registration.
+- [x] Embed the copied artifact's full identity in generated service metadata.
+- [x] Make generated readiness and container health checks hash the bundled model, not merely test for file existence.
+- [x] Show artifact sizes and digest prefixes in the Deploy registry table.
+
+Implementation notes:
+
+- SHA-256 is streamed in 64 KiB chunks, so validation does not load large model artifacts into memory.
+- Registry records created before 0.20 remain readable. Their historical bytes cannot be authenticated retroactively, but any newly generated service computes and pins the exact copied artifact identity.
+- Immutability applies to the `(model, version)` pair; aliases remain movable so promotion and rollback continue to work.
 
 ## Known technical risks
 

@@ -48,4 +48,6 @@ In Millwright Studio, build a pipeline and choose **Generate native Millwright O
 
 Use the Deploy inspector to register the resulting artifact, assign an alias such as `production`, and generate a Rust service. Forge resolves the alias first and copies that exact model version into the service. The generated service includes health, readiness, metadata, and prediction routes plus Docker, Compose, and Kubernetes templates. ONNX services perform real inference through Millwright 2.2.1 and accept `{"rows":[[...], ...]}`. Other registered formats receive a clearly labeled editable adapter.
 
+Newly registered model versions are content-addressed with SHA-256 and cannot be overwritten with different bytes. Re-registering identical bytes is safe and idempotent. Forge verifies the artifact whenever it resolves a version or alias, and generated services repeat that verification during readiness and container health checks. The Deploy table shows artifact size and a short digest prefix; full hashes are retained in registry and service metadata.
+
 Runtime output prefixed with `forge_service:` or `forge_drift:` and followed by JSON appears in the Deploy monitoring view. Service records can report `model`, `version`, `requests`, `errors`, and optional `p95_ms`; drift records report `model`, `version`, `feature`, `score`, and `threshold`.

@@ -3086,11 +3086,19 @@ impl ForgeApp {
                     .show(ui, |ui| {
                         ui.strong("Version");
                         ui.strong("Format");
+                        ui.strong("Size");
+                        ui.strong("SHA-256");
                         ui.strong("Artifact");
                         ui.end_row();
                         for version in versions {
                             ui.label(version.version);
                             ui.label(version.format);
+                            ui.label(format!("{} B", version.size_bytes));
+                            ui.label(if version.sha256.is_empty() {
+                                "legacy".into()
+                            } else {
+                                version.sha256.chars().take(12).collect::<String>()
+                            });
                             ui.label(version.artifact);
                             ui.end_row();
                         }
