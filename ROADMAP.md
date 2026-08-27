@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.20.0`
+Current application version: `0.21.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -501,6 +501,25 @@ Implementation notes:
 - SHA-256 is streamed in 64 KiB chunks, so validation does not load large model artifacts into memory.
 - Registry records created before 0.20 remain readable. Their historical bytes cannot be authenticated retroactively, but any newly generated service computes and pins the exact copied artifact identity.
 - Immutability applies to the `(model, version)` pair; aliases remain movable so promotion and rollback continue to work.
+
+## 0.21 database connection hardening — implemented
+
+- [x] Validate profile names, locations, usernames, and NUL safety before storing credentials or running commands.
+- [x] Reject plaintext PostgreSQL passwords embedded in URLs and keyword connection strings.
+- [x] Add explicit SQLite, DuckDB, and PostgreSQL connection/version probes to the SQL inspector.
+- [x] Stop DuckDB and PostgreSQL commands after a 30-second timeout.
+- [x] Drain subprocess pipes concurrently to avoid blocking on full stdout or stderr buffers.
+- [x] Cap retained query output at 64 MiB while still draining excess child output safely.
+- [x] Cap retained database error output at 1 MiB.
+- [x] Redact connection locations, OS-stored passwords, and common password assignments from CLI errors.
+- [x] Preserve the existing 10,000-row preview and 1 MB SQL statement limits.
+
+Implementation notes:
+
+- DuckDB and PostgreSQL remain CLI integrations so their client libraries do not increase the default desktop binary.
+- Passwords are passed to PostgreSQL through the child-process environment and are never placed in command arguments or saved profile JSON.
+- Queries remain explicit user actions and may contain writes; Forge bounds execution but does not silently rewrite SQL semantics.
+- Broader ADBC driver-manager validation remains dependent on each user-installed driver and is still tracked for 1.0 hardening.
 
 ## Known technical risks
 

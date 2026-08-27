@@ -35,6 +35,12 @@ The Plots pane accepts legacy metrics/vectors and versioned `forge_plot:` JSON. 
 
 Forge invokes Cargo, Git, `gh`, Jupyter, Python, AWS CLI, rclone, DuckDB, or PostgreSQL only for the feature that needs them. Those tools own their credentials. Forge project JSON contains profile metadata and opaque credential keys, never tokens or passwords.
 
+## Database connections
+
+The SQL inspector supports embedded SQLite plus the official DuckDB and PostgreSQL command-line clients. Save a project-scoped profile, then use **Test** before schema discovery or running a query. External database commands stop after 30 seconds, previews are limited to 10,000 rows and 64 MiB of CSV output, and stderr is scrubbed of the connection location and stored password before display.
+
+Enter PostgreSQL passwords only in Forge's password field. Forge rejects passwords embedded in PostgreSQL URLs or keyword connection strings, stores accepted credentials through the operating-system credential manager, and never writes them to project profile JSON. The optional ADBC integration exposes the common API boundary, while concrete ADBC driver-manager installation remains user-controlled.
+
 ## Updates
 
 Use Crates → Check signed updates. Forge downloads the small channel manifest, verifies its GitHub provenance attestation, and reports the matching platform artifact. It never installs or replaces the executable automatically.

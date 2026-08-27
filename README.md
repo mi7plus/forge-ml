@@ -41,6 +41,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - Self-contained Rust/Axum inference services with real Millwright ONNX inference, health, readiness, metadata, Docker, Compose, and Kubernetes templates
 - Framework-neutral request/error/latency and feature-drift monitoring records in the deployment pane
 - S3-compatible and rclone object-storage profiles with bounded browsing and project-local downloads
+- Hardened SQLite, DuckDB, and PostgreSQL profiles with test probes, command timeouts, output caps, and credential-safe errors
 - Private Cargo and PyPI-compatible registry discovery plus GitHub Enterprise authentication validation
 - Attested stable/beta update discovery that validates release manifests without silently installing binaries
 - Packaging preflight and executable notebook/table/plot performance budgets

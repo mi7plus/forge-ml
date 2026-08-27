@@ -3433,15 +3433,6 @@ impl ForgeApp {
             );
             if ui.button("Save profile").clicked() {
                 let credential_key = format!("{}:{}", root.display(), self.database_name.trim());
-                if !self.database_secret.is_empty() {
-                    if let Err(error) =
-                        database::store_secret(&credential_key, &self.database_secret)
-                    {
-                        self.sql_output = format!("Credential store failed: {error}");
-                        return;
-                    }
-                    self.database_secret.clear();
-                }
                 let profile = ConnectionProfile {
                     name: self.database_name.trim().to_owned(),
                     kind: self.database_kind,
@@ -3449,6 +3440,19 @@ impl ForgeApp {
                     username: self.database_username.trim().to_owned(),
                     credential_key,
                 };
+                if let Err(error) = database::validate_profile(&profile) {
+                    self.sql_output = error;
+                    return;
+                }
+                if !self.database_secret.is_empty() {
+                    if let Err(error) =
+                        database::store_secret(&profile.credential_key, &self.database_secret)
+                    {
+                        self.sql_output = format!("Credential store failed: {error}");
+                        return;
+                    }
+                    self.database_secret.clear();
+                }
                 if let Some(existing) = self
                     .database_profiles
                     .iter_mut()
@@ -3483,6 +3487,12 @@ impl ForgeApp {
                         );
                     }
                 });
+            if ui.button("Test").clicked() {
+                if let Some(profile) = self.database_profiles.get(self.database_selected) {
+                    self.sql_output =
+                        database::test_connection(profile, &root).unwrap_or_else(|error| error);
+                }
+            }
             if ui.button("Schema").clicked() {
                 if let Some(profile) = self.database_profiles.get(self.database_selected) {
                     match (ProfileConnector {
