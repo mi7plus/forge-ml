@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.12.0`
+Current application version: `0.13.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -305,10 +305,10 @@ Implementation notes:
 - [~] Add database and object-storage connector hardening (bounded database previews and secured CLI-backed object profiles landed; broader driver validation remains).
 - [x] Add private Cargo/Python registries and GitHub Enterprise validation.
 - [~] Add signed releases, update channels, provenance, and attestations (artifact and channel-manifest attestations landed; OS code-signing identities remain release-environment work).
-- [ ] Complete accessibility and keyboard navigation review.
+- [~] Complete accessibility and keyboard navigation review (keyboard shell, contrast, motion, and guidance landed; formal assistive-technology testing remains).
 - [~] Complete cross-platform packaging and upgrade tests (matrix preflight landed; clean-machine upgrade runs remain).
 - [x] Establish performance budgets for startup, tables, notebooks, and plots.
-- [ ] Publish user, extension, protocol, and contributor documentation.
+- [x] Publish user, extension, protocol, and contributor documentation.
 
 ## 0.10 export, registry, and deployment foundations — implemented
 
@@ -364,6 +364,23 @@ Implementation notes:
 - Windows Authenticode, Apple Developer ID/notarization, and Linux package signing still require project-owned signing identities.
 - Current interactive budgets are 250 ms for 10k notebook cells, 350 ms for filtering/sorting 100k rows, and 500 ms for preparing one million plot points.
 - Startup remains governed by the existing three-second product target; precise cold-start automation requires packaged clean-machine runners.
+
+## 0.13 accessibility and documentation — implemented
+
+- [x] Add a searchable global command palette with keyboard selection and execution.
+- [x] Add `F6` inspector-pane cycling and a direct Variables-pane shortcut.
+- [x] Persist high-contrast and reduced-motion preferences.
+- [x] Disable custom caret animation when reduced motion is active.
+- [x] Add visible textual status announcements for keyboard navigation and palette commands.
+- [x] Document the complete keyboard workflow and accessibility settings.
+- [x] Publish user, Forge protocol, extension/integration, and contributor guides.
+- [x] Document credential, optional-dependency, Millwright, Burn, and Python scope boundaries.
+
+Implementation notes:
+
+- State continues to use labels, symbols, or counts in addition to color.
+- The command catalog is centralized and tested so menu discovery can evolve without duplicating search logic.
+- Formal NVDA, Narrator, VoiceOver, keyboard-only, and contrast audits remain required on packaged builds before 1.0.
 
 ## Known technical risks
 

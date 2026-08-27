@@ -42,6 +42,10 @@ pub struct SessionState {
     #[serde(default = "default_true")]
     pub caret_blink: bool,
     #[serde(default)]
+    pub high_contrast: bool,
+    #[serde(default)]
+    pub reduced_motion: bool,
+    #[serde(default)]
     pub saved_runs: Vec<ExperimentRun>,
     #[serde(default = "default_experiment_name")]
     pub experiment_name: String,
@@ -72,5 +76,7 @@ mod tests {
         assert_eq!(state.comparison_metric, "loss");
         assert!(state.dataset_viewer_docked);
         assert_eq!(state.dataset_pane_height, 280.0);
+        assert!(!state.high_contrast);
+        assert!(!state.reduced_motion);
     }
 }

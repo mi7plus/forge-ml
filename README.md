@@ -4,7 +4,7 @@ Forge ML is an experimental desktop compute studio for interactive Rust machine-
 
 Its workspace follows the scientific-IDE model popularized by Spyder: an editor-centered layout surrounded by project, outline, variable, plot, help, diagnostics, console, and history panes.
 
-See the [development plan](DEVELOPMENT_PLAN.md) for the target architecture and full product scope, and the [roadmap](ROADMAP.md) for implementation status and upcoming milestones.
+See the [user guide](docs/USER_GUIDE.md), [development plan](DEVELOPMENT_PLAN.md), [roadmap](ROADMAP.md), [event protocol](docs/PROTOCOL.md), [extension guide](docs/EXTENSIONS.md), and [contributor guide](CONTRIBUTING.md).
 
 ## Current prototype
 
@@ -41,6 +41,7 @@ See the [development plan](DEVELOPMENT_PLAN.md) for the target architecture and 
 - Private Cargo and PyPI-compatible registry discovery plus GitHub Enterprise authentication validation
 - Attested stable/beta update discovery that validates release manifests without silently installing binaries
 - Packaging preflight and executable notebook/table/plot performance budgets
+- Searchable keyboard command palette, inspector-pane cycling, high contrast, and reduced motion
 
 ## Notebook controls
 
@@ -51,6 +52,9 @@ See the [development plan](DEVELOPMENT_PLAN.md) for the target architecture and 
 - `Ctrl+F`: find and replace in the active file
 - `Ctrl+Shift+F`: search all editable files in the open project
 - `Ctrl+Space`: request and open rust-analyzer completions at the caret
+- `Ctrl+Shift+P`: open the command palette
+- `F6`: cycle through inspector panes
+- `Ctrl+1`: open the Variables pane
 
 Cells can publish visualization data through stdout:
 

@@ -1,3 +1,4 @@
+mod commands;
 mod data;
 mod database;
 mod deep_learning;
@@ -261,6 +262,12 @@ struct ForgeApp {
     settings_open: bool,
     editor_font_size: f32,
     caret_blink: bool,
+    high_contrast: bool,
+    reduced_motion: bool,
+    command_palette_open: bool,
+    command_query: String,
+    command_selection: usize,
+    status_announcement: String,
     completion_popup_open: bool,
     git_output: String,
     git_commit_message: String,
@@ -342,7 +349,7 @@ impl ForgeApp {
             .storage
             .and_then(|storage| eframe::get_value::<SessionState>(storage, STORAGE_KEY))
             .unwrap_or_default();
-        configure_style(&cc.egui_ctx, session.dark_mode);
+        configure_style(&cc.egui_ctx, session.dark_mode, session.high_contrast);
         let dark_mode = session.dark_mode;
         let explorer_height = if session.explorer_height > 0.0 {
             session.explorer_height
@@ -504,6 +511,12 @@ impl ForgeApp {
             settings_open: false,
             editor_font_size,
             caret_blink,
+            high_contrast: session.high_contrast,
+            reduced_motion: session.reduced_motion,
+            command_palette_open: false,
+            command_query: String::new(),
+            command_selection: 0,
+            status_announcement: "Forge ML ready".into(),
             completion_popup_open: false,
             git_output: String::new(),
             git_commit_message: String::new(),
@@ -2007,7 +2020,7 @@ impl ForgeApp {
                 };
                 if ui.button(label).clicked() {
                     self.dark_mode = !self.dark_mode;
-                    configure_style(ui.ctx(), self.dark_mode);
+                    configure_style(ui.ctx(), self.dark_mode, self.high_contrast);
                     ui.close();
                 }
                 ui.label("Drag pane dividers to resize the workspace.");
@@ -2120,6 +2133,12 @@ impl ForgeApp {
                     .size(11.0)
                     .color(MUTED),
                 );
+                ui.separator();
+                ui.label(
+                    RichText::new(format!("Status: {}", self.status_announcement))
+                        .size(10.0)
+                        .color(MUTED),
+                );
             });
         });
     }
@@ -2144,7 +2163,7 @@ impl ForgeApp {
                 });
                 if dark != self.dark_mode {
                     self.dark_mode = dark;
-                    configure_style(ctx, self.dark_mode);
+                    configure_style(ctx, self.dark_mode, self.high_contrast);
                 }
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
@@ -2156,6 +2175,17 @@ impl ForgeApp {
                     );
                 });
                 ui.checkbox(&mut self.caret_blink, "Blink editor caret");
+                ui.heading("Accessibility");
+                let contrast_changed = ui
+                    .checkbox(&mut self.high_contrast, "High-contrast interface")
+                    .changed();
+                ui.checkbox(
+                    &mut self.reduced_motion,
+                    "Reduce motion and disable blinking",
+                );
+                if contrast_changed {
+                    configure_style(ctx, self.dark_mode, self.high_contrast);
+                }
                 ui.add_space(8.0);
                 ui.label(
                     RichText::new("Changes apply immediately and are saved for the next session.")
@@ -2166,7 +2196,9 @@ impl ForgeApp {
                     self.dark_mode = false;
                     self.editor_font_size = default_editor_font_size();
                     self.caret_blink = default_true();
-                    configure_style(ctx, self.dark_mode);
+                    self.high_contrast = false;
+                    self.reduced_motion = false;
+                    configure_style(ctx, self.dark_mode, self.high_contrast);
                 }
             });
         self.settings_open = open;
@@ -4901,10 +4933,137 @@ impl ForgeApp {
         }
         ui.take_available_space();
     }
+
+    fn execute_command(&mut self, command: commands::Command) {
+        use commands::Command::*;
+        match command {
+            NewFile => self.create_new_file(None),
+            Save => self.save_active(),
+            RunCell => self.enqueue_cells([self.selected_cell]),
+            RunAll => self.enqueue_cells(0..self.cells().len()),
+            Stop => self.stop_execution(),
+            Find => self.find_visible = true,
+            FindProject => self.inspector_tab = InspectorTab::Search,
+            ImportData => self.import_dataset(),
+            ToggleTheme => self.dark_mode = !self.dark_mode,
+            Settings => self.settings_open = true,
+            Variables => self.inspector_tab = InspectorTab::Variables,
+            Data => self.inspector_tab = InspectorTab::Data,
+            Plots => self.inspector_tab = InspectorTab::Charts,
+            Runs => self.inspector_tab = InspectorTab::Experiments,
+            Problems => self.inspector_tab = InspectorTab::Problems,
+            Git => self.inspector_tab = InspectorTab::Git,
+            Packages => self.inspector_tab = InspectorTab::Packages,
+            GitHub => self.inspector_tab = InspectorTab::GitHub,
+            Studio => self.inspector_tab = InspectorTab::Studio,
+            Sql => self.inspector_tab = InspectorTab::Database,
+            Deep => self.inspector_tab = InspectorTab::DeepLearning,
+            Deploy => self.inspector_tab = InspectorTab::Deploy,
+            Storage => self.inspector_tab = InspectorTab::Storage,
+        }
+        self.status_announcement = format!("Command completed: {:?}", command);
+    }
+
+    fn accessibility_shortcuts(&mut self, ctx: &egui::Context) {
+        if ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::P)) {
+            self.command_palette_open = true;
+            self.command_query.clear();
+            self.command_selection = 0;
+        }
+        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Num1)) {
+            self.inspector_tab = InspectorTab::Variables;
+            self.status_announcement = "Variables pane selected".into();
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::F6)) {
+            let tabs = [
+                InspectorTab::Variables,
+                InspectorTab::Data,
+                InspectorTab::Charts,
+                InspectorTab::Experiments,
+                InspectorTab::Search,
+                InspectorTab::Help,
+                InspectorTab::Problems,
+                InspectorTab::Git,
+                InspectorTab::Packages,
+                InspectorTab::GitHub,
+                InspectorTab::Studio,
+                InspectorTab::Database,
+                InspectorTab::DeepLearning,
+                InspectorTab::Deploy,
+                InspectorTab::Storage,
+            ];
+            let index = tabs
+                .iter()
+                .position(|tab| *tab == self.inspector_tab)
+                .unwrap_or(0);
+            self.inspector_tab = tabs[(index + 1) % tabs.len()];
+            self.status_announcement = "Moved to next inspector pane".into();
+        }
+    }
+
+    fn command_palette(&mut self, ctx: &egui::Context) {
+        if !self.command_palette_open {
+            return;
+        }
+        let matches = commands::matches(&self.command_query);
+        if !matches.is_empty() {
+            self.command_selection = self.command_selection.min(matches.len() - 1);
+        } else {
+            self.command_selection = 0;
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::ArrowDown)) && !matches.is_empty() {
+            self.command_selection = (self.command_selection + 1) % matches.len();
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) && !matches.is_empty() {
+            self.command_selection = (self.command_selection + matches.len() - 1) % matches.len();
+        }
+        let enter = ctx.input(|i| i.key_pressed(egui::Key::Enter));
+        let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+        let mut chosen = enter
+            .then(|| matches.get(self.command_selection).map(|item| item.0))
+            .flatten();
+        let mut open = self.command_palette_open;
+        egui::Window::new("Command palette — Ctrl+Shift+P")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .default_width(520.0)
+            .show(ctx, |ui| {
+                let response = ui.add(
+                    egui::TextEdit::singleline(&mut self.command_query)
+                        .hint_text("Type a command or shortcut…")
+                        .desired_width(f32::INFINITY),
+                );
+                response.request_focus();
+                ui.label("Use ↑/↓ to select, Enter to run, Escape to close.");
+                ui.separator();
+                for (index, (command, label, shortcut)) in matches.iter().enumerate().take(12) {
+                    let text = if shortcut.is_empty() {
+                        (*label).to_owned()
+                    } else {
+                        format!("{label}    {shortcut}")
+                    };
+                    if ui
+                        .selectable_label(index == self.command_selection, text)
+                        .clicked()
+                    {
+                        chosen = Some(*command);
+                    }
+                }
+            });
+        self.command_palette_open = open && !escape;
+        if let Some(command) = chosen {
+            self.command_palette_open = false;
+            self.execute_command(command);
+            configure_style(ctx, self.dark_mode, self.high_contrast);
+        }
+    }
 }
 
 impl eframe::App for ForgeApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.accessibility_shortcuts(ui.ctx());
+        self.command_palette(ui.ctx());
         self.poll_background(ui.ctx());
         let save = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S));
         let new_file = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::N));
@@ -5070,7 +5229,7 @@ impl eframe::App for ForgeApp {
                             &output,
                             range.primary,
                             self.dark_mode,
-                            self.caret_blink,
+                            self.caret_blink && !self.reduced_motion,
                         );
                     }
                 }
@@ -5243,6 +5402,8 @@ impl eframe::App for ForgeApp {
             recent_projects: self.recent_projects.clone(),
             editor_font_size: self.editor_font_size,
             caret_blink: self.caret_blink,
+            high_contrast: self.high_contrast,
+            reduced_motion: self.reduced_motion,
             saved_runs: self.saved_runs.clone(),
             experiment_name: self.experiment_name.clone(),
             comparison_metric: self.comparison_metric.clone(),
@@ -5795,7 +5956,7 @@ fn status_row(ui: &mut egui::Ui, label: &str, value: &str, color: Color32) {
     });
 }
 
-fn configure_style(ctx: &egui::Context, dark: bool) {
+fn configure_style(ctx: &egui::Context, dark: bool, high_contrast: bool) {
     let theme = if dark {
         egui::Theme::Dark
     } else {
@@ -5851,6 +6012,15 @@ fn configure_style(ctx: &egui::Context, dark: bool) {
         Color32::from_rgb(196, 220, 236)
     };
     visuals.widgets.active.fg_stroke = Stroke::new(1.0, EMBER);
+    if high_contrast {
+        visuals.override_text_color = Some(if dark { Color32::WHITE } else { Color32::BLACK });
+        visuals.weak_text_color = visuals.override_text_color;
+        visuals.widgets.noninteractive.fg_stroke.width = 2.0;
+        visuals.widgets.inactive.fg_stroke.width = 2.0;
+        visuals.widgets.hovered.fg_stroke.width = 2.5;
+        visuals.widgets.active.fg_stroke.width = 2.5;
+        visuals.selection.stroke.width = 2.5;
+    }
     ctx.set_visuals_of(theme, visuals);
     let mut style = (*ctx.style_of(theme)).clone();
     style.spacing.item_spacing = egui::vec2(8.0, 8.0);
