@@ -186,6 +186,27 @@ struct EditorTab {
     external_change_pending: bool,
 }
 
+#[derive(Default)]
+struct DatasetViewState {
+    filter: String,
+    sort_column: Option<usize>,
+    sort_descending: bool,
+    selected_rows: std::collections::BTreeSet<usize>,
+    visible: Vec<bool>,
+    pinned: Vec<bool>,
+    widths: Vec<f32>,
+    edit_draft: Option<TableData>,
+    linked_x: usize,
+    linked_y: usize,
+}
+
+#[derive(Default)]
+struct DatasetViewResult {
+    committed: Option<TableData>,
+    linked_plot: Option<PlotSpec>,
+    message: Option<String>,
+}
+
 enum ExplorerAction {
     Open(PathBuf),
     NewFile(PathBuf),
@@ -214,9 +235,7 @@ struct ForgeApp {
     data: DataWorkspace,
     structured_plots: Vec<PlotSpec>,
     open_dataset: Option<String>,
-    dataset_filter: String,
-    dataset_sort_column: Option<usize>,
-    dataset_sort_descending: bool,
+    dataset_views: HashMap<String, DatasetViewState>,
     dataset_viewer_docked: bool,
     dataset_pane_height: f32,
     inspector_tab: InspectorTab,
@@ -469,9 +488,7 @@ impl ForgeApp {
             data: DataWorkspace::default(),
             structured_plots: Vec::new(),
             open_dataset: None,
-            dataset_filter: String::new(),
-            dataset_sort_column: None,
-            dataset_sort_descending: false,
+            dataset_views: HashMap::new(),
             dataset_viewer_docked,
             dataset_pane_height,
             inspector_tab: InspectorTab::Variables,
@@ -3779,7 +3796,6 @@ impl ForgeApp {
         match self.data.import(&path) {
             Ok(name) => {
                 self.open_dataset = Some(format!("table:{name}"));
-                self.dataset_filter.clear();
                 self.inspector_tab = InspectorTab::Data;
                 self.console = format!("Imported {} as `{name}`.", path.display());
             }
@@ -4134,7 +4150,6 @@ impl ForgeApp {
                             .clicked()
                         {
                             self.open_dataset = Some(format!("table:{name}"));
-                            self.dataset_filter.clear();
                         }
                         ui.label(
                             RichText::new(format!(
@@ -4249,7 +4264,6 @@ impl ForgeApp {
                             .clicked()
                         {
                             self.open_dataset = Some(format!("vector:{name}"));
-                            self.dataset_filter.clear();
                         }
                         if compact_icon_button(
                             ui,
@@ -4358,7 +4372,7 @@ impl ForgeApp {
     }
 
     fn docked_dataset_viewer(&mut self, ui: &mut egui::Ui) {
-        let Some((name, data)) = self.selected_dataset() else {
+        let Some((name, mut data)) = self.selected_dataset() else {
             self.open_dataset = None;
             return;
         };
@@ -4371,7 +4385,6 @@ impl ForgeApp {
             );
             if ui.small_button("Close").clicked() {
                 self.open_dataset = None;
-                self.dataset_filter.clear();
             }
             ui.label(RichText::new(&name).strong().color(CYAN));
             if ui
@@ -4382,21 +4395,25 @@ impl ForgeApp {
                 self.dataset_viewer_docked = false;
             }
         });
-        draw_dataset_table(
+        let editable = self
+            .open_dataset
+            .as_ref()
+            .is_some_and(|value| value.starts_with("table:"));
+        let result = draw_dataset_table(
             ui,
-            &data,
-            &mut self.dataset_filter,
-            &mut self.dataset_sort_column,
-            &mut self.dataset_sort_descending,
+            &mut data,
+            self.dataset_views.entry(name.clone()).or_default(),
+            editable,
             "docked",
         );
+        self.apply_dataset_view_result(&name, result);
     }
 
     fn dataset_window(&mut self, ctx: &egui::Context) {
         if self.dataset_viewer_docked {
             return;
         }
-        let Some((name, data)) = self.selected_dataset() else {
+        let Some((name, mut data)) = self.selected_dataset() else {
             self.open_dataset = None;
             return;
         };
@@ -4418,21 +4435,49 @@ impl ForgeApp {
                         dock = true;
                     }
                 });
-                draw_dataset_table(
+                let editable = self
+                    .open_dataset
+                    .as_ref()
+                    .is_some_and(|value| value.starts_with("table:"));
+                let result = draw_dataset_table(
                     ui,
-                    &data,
-                    &mut self.dataset_filter,
-                    &mut self.dataset_sort_column,
-                    &mut self.dataset_sort_descending,
+                    &mut data,
+                    self.dataset_views.entry(name.clone()).or_default(),
+                    editable,
                     "floating",
                 );
+                self.apply_dataset_view_result(&name, result);
             });
         if dock {
             self.dataset_viewer_docked = true;
         }
         if !open {
             self.open_dataset = None;
-            self.dataset_filter.clear();
+        }
+    }
+
+    fn apply_dataset_view_result(&mut self, name: &str, result: DatasetViewResult) {
+        if let Some(table) = result.committed {
+            if let Some(existing) = self.data.tables.get(name) {
+                let source = existing.source.clone();
+                match data::Dataset::from_table(table, source) {
+                    Ok(dataset) => {
+                        self.data.tables.insert(name.to_owned(), dataset);
+                        self.console =
+                            format!("Saved edits to `{name}` and rebuilt its Arrow batch.");
+                    }
+                    Err(error) => self.console = format!("Could not save dataset edits: {error}"),
+                }
+            }
+        }
+        if let Some(spec) = result.linked_plot {
+            self.structured_plots
+                .retain(|existing| existing.name != spec.name);
+            self.structured_plots.push(spec);
+            self.inspector_tab = InspectorTab::Charts;
+        }
+        if let Some(message) = result.message {
+            self.console = message;
         }
     }
 
@@ -5611,12 +5656,16 @@ impl eframe::App for ForgeApp {
 
 fn draw_dataset_table(
     ui: &mut egui::Ui,
-    data: &TableData,
-    filter: &mut String,
-    sort_column: &mut Option<usize>,
-    sort_descending: &mut bool,
+    data: &mut TableData,
+    state: &mut DatasetViewState,
+    editable: bool,
     id_salt: &str,
-) {
+) -> DatasetViewResult {
+    let mut result = DatasetViewResult::default();
+    let column_count = data.columns.len();
+    state.visible.resize(column_count, true);
+    state.pinned.resize(column_count, false);
+    state.widths.resize(column_count, 120.0);
     ui.horizontal(|ui| {
         ui.label(format!(
             "{} rows × {} columns",
@@ -5626,17 +5675,158 @@ fn draw_dataset_table(
         ui.separator();
         ui.label("Filter");
         ui.add(
-            egui::TextEdit::singleline(filter)
+            egui::TextEdit::singleline(&mut state.filter)
                 .desired_width(180.0)
                 .hint_text("Search values..."),
         );
         if ui.small_button("Clear").clicked() {
-            filter.clear();
+            state.filter.clear();
+        }
+        ui.menu_button("Columns", |ui| {
+            for (index, column) in data.columns.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut state.visible[index], column);
+                    ui.checkbox(&mut state.pinned[index], "Pin");
+                });
+            }
+        });
+        if editable && state.edit_draft.is_none() && ui.button("Edit cells").clicked() {
+            state.edit_draft = Some(data.clone());
+        }
+        if state.edit_draft.is_some() {
+            if ui.button("Save edits").clicked() {
+                result.committed = state.edit_draft.take();
+            }
+            if ui.button("Cancel edits").clicked() {
+                state.edit_draft = None;
+                result.message = Some("Discarded dataset edits.".into());
+            }
+        }
+    });
+    ui.collapsing("Column widths", |ui| {
+        for (index, column) in data
+            .columns
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| state.visible[*i])
+        {
+            ui.horizontal(|ui| {
+                ui.label(column);
+                ui.add(egui::Slider::new(&mut state.widths[index], 60.0..=360.0).suffix(" px"));
+            });
+        }
+    });
+    let mut ordered_columns = (0..column_count)
+        .filter(|index| state.visible[*index])
+        .collect::<Vec<_>>();
+    ordered_columns.sort_by_key(|index| !state.pinned[*index]);
+    let editing = state.edit_draft.is_some();
+    let DatasetViewState {
+        filter,
+        sort_column,
+        sort_descending,
+        selected_rows,
+        widths,
+        edit_draft,
+        linked_x,
+        linked_y,
+        ..
+    } = state;
+    let display = edit_draft.as_mut().unwrap_or(data);
+    ui.horizontal_wrapped(|ui| {
+        ui.label(format!("{} selected", selected_rows.len()));
+        if ui.button("Export selection CSV…").clicked() {
+            let table = selected_table(display, selected_rows, &ordered_columns);
+            if let Some(path) = rfd::FileDialog::new()
+                .set_file_name("dataset-selection.csv")
+                .save_file()
+            {
+                result.message = Some(
+                    data::Dataset::from_table(table, Some("selection".into()))
+                        .and_then(|dataset| {
+                            export::dataset(&dataset, &path, export::DataFormat::Csv)
+                        })
+                        .map(|()| format!("Exported selected data to {}", path.display()))
+                        .unwrap_or_else(|e| format!("Selection export failed: {e}")),
+                );
+            }
+        }
+        egui::ComboBox::from_id_salt(("linked_x", id_salt))
+            .selected_text(
+                display
+                    .columns
+                    .get(*linked_x)
+                    .map(String::as_str)
+                    .unwrap_or("X column"),
+            )
+            .show_ui(ui, |ui| {
+                for index in &ordered_columns {
+                    ui.selectable_value(
+                        linked_x,
+                        *index,
+                        format!("X: {}", display.columns[*index]),
+                    );
+                }
+            });
+        egui::ComboBox::from_id_salt(("linked_y", id_salt))
+            .selected_text(
+                display
+                    .columns
+                    .get(*linked_y)
+                    .map(String::as_str)
+                    .unwrap_or("Y column"),
+            )
+            .show_ui(ui, |ui| {
+                for index in &ordered_columns {
+                    ui.selectable_value(
+                        linked_y,
+                        *index,
+                        format!("Y: {}", display.columns[*index]),
+                    );
+                }
+            });
+        if ui.button("Linked scatter").clicked() {
+            let points = display
+                .rows
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| selected_rows.is_empty() || selected_rows.contains(index))
+                .filter_map(|(_, row)| {
+                    Some([
+                        row.get(*linked_x)?.parse().ok()?,
+                        row.get(*linked_y)?.parse().ok()?,
+                    ])
+                })
+                .collect::<Vec<_>>();
+            if points.is_empty() {
+                result.message =
+                    Some("Linked plots require numeric X/Y values in the selected rows.".into());
+            } else {
+                result.linked_plot = Some(PlotSpec {
+                    version: plot::PLOT_SPEC_VERSION,
+                    name: format!(
+                        "{} vs {}",
+                        display.columns[*linked_y], display.columns[*linked_x]
+                    ),
+                    kind: PlotKind::Scatter,
+                    x_label: display.columns[*linked_x].clone(),
+                    y_label: display.columns[*linked_y].clone(),
+                    series: vec![plot::PlotSeries {
+                        name: "selection".into(),
+                        points,
+                        values: Vec::new(),
+                        visible: true,
+                    }],
+                    matrix: Vec::new(),
+                    x_log: false,
+                    y_log: false,
+                });
+            }
         }
     });
     ui.separator();
     let needle = filter.to_lowercase();
-    let mut matching_rows = data
+    let mut matching_rows = display
         .rows
         .iter()
         .enumerate()
@@ -5646,11 +5836,18 @@ fn draw_dataset_table(
                     .iter()
                     .any(|value| value.to_lowercase().contains(&needle))
         })
+        .map(|(index, _)| index)
         .collect::<Vec<_>>();
     if let Some(column) = *sort_column {
-        matching_rows.sort_by(|(_, left), (_, right)| {
-            let left = left.get(column).map(String::as_str).unwrap_or_default();
-            let right = right.get(column).map(String::as_str).unwrap_or_default();
+        matching_rows.sort_by(|left_index, right_index| {
+            let left = display.rows[*left_index]
+                .get(column)
+                .map(String::as_str)
+                .unwrap_or_default();
+            let right = display.rows[*right_index]
+                .get(column)
+                .map(String::as_str)
+                .unwrap_or_default();
             let ordering = match (left.parse::<f64>(), right.parse::<f64>()) {
                 (Ok(left), Ok(right)) => left.total_cmp(&right),
                 _ => left.to_lowercase().cmp(&right.to_lowercase()),
@@ -5671,9 +5868,23 @@ fn draw_dataset_table(
                 .min_col_width(90.0)
                 .show(ui, |ui| {
                     if range.start == 0 {
-                        ui.label(RichText::new("#").strong().color(MUTED));
-                        for (index, column) in data.columns.iter().enumerate() {
-                            let arrow = if *sort_column == Some(index) {
+                        let all_selected = !matching_rows.is_empty()
+                            && matching_rows
+                                .iter()
+                                .all(|index| selected_rows.contains(index));
+                        let mut select_all = all_selected;
+                        if ui.checkbox(&mut select_all, "#").changed() {
+                            if select_all {
+                                selected_rows.extend(matching_rows.iter().copied());
+                            } else {
+                                for index in &matching_rows {
+                                    selected_rows.remove(index);
+                                }
+                            }
+                        }
+                        for index in &ordered_columns {
+                            let column = &display.columns[*index];
+                            let arrow = if *sort_column == Some(*index) {
                                 if *sort_descending {
                                     " ↓"
                                 } else {
@@ -5683,36 +5894,57 @@ fn draw_dataset_table(
                                 ""
                             };
                             if ui
-                                .button(
-                                    RichText::new(format!("{column}{arrow}"))
-                                        .strong()
-                                        .color(CYAN),
+                                .add_sized(
+                                    [widths[*index], 20.0],
+                                    egui::Button::new(
+                                        RichText::new(format!("{column}{arrow}"))
+                                            .strong()
+                                            .color(CYAN),
+                                    ),
                                 )
                                 .clicked()
                             {
-                                if *sort_column == Some(index) {
+                                if *sort_column == Some(*index) {
                                     *sort_descending = !*sort_descending;
                                 } else {
-                                    *sort_column = Some(index);
+                                    *sort_column = Some(*index);
                                     *sort_descending = false;
                                 }
                             }
                         }
                         ui.end_row();
                     }
-                    for (index, row) in matching_rows
+                    for index in matching_rows
                         .iter()
                         .skip(range.start.saturating_sub(1))
                         .take(range.len())
                     {
-                        ui.label(
-                            RichText::new(index.to_string())
-                                .monospace()
-                                .size(10.0)
-                                .color(MUTED),
-                        );
-                        for value in *row {
-                            ui.label(RichText::new(value).monospace().size(10.0));
+                        let mut selected = selected_rows.contains(index);
+                        if ui.checkbox(&mut selected, index.to_string()).changed() {
+                            if selected {
+                                selected_rows.insert(*index);
+                            } else {
+                                selected_rows.remove(index);
+                            }
+                        }
+                        for column in &ordered_columns {
+                            if editing {
+                                ui.add_sized(
+                                    [widths[*column], 20.0],
+                                    egui::TextEdit::singleline(&mut display.rows[*index][*column])
+                                        .font(egui::TextStyle::Monospace),
+                                );
+                            } else {
+                                ui.add_sized(
+                                    [widths[*column], 20.0],
+                                    egui::Label::new(
+                                        RichText::new(&display.rows[*index][*column])
+                                            .monospace()
+                                            .size(10.0),
+                                    )
+                                    .truncate(),
+                                );
+                            }
                         }
                         ui.end_row();
                     }
@@ -5726,6 +5958,33 @@ fn draw_dataset_table(
         .size(9.0)
         .color(MUTED),
     );
+    result
+}
+
+fn selected_table(
+    data: &TableData,
+    selected_rows: &std::collections::BTreeSet<usize>,
+    columns: &[usize],
+) -> TableData {
+    let rows = data
+        .rows
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| selected_rows.is_empty() || selected_rows.contains(index))
+        .map(|(_, row)| {
+            columns
+                .iter()
+                .map(|column| row.get(*column).cloned().unwrap_or_default())
+                .collect()
+        })
+        .collect();
+    TableData {
+        columns: columns
+            .iter()
+            .map(|index| data.columns[*index].clone())
+            .collect(),
+        rows,
+    }
 }
 
 fn safe_file_stem(value: &str) -> String {
@@ -6387,5 +6646,20 @@ mod editor_tests {
         assert_eq!(restored.saved_runs[0].execution_count, 2);
         assert_eq!(restored.experiment_name, "next_run");
         assert_eq!(restored.comparison_metric, "accuracy");
+    }
+
+    #[test]
+    fn selected_table_projects_rows_and_columns() {
+        let table = TableData {
+            columns: vec!["a".into(), "b".into(), "c".into()],
+            rows: vec![
+                vec!["1".into(), "2".into(), "3".into()],
+                vec!["4".into(), "5".into(), "6".into()],
+            ],
+        };
+        let selected = [1usize].into_iter().collect();
+        let projected = selected_table(&table, &selected, &[2, 0]);
+        assert_eq!(projected.columns, ["c", "a"]);
+        assert_eq!(projected.rows, [vec!["6", "4"]]);
     }
 }

@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.15.0`
+Current application version: `0.16.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -75,7 +75,7 @@ tables, plots, and metrics still enter through a compatibility stdout adapter.
 - [~] Table rendering is suitable for prototypes, not million-row datasets.
 - [ ] Arrow-backed datasets and streamed record batches.
 - [ ] Virtualized rows and columns.
-- [ ] Sorting, column controls, selection, editing, and linked plots.
+- [x] Sorting, column controls, selection, editing, and linked plots.
 - [ ] CSV/Parquet/Arrow/JSON file browser and importer UI.
 - [ ] Database connections and SQL workbench.
 - [ ] Object-storage connections.
@@ -163,7 +163,7 @@ Implementation notes:
 
 - [x] Introduce Arrow-backed datasets.
 - [x] Add virtualized table rendering.
-- [~] Add sorting, column resizing, visibility, pinning, and selection (sorting landed first).
+- [x] Add sorting, column resizing, visibility, pinning, and selection.
 - [x] Add CSV, TSV, Parquet, Arrow IPC, and JSON Lines ingestion.
 - [x] Add an optional native Millwright `Table` adapter (`millwright` feature).
 - [~] Add dataset profiles, missingness, correlations, alerts, and lineage (column statistics and source lineage landed).
@@ -415,6 +415,24 @@ Implementation notes:
 - Plot payloads are limited to one million values, 128 series, and 512×512 heatmaps before entering UI state.
 - Existing `forge_metric` and `forge_vector` output remains supported.
 - SVG is a dependency-free portable export foundation; richer typography and multi-panel layout remain future work.
+
+## 0.16 advanced data grid and linked plots — implemented
+
+- [x] Add row selection and select-all across the current filtered view.
+- [x] Preserve selection by source-row identity while filtering and sorting.
+- [x] Add column visibility, pinning, and width controls.
+- [x] Render pinned visible columns before regular visible columns.
+- [x] Add explicit draft cell editing with Save and Cancel actions.
+- [x] Rebuild the Arrow `RecordBatch` only after committed table edits.
+- [x] Export selected rows and visible columns to CSV.
+- [x] Create linked scatter plots from selected numeric X/Y columns.
+- [x] Keep vector datasets read-only while allowing selection, export, and linked views.
+
+Implementation notes:
+
+- Cell edits affect the in-memory dataset; Forge never overwrites an imported source file implicitly.
+- Hidden columns remain in the dataset and reappear without data loss when made visible.
+- An empty row selection means all rows for export and linked plotting.
 
 ## Known technical risks
 
