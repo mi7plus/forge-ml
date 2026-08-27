@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.14.0`
+Current application version: `0.15.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -79,7 +79,7 @@ tables, plots, and metrics still enter through a compatibility stdout adapter.
 - [ ] CSV/Parquet/Arrow/JSON file browser and importer UI.
 - [ ] Database connections and SQL workbench.
 - [ ] Object-storage connections.
-- [ ] General MIME and structured plot output.
+- [x] General MIME and structured plot output.
 
 ### Experiments and ML
 
@@ -398,6 +398,23 @@ Implementation notes:
 - Diagnostic data lives under `.forge/diagnostics` and remains entirely user-controlled.
 - Disabling consent stops new recording but does not silently delete existing files.
 - The export manifest lists excluded sensitive categories so a bundle can be inspected before sharing.
+
+## 0.15 structured plots and visual analytics — implemented
+
+- [x] Add a versioned, framework-neutral `PlotSpec` and `forge_plot:` output record.
+- [x] Render line, scatter, bar, filled-area, histogram, box, and heatmap plots.
+- [x] Render ML-specific ROC, precision–recall, residual, and feature-importance views.
+- [x] Add per-series visibility controls and X/Y log10 transforms.
+- [x] Add plot-definition JSON and standalone SVG export.
+- [x] Validate finite values, series counts, total values, matrix shape, and heatmap size.
+- [x] Replace a same-named runtime plot so iterative notebook execution updates rather than duplicates it.
+
+Implementation notes:
+
+- Structured plots remain independent of Millwright, Burn, and Python-specific packages.
+- Plot payloads are limited to one million values, 128 series, and 512×512 heatmaps before entering UI state.
+- Existing `forge_metric` and `forge_vector` output remains supported.
+- SVG is a dependency-free portable export foundation; richer typography and multi-panel layout remain future work.
 
 ## Known technical risks
 

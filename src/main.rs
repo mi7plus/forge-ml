@@ -35,7 +35,7 @@ use diagnostics::DiagnosticsHandle;
 use eframe::egui;
 use egui::{Color32, Frame, Margin, Panel, RichText, Stroke};
 use egui_code_editor::{CodeEditor, ColorTheme, Syntax};
-use egui_plot::{Line, Plot, PlotPoints, Points};
+use egui_plot::{Bar, BarChart, Line, Plot, PlotPoints, Points};
 use experiment::{capture_provenance, ExperimentRun};
 #[cfg(test)]
 use forge_protocol::RunId;
@@ -51,7 +51,7 @@ use notebook::{
     cell_byte_ranges, is_notebook_document, lsp_document, notebook_lsp_prefix_chars,
     prepare_runtime_code, CellKind, NotebookDocument, RichOutput,
 };
-use plot::{metric_line, vector_bars};
+use plot::{metric_line, vector_bars, PlotKind, PlotSpec};
 use project::{FileNode, Project};
 use runtime::{CellResult, RuntimeHandle, VariableMeta};
 use session::SessionState;
@@ -212,6 +212,7 @@ struct ForgeApp {
     runtime_restart_attempts: usize,
     variables: Vec<VariableMeta>,
     data: DataWorkspace,
+    structured_plots: Vec<PlotSpec>,
     open_dataset: Option<String>,
     dataset_filter: String,
     dataset_sort_column: Option<usize>,
@@ -466,6 +467,7 @@ impl ForgeApp {
             runtime_restart_attempts: 0,
             variables: Vec::new(),
             data: DataWorkspace::default(),
+            structured_plots: Vec::new(),
             open_dataset: None,
             dataset_filter: String::new(),
             dataset_sort_column: None,
@@ -1748,6 +1750,11 @@ impl ForgeApp {
                         self.evaluation_report = report;
                     }
                     deep_learning::parse_output(&self.console, &mut self.deep_outputs);
+                    for spec in plot::parse_output(&self.console) {
+                        self.structured_plots
+                            .retain(|existing| existing.name != spec.name);
+                        self.structured_plots.push(spec);
+                    }
                     for envelope in events {
                         self.data.apply(envelope.event);
                     }
@@ -1777,6 +1784,7 @@ impl ForgeApp {
                     self.execution_count = 0;
                     self.variables.clear();
                     self.data.clear();
+                    self.structured_plots.clear();
                     self.open_dataset = None;
                     self.cell_records.clear();
                     self.console = "Runtime state cleared.".to_owned();
@@ -4679,7 +4687,7 @@ impl ForgeApp {
             if ui.button("Export").clicked() {
                 self.export_telemetry_csv();
             }
-            if self.data.has_telemetry()
+            if (self.data.has_telemetry() || !self.structured_plots.is_empty())
                 && ui
                     .button("Clear current")
                     .on_hover_text("Clear all current datasets and plots")
@@ -4687,9 +4695,11 @@ impl ForgeApp {
             {
                 self.data.metrics.clear();
                 self.data.vectors.clear();
+                self.structured_plots.clear();
                 self.console = "Cleared current datasets and plots.".to_owned();
             }
         });
+        self.structured_plot_viewer(ui);
         ui.horizontal(|ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut self.experiment_tags)
@@ -4763,6 +4773,140 @@ impl ForgeApp {
         if let Some(name) = vector_to_delete {
             self.data.vectors.remove(&name);
             self.console = format!("Deleted dataset and plot `{name}`.");
+        }
+    }
+
+    fn structured_plot_viewer(&mut self, ui: &mut egui::Ui) {
+        if self.structured_plots.is_empty() {
+            return;
+        }
+        ui.separator();
+        ui.heading("Structured plots");
+        let mut delete = None;
+        let mut status = None;
+        for (index, spec) in self.structured_plots.iter_mut().enumerate() {
+            egui::CollapsingHeader::new(format!("{} · {}", spec.name, spec.kind.label()))
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.checkbox(&mut spec.x_log, "log X");
+                        ui.checkbox(&mut spec.y_log, "log Y");
+                        if ui.button("Export JSON").clicked() {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .set_file_name(format!("{}.plot.json", safe_file_stem(&spec.name)))
+                                .save_file()
+                            {
+                                status = Some(
+                                    std::fs::write(
+                                        &path,
+                                        serde_json::to_vec_pretty(spec).unwrap_or_default(),
+                                    )
+                                    .map(|()| format!("Exported {}", path.display()))
+                                    .unwrap_or_else(|e| e.to_string()),
+                                );
+                            }
+                        }
+                        if ui.button("Export SVG").clicked() {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .set_file_name(format!("{}.svg", safe_file_stem(&spec.name)))
+                                .save_file()
+                            {
+                                status = Some(
+                                    plot::svg(spec, 960, 540)
+                                        .and_then(|svg| {
+                                            std::fs::write(&path, svg).map_err(|e| e.to_string())
+                                        })
+                                        .map(|()| format!("Exported {}", path.display()))
+                                        .unwrap_or_else(|e| e),
+                                );
+                            }
+                        }
+                        if ui.button("Delete").clicked() {
+                            delete = Some(index);
+                        }
+                    });
+                    for series in &mut spec.series {
+                        ui.checkbox(&mut series.visible, &series.name);
+                    }
+                    if spec.kind == PlotKind::Heatmap {
+                        draw_heatmap(ui, &spec.matrix);
+                        return;
+                    }
+                    if spec.kind == PlotKind::Box {
+                        draw_box_summary(ui, spec);
+                    }
+                    Plot::new(format!("structured_plot_{index}"))
+                        .height(260.0)
+                        .show(ui, |plot_ui| {
+                            for (series_index, series) in
+                                spec.series.iter().filter(|s| s.visible).enumerate()
+                            {
+                                let points = transformed_points(series, spec.x_log, spec.y_log);
+                                match spec.kind {
+                                    PlotKind::Scatter | PlotKind::Residual => plot_ui.points(
+                                        Points::new(&series.name, PlotPoints::from(points))
+                                            .radius(3.0),
+                                    ),
+                                    PlotKind::Bar | PlotKind::FeatureImportance => {
+                                        let bars = if !series.values.is_empty() {
+                                            series
+                                                .values
+                                                .iter()
+                                                .enumerate()
+                                                .map(|(i, v)| Bar::new(i as f64, *v))
+                                                .collect()
+                                        } else {
+                                            points.iter().map(|p| Bar::new(p[0], p[1])).collect()
+                                        };
+                                        plot_ui.bar_chart(BarChart::new(&series.name, bars));
+                                    }
+                                    PlotKind::Histogram => plot_ui.bar_chart(BarChart::new(
+                                        &series.name,
+                                        histogram(&series.values, 24),
+                                    )),
+                                    PlotKind::Area => plot_ui.line(
+                                        Line::new(&series.name, PlotPoints::from(points))
+                                            .fill(0.0)
+                                            .fill_alpha(0.25),
+                                    ),
+                                    PlotKind::Box => {
+                                        if let Some((min, q1, median, q3, max)) =
+                                            quartiles(&series.values)
+                                        {
+                                            plot_ui.line(Line::new(
+                                                &series.name,
+                                                PlotPoints::from(vec![[0.0, min], [0.0, max]]),
+                                            ));
+                                            plot_ui.points(
+                                                Points::new(
+                                                    format!("{} quartiles", series.name),
+                                                    PlotPoints::from(vec![
+                                                        [-0.05, q1],
+                                                        [0.0, median],
+                                                        [0.05, q3],
+                                                    ]),
+                                                )
+                                                .radius(5.0),
+                                            );
+                                        }
+                                    }
+                                    _ => plot_ui.line(
+                                        Line::new(&series.name, PlotPoints::from(points))
+                                            .width(if series_index == 0 { 2.5 } else { 1.5 }),
+                                    ),
+                                }
+                            }
+                        });
+                    if !spec.x_label.is_empty() || !spec.y_label.is_empty() {
+                        ui.label(format!("X: {}    Y: {}", spec.x_label, spec.y_label));
+                    }
+                });
+        }
+        if let Some(index) = delete {
+            self.structured_plots.remove(index);
+        }
+        if let Some(message) = status {
+            self.console = message;
         }
     }
 
@@ -5582,6 +5726,127 @@ fn draw_dataset_table(
         .size(9.0)
         .color(MUTED),
     );
+}
+
+fn safe_file_stem(value: &str) -> String {
+    let stem = value
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if stem.is_empty() {
+        "plot".into()
+    } else {
+        stem
+    }
+}
+
+fn transformed_points(series: &plot::PlotSeries, x_log: bool, y_log: bool) -> Vec<[f64; 2]> {
+    let raw = if series.points.is_empty() {
+        series
+            .values
+            .iter()
+            .enumerate()
+            .map(|(i, v)| [i as f64, *v])
+            .collect::<Vec<_>>()
+    } else {
+        series.points.clone()
+    };
+    raw.into_iter()
+        .filter_map(|[x, y]| {
+            if (x_log && x <= 0.0) || (y_log && y <= 0.0) {
+                None
+            } else {
+                Some([
+                    if x_log { x.log10() } else { x },
+                    if y_log { y.log10() } else { y },
+                ])
+            }
+        })
+        .collect()
+}
+
+fn histogram(values: &[f64], bins: usize) -> Vec<Bar> {
+    if values.is_empty() {
+        return Vec::new();
+    }
+    let min = values.iter().copied().reduce(f64::min).unwrap_or(0.0);
+    let max = values.iter().copied().reduce(f64::max).unwrap_or(min);
+    let width = ((max - min) / bins as f64).max(f64::EPSILON);
+    let mut counts = vec![0usize; bins];
+    for value in values {
+        let index = (((*value - min) / width) as usize).min(bins - 1);
+        counts[index] += 1;
+    }
+    counts
+        .into_iter()
+        .enumerate()
+        .map(|(i, count)| Bar::new(min + (i as f64 + 0.5) * width, count as f64).width(width))
+        .collect()
+}
+fn quartiles(values: &[f64]) -> Option<(f64, f64, f64, f64, f64)> {
+    if values.is_empty() {
+        return None;
+    }
+    let mut values = values.to_vec();
+    values.sort_by(f64::total_cmp);
+    let at = |fraction: f64| values[((values.len() - 1) as f64 * fraction).round() as usize];
+    Some((
+        values[0],
+        at(0.25),
+        at(0.5),
+        at(0.75),
+        *values.last().unwrap(),
+    ))
+}
+fn draw_box_summary(ui: &mut egui::Ui, spec: &PlotSpec) {
+    egui::Grid::new(format!("box_summary_{}", spec.name))
+        .striped(true)
+        .show(ui, |ui| {
+            ui.strong("Series");
+            for label in ["Min", "Q1", "Median", "Q3", "Max"] {
+                ui.strong(label);
+            }
+            ui.end_row();
+            for series in spec.series.iter().filter(|s| s.visible) {
+                if let Some((min, q1, median, q3, max)) = quartiles(&series.values) {
+                    ui.label(&series.name);
+                    for value in [min, q1, median, q3, max] {
+                        ui.label(format!("{value:.4}"));
+                    }
+                    ui.end_row();
+                }
+            }
+        });
+}
+fn draw_heatmap(ui: &mut egui::Ui, matrix: &[Vec<f64>]) {
+    let values = matrix.iter().flatten().copied().collect::<Vec<_>>();
+    let min = values.iter().copied().reduce(f64::min).unwrap_or(0.0);
+    let max = values.iter().copied().reduce(f64::max).unwrap_or(min);
+    egui::ScrollArea::both().max_height(320.0).show(ui, |ui| {
+        egui::Grid::new("structured_heatmap")
+            .spacing([2.0, 2.0])
+            .show(ui, |ui| {
+                for row in matrix {
+                    for value in row {
+                        let t =
+                            ((*value - min) / (max - min).max(f64::EPSILON)).clamp(0.0, 1.0) as f32;
+                        let color = Color32::from_rgb(
+                            (30.0 + 210.0 * t) as u8,
+                            (50.0 + 80.0 * (1.0 - t)) as u8,
+                            (220.0 - 180.0 * t) as u8,
+                        );
+                        ui.colored_label(color, format!("{value:.2}"));
+                    }
+                    ui.end_row();
+                }
+            });
+    });
 }
 
 fn word_start_at(text: &str, offset: usize) -> Option<usize> {
