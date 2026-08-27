@@ -7,6 +7,7 @@ mod experiment;
 mod export;
 mod git;
 mod github;
+mod integration_worker;
 mod jobs;
 mod jupyter;
 mod lsp;
@@ -30,7 +31,7 @@ mod session;
 mod updater;
 
 use data::DataWorkspace;
-use database::{ConnectionKind, ConnectionProfile, DatabaseConnector, ProfileConnector};
+use database::{ConnectionKind, ConnectionProfile};
 use deep_learning::{Backend as DeepBackend, DeepOutputs, ResourceSnapshot};
 use diagnostics::DiagnosticsHandle;
 use eframe::egui;
@@ -42,6 +43,7 @@ use experiment::{capture_provenance, ExperimentRun};
 use forge_protocol::RunId;
 use forge_protocol::TableData;
 use forge_storage::{WorkspaceRecovery, WorkspaceStore};
+use integration_worker::{IntegrationWorker, Request as IntegrationRequest, ResultEvent};
 use jobs::{JobQueue, JobState};
 use lsp::{Diagnostic as LspDiagnostic, LspCommand, LspEvent, LspHandle};
 use millwright_studio::{
@@ -329,6 +331,8 @@ struct ForgeApp {
     jupyter_kernels: Vec<jupyter::KernelSpec>,
     python_environment_fingerprint: String,
     job_queue: JobQueue,
+    integration_worker: IntegrationWorker,
+    integration_pending: usize,
     job_command: String,
     database_profiles: Vec<ConnectionProfile>,
     database_selected: usize,
@@ -588,6 +592,8 @@ impl ForgeApp {
             jupyter_kernels: Vec::new(),
             python_environment_fingerprint: session.python_environment_fingerprint.clone(),
             job_queue: JobQueue::new(),
+            integration_worker: IntegrationWorker::new(),
+            integration_pending: 0,
             job_command: "cargo run --release".into(),
             database_profiles,
             database_selected: 0,
@@ -1716,6 +1722,48 @@ impl ForgeApp {
         if let Some(root) = self.project_root() {
             self.job_queue.poll(root);
         }
+        while let Some(event) = self.integration_worker.try_recv() {
+            self.integration_pending = self.integration_pending.saturating_sub(1);
+            match event {
+                ResultEvent::DatabaseMessage(result) => {
+                    self.sql_output = result.unwrap_or_else(|error| error);
+                }
+                ResultEvent::DatabaseTable {
+                    dataset_name,
+                    source,
+                    query,
+                    result,
+                } => match result {
+                    Ok(table) => {
+                        let rows = table.rows.len();
+                        match self.data.insert_table(dataset_name.clone(), table, source) {
+                            Ok(()) => {
+                                self.open_dataset = Some(format!("table:{dataset_name}"));
+                                if let Some(query) = query {
+                                    self.sql_history.push(query);
+                                    if let Some(store) = &self.workspace_store {
+                                        let _ = store.save_query_history(&self.sql_history);
+                                    }
+                                }
+                                self.sql_output = format!(
+                                    "Loaded {rows} rows into Arrow-backed dataset `{dataset_name}`."
+                                );
+                            }
+                            Err(error) => self.sql_output = error,
+                        }
+                    }
+                    Err(error) => self.sql_output = error,
+                },
+                ResultEvent::ObjectMessage(result) => {
+                    self.object_output = result.unwrap_or_else(|error| error);
+                }
+                ResultEvent::ObjectDownload(result) => {
+                    self.object_output = result
+                        .map(|path| format!("Downloaded {}", path.display()))
+                        .unwrap_or_else(|error| error);
+                }
+            }
+        }
         if let Some(kernel) = &self.python_kernel {
             while let Some(result) = kernel.try_recv() {
                 self.python_mime_outputs = result.mime;
@@ -1725,7 +1773,11 @@ impl ForgeApp {
                     .push_str(&format!("\nOut [{}]:\n{}", result.id, result.output));
             }
         }
-        ctx.request_repaint_after(Duration::from_millis(750));
+        ctx.request_repaint_after(Duration::from_millis(if self.integration_pending > 0 {
+            100
+        } else {
+            750
+        }));
         while let Some(result) = self.runtime.try_recv() {
             match result {
                 CellResult::Ready => {
@@ -2971,7 +3023,11 @@ impl ForgeApp {
             self.object_endpoint = profile.endpoint;
         }
         ui.horizontal_wrapped(|ui| {
-            if ui.button("Test").clicked() {
+            let available = self.integration_pending == 0;
+            if ui
+                .add_enabled(available, egui::Button::new("Test"))
+                .clicked()
+            {
                 let profile = object_storage::ObjectProfile {
                     name: self.object_name.clone(),
                     provider: self.object_provider,
@@ -2980,9 +3036,21 @@ impl ForgeApp {
                     endpoint: self.object_endpoint.clone(),
                     credential_hint: String::new(),
                 };
-                self.object_output = profile.test().unwrap_or_else(|error| error);
+                self.object_output = match self
+                    .integration_worker
+                    .submit(IntegrationRequest::ObjectTest(profile))
+                {
+                    Ok(()) => {
+                        self.integration_pending += 1;
+                        "Testing object-storage profile…".into()
+                    }
+                    Err(error) => error,
+                };
             }
-            if ui.button("List objects").clicked() {
+            if ui
+                .add_enabled(available, egui::Button::new("List objects"))
+                .clicked()
+            {
                 let profile = object_storage::ObjectProfile {
                     name: self.object_name.clone(),
                     provider: self.object_provider,
@@ -2991,13 +3059,28 @@ impl ForgeApp {
                     endpoint: self.object_endpoint.clone(),
                     credential_hint: String::new(),
                 };
-                self.object_output = profile.list(200).unwrap_or_else(|e| e);
+                self.object_output =
+                    match self
+                        .integration_worker
+                        .submit(IntegrationRequest::ObjectList {
+                            profile,
+                            limit: 200,
+                        }) {
+                        Ok(()) => {
+                            self.integration_pending += 1;
+                            "Listing objects…".into()
+                        }
+                        Err(error) => error,
+                    };
             }
             ui.add(
                 egui::TextEdit::singleline(&mut self.object_key)
                     .hint_text("key relative to prefix"),
             );
-            if ui.button("Download to project cache").clicked() {
+            if ui
+                .add_enabled(available, egui::Button::new("Download to project cache"))
+                .clicked()
+            {
                 let profile = object_storage::ObjectProfile {
                     name: self.object_name.clone(),
                     provider: self.object_provider,
@@ -3006,10 +3089,20 @@ impl ForgeApp {
                     endpoint: self.object_endpoint.clone(),
                     credential_hint: String::new(),
                 };
-                self.object_output = profile
-                    .download(&self.object_key, &root)
-                    .map(|p| format!("Downloaded {}", p.display()))
-                    .unwrap_or_else(|e| e);
+                self.object_output =
+                    match self
+                        .integration_worker
+                        .submit(IntegrationRequest::ObjectDownload {
+                            profile,
+                            key: self.object_key.clone(),
+                            root: root.clone(),
+                        }) {
+                        Ok(()) => {
+                            self.integration_pending += 1;
+                            "Downloading object to project cache…".into()
+                        }
+                        Err(error) => error,
+                    };
             }
         });
         ui.separator();
@@ -3491,6 +3584,7 @@ impl ForgeApp {
             }
         });
         ui.horizontal(|ui| {
+            let available = self.integration_pending == 0;
             egui::ComboBox::from_id_salt("database_profile")
                 .selected_text(
                     self.database_profiles
@@ -3507,31 +3601,45 @@ impl ForgeApp {
                         );
                     }
                 });
-            if ui.button("Test").clicked() {
+            if ui
+                .add_enabled(available, egui::Button::new("Test"))
+                .clicked()
+            {
                 if let Some(profile) = self.database_profiles.get(self.database_selected) {
                     self.sql_output =
-                        database::test_connection(profile, &root).unwrap_or_else(|error| error);
+                        match self
+                            .integration_worker
+                            .submit(IntegrationRequest::DatabaseTest {
+                                profile: profile.clone(),
+                                root: root.clone(),
+                            }) {
+                            Ok(()) => {
+                                self.integration_pending += 1;
+                                "Testing database connection…".into()
+                            }
+                            Err(error) => error,
+                        };
                 }
             }
-            if ui.button("Schema").clicked() {
+            if ui
+                .add_enabled(available, egui::Button::new("Schema"))
+                .clicked()
+            {
                 if let Some(profile) = self.database_profiles.get(self.database_selected) {
-                    match (ProfileConnector {
-                        profile,
-                        project_root: &root,
-                    })
-                    .schema()
-                    {
-                        Ok(table) => {
-                            let name = format!("{}_schema", profile.name);
-                            let _ = self.data.insert_table(
-                                name.clone(),
-                                table,
-                                format!("{} schema", profile.name),
-                            );
-                            self.open_dataset = Some(format!("table:{name}"));
-                        }
-                        Err(error) => self.sql_output = error,
-                    }
+                    self.sql_output =
+                        match self
+                            .integration_worker
+                            .submit(IntegrationRequest::DatabaseSchema {
+                                profile: profile.clone(),
+                                root: root.clone(),
+                                dataset_name: format!("{}_schema", profile.name),
+                            }) {
+                            Ok(()) => {
+                                self.integration_pending += 1;
+                                "Loading database schema…".into()
+                            }
+                            Err(error) => error,
+                        };
                 }
             }
             ui.label(format!("ADBC core: {}", database::adbc_marker()));
@@ -3542,35 +3650,30 @@ impl ForgeApp {
                 .desired_rows(6)
                 .hint_text("SQL query"),
         );
-        if ui.button("Run query into data viewer").clicked() {
+        if ui
+            .add_enabled(
+                self.integration_pending == 0,
+                egui::Button::new("Run query into data viewer"),
+            )
+            .clicked()
+        {
             if let Some(profile) = self.database_profiles.get(self.database_selected) {
-                match (ProfileConnector {
-                    profile,
-                    project_root: &root,
-                })
-                .query(&self.sql_editor)
-                {
-                    Ok(table) => {
-                        let name = format!("{}_query_{}", profile.name, self.sql_history.len() + 1);
-                        let rows = table.rows.len();
-                        if let Err(error) = self.data.insert_table(
-                            name.clone(),
-                            table,
-                            format!("{} SQL", profile.name),
-                        ) {
-                            self.sql_output = error;
-                        } else {
-                            self.open_dataset = Some(format!("table:{name}"));
-                            self.sql_history.push(self.sql_editor.clone());
-                            if let Some(store) = &self.workspace_store {
-                                let _ = store.save_query_history(&self.sql_history);
-                            }
-                            self.sql_output =
-                                format!("Loaded {rows} rows into Arrow-backed dataset `{name}`.");
+                let name = format!("{}_query_{}", profile.name, self.sql_history.len() + 1);
+                self.sql_output =
+                    match self
+                        .integration_worker
+                        .submit(IntegrationRequest::DatabaseQuery {
+                            profile: profile.clone(),
+                            root: root.clone(),
+                            dataset_name: name,
+                            sql: self.sql_editor.clone(),
+                        }) {
+                        Ok(()) => {
+                            self.integration_pending += 1;
+                            "Running query in background…".into()
                         }
-                    }
-                    Err(error) => self.sql_output = error,
-                }
+                        Err(error) => error,
+                    };
             }
         }
         ui.label(&self.sql_output);

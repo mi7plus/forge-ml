@@ -43,11 +43,15 @@ Forge invokes Cargo, Git, `gh`, Jupyter, Python, AWS CLI, rclone, DuckDB, or Pos
 
 The SQL inspector supports embedded SQLite plus the official DuckDB and PostgreSQL command-line clients. Save a project-scoped profile, then use **Test** before schema discovery or running a query. External database commands stop after 30 seconds, previews are limited to 10,000 rows and 64 MiB of CSV output, and stderr is scrubbed of the connection location and stored password before display.
 
+Connection tests, schema discovery, and queries run on a background integration worker. Forge remains responsive while a request is active, temporarily disables conflicting integration actions, and opens successful schema/query results in the data viewer when the typed result returns. Query history is updated only after successful execution.
+
 Enter PostgreSQL passwords only in Forge's password field. Forge rejects passwords embedded in PostgreSQL URLs or keyword connection strings, stores accepted credentials through the operating-system credential manager, and never writes them to project profile JSON. The optional ADBC integration exposes the common API boundary, while concrete ADBC driver-manager installation remains user-controlled.
 
 ## Object storage
 
 The Storage inspector supports AWS S3-compatible buckets and configured rclone remotes without storing their credentials. Save a profile and use **Test** to verify that its bucket, prefix, endpoint, and external credential chain are reachable. Listings stop after 30 seconds and retain at most 4 MiB; the UI displays at most the requested bounded number of entries.
+
+Tests, listings, and downloads use the same background integration worker as database operations, so slow networks do not block editor painting or input. Status text reports the queued operation and updates when the worker returns.
 
 Download keys are relative to the profile prefix. Forge mirrors the full prefix and key beneath `.forge/object-cache/<profile>/`, so objects with the same basename do not collide. Transfers write to a temporary file, enforce a 2 GiB cache-object limit, and replace an existing cached object atomically. Failed, timed-out, or oversized transfers remove their partial files. Remote endpoints and common secret assignments are redacted from displayed command errors.
 

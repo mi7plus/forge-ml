@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.24.0`
+Current application version: `0.25.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -77,8 +77,8 @@ tables, plots, and metrics still enter through a compatibility stdout adapter.
 - [x] Virtualized rows and columns.
 - [x] Sorting, column controls, selection, editing, and linked plots.
 - [ ] CSV/Parquet/Arrow/JSON file browser and importer UI.
-- [ ] Database connections and SQL workbench.
-- [ ] Object-storage connections.
+- [x] Database connections and SQL workbench.
+- [x] Object-storage connections.
 - [x] General MIME and structured plot output.
 
 ### Experiments and ML
@@ -573,6 +573,24 @@ Implementation notes:
 - Steady-state table viewing now avoids both the full table clone and repeated filter/sort scan; only viewport widgets are rebuilt each frame.
 - The cached index stores source-row integers, not copied row data, so selections and linked plots keep stable source identity.
 - A filter or sort change still performs one full in-memory scan. Streamed Arrow ingestion and query pushdown remain future work for datasets that cannot be materialized comfortably.
+
+## 0.25 non-blocking data integrations — implemented
+
+- [x] Add a dedicated sequential worker for database and object-storage requests.
+- [x] Move database connection tests, schema discovery, and SQL queries off the UI thread.
+- [x] Move object-storage tests, listings, and downloads off the UI thread.
+- [x] Return typed database tables rather than reparsing worker text in the UI.
+- [x] Insert successful query/schema results into Arrow-backed workspace datasets on the UI thread.
+- [x] Update query history only after successful background execution.
+- [x] Deliver downloaded cache paths and bounded listing output through typed result variants.
+- [x] Disable conflicting integration actions while work is active and repaint status at 100 ms intervals.
+- [x] Add an asynchronous SQLite query test with bounded result waiting.
+
+Implementation notes:
+
+- The worker is deliberately sequential: this prevents overlapping credential prompts, competing cache writes, and unbounded external process fan-out.
+- Existing database and object-storage timeouts remain the terminal guarantee for commands running inside the worker.
+- Workspace mutation remains on the UI thread after result delivery, keeping egui and dataset state single-threaded.
 
 ## Known technical risks
 
