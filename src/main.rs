@@ -200,6 +200,15 @@ struct DatasetViewState {
     edit_draft: Option<TableData>,
     linked_x: usize,
     linked_y: usize,
+    row_index_cache: Option<RowIndexCache>,
+}
+
+struct RowIndexCache {
+    revision: u64,
+    filter: String,
+    sort_column: Option<usize>,
+    sort_descending: bool,
+    rows: Vec<usize>,
 }
 
 #[derive(Default)]
@@ -4502,26 +4511,53 @@ impl ForgeApp {
         }
     }
 
-    fn selected_dataset(&self) -> Option<(String, TableData)> {
+    fn selected_dataset_info(&self) -> Option<(String, bool)> {
         let selection = self.open_dataset.as_ref()?;
         let (kind, name) = selection.split_once(':').unwrap_or(("", selection));
-        let data = match kind {
-            "table" => self
-                .data
-                .tables
-                .get(name)
-                .map(|dataset| dataset.table.clone()),
-            "vector" => self.data.vectors.get(name).map(|values| TableData {
-                columns: vec!["value".to_owned()],
-                rows: values.iter().map(|value| vec![value.to_string()]).collect(),
-            }),
-            _ => None,
-        }?;
-        Some((name.to_owned(), data))
+        let exists = match kind {
+            "table" => self.data.tables.contains_key(name),
+            "vector" => self.data.vectors.contains_key(name),
+            _ => false,
+        };
+        exists.then(|| (name.to_owned(), kind == "table"))
+    }
+
+    fn draw_selected_dataset(
+        &mut self,
+        ui: &mut egui::Ui,
+        name: &str,
+        editable: bool,
+        id_salt: &str,
+    ) -> Option<DatasetViewResult> {
+        if editable {
+            let dataset = self.data.tables.get_mut(name)?;
+            let state = self.dataset_views.entry(name.to_owned()).or_default();
+            return Some(draw_dataset_table(
+                ui,
+                &mut dataset.table,
+                state,
+                true,
+                id_salt,
+                Some(dataset.revision),
+            ));
+        }
+        let values = self.data.vectors.get(name)?;
+        let mut table = TableData {
+            columns: vec!["value".to_owned()],
+            rows: values.iter().map(|value| vec![value.to_string()]).collect(),
+        };
+        Some(draw_dataset_table(
+            ui,
+            &mut table,
+            self.dataset_views.entry(name.to_owned()).or_default(),
+            false,
+            id_salt,
+            None,
+        ))
     }
 
     fn docked_dataset_viewer(&mut self, ui: &mut egui::Ui) {
-        let Some((name, mut data)) = self.selected_dataset() else {
+        let Some((name, editable)) = self.selected_dataset_info() else {
             self.open_dataset = None;
             return;
         };
@@ -4544,25 +4580,16 @@ impl ForgeApp {
                 self.dataset_viewer_docked = false;
             }
         });
-        let editable = self
-            .open_dataset
-            .as_ref()
-            .is_some_and(|value| value.starts_with("table:"));
-        let result = draw_dataset_table(
-            ui,
-            &mut data,
-            self.dataset_views.entry(name.clone()).or_default(),
-            editable,
-            "docked",
-        );
-        self.apply_dataset_view_result(&name, result);
+        if let Some(result) = self.draw_selected_dataset(ui, &name, editable, "docked") {
+            self.apply_dataset_view_result(&name, result);
+        }
     }
 
     fn dataset_window(&mut self, ctx: &egui::Context) {
         if self.dataset_viewer_docked {
             return;
         }
-        let Some((name, mut data)) = self.selected_dataset() else {
+        let Some((name, editable)) = self.selected_dataset_info() else {
             self.open_dataset = None;
             return;
         };
@@ -4584,18 +4611,9 @@ impl ForgeApp {
                         dock = true;
                     }
                 });
-                let editable = self
-                    .open_dataset
-                    .as_ref()
-                    .is_some_and(|value| value.starts_with("table:"));
-                let result = draw_dataset_table(
-                    ui,
-                    &mut data,
-                    self.dataset_views.entry(name.clone()).or_default(),
-                    editable,
-                    "floating",
-                );
-                self.apply_dataset_view_result(&name, result);
+                if let Some(result) = self.draw_selected_dataset(ui, &name, editable, "floating") {
+                    self.apply_dataset_view_result(&name, result);
+                }
             });
         if dock {
             self.dataset_viewer_docked = true;
@@ -5822,6 +5840,7 @@ fn draw_dataset_table(
     state: &mut DatasetViewState,
     editable: bool,
     id_salt: &str,
+    revision: Option<u64>,
 ) -> DatasetViewResult {
     let mut result = DatasetViewResult::default();
     let column_count = data.columns.len();
@@ -5858,9 +5877,11 @@ fn draw_dataset_table(
         if state.edit_draft.is_some() {
             if ui.button("Save edits").clicked() {
                 result.committed = state.edit_draft.take();
+                state.row_index_cache = None;
             }
             if ui.button("Cancel edits").clicked() {
                 state.edit_draft = None;
+                state.row_index_cache = None;
                 result.message = Some("Discarded dataset edits.".into());
             }
         }
@@ -5892,6 +5913,7 @@ fn draw_dataset_table(
         edit_draft,
         linked_x,
         linked_y,
+        row_index_cache,
         ..
     } = state;
     let display = edit_draft.as_mut().unwrap_or(data);
@@ -5987,40 +6009,28 @@ fn draw_dataset_table(
         }
     });
     ui.separator();
-    let needle = filter.to_lowercase();
-    let mut matching_rows = display
-        .rows
-        .iter()
-        .enumerate()
-        .filter(|(_, row)| {
-            needle.is_empty()
-                || row
-                    .iter()
-                    .any(|value| value.to_lowercase().contains(&needle))
-        })
-        .map(|(index, _)| index)
-        .collect::<Vec<_>>();
-    if let Some(column) = *sort_column {
-        matching_rows.sort_by(|left_index, right_index| {
-            let left = display.rows[*left_index]
-                .get(column)
-                .map(String::as_str)
-                .unwrap_or_default();
-            let right = display.rows[*right_index]
-                .get(column)
-                .map(String::as_str)
-                .unwrap_or_default();
-            let ordering = match (left.parse::<f64>(), right.parse::<f64>()) {
-                (Ok(left), Ok(right)) => left.total_cmp(&right),
-                _ => left.to_lowercase().cmp(&right.to_lowercase()),
-            };
-            if *sort_descending {
-                ordering.reverse()
-            } else {
-                ordering
-            }
+    let uncached_rows;
+    let matching_rows: &[usize] = if let Some(revision) = revision.filter(|_| !editing) {
+        let cache_matches = row_index_cache.as_ref().is_some_and(|cache| {
+            cache.revision == revision
+                && cache.filter == *filter
+                && cache.sort_column == *sort_column
+                && cache.sort_descending == *sort_descending
         });
-    }
+        if !cache_matches {
+            *row_index_cache = Some(RowIndexCache {
+                revision,
+                filter: filter.clone(),
+                sort_column: *sort_column,
+                sort_descending: *sort_descending,
+                rows: build_row_index(display, filter, *sort_column, *sort_descending),
+            });
+        }
+        &row_index_cache.as_ref().expect("cache initialized").rows
+    } else {
+        uncached_rows = build_row_index(display, filter, *sort_column, *sort_descending);
+        &uncached_rows
+    };
     let scroll_id = ui.make_persistent_id(("dataset_table_scroll", id_salt));
     let horizontal_offset = egui::scroll_area::State::load(ui.ctx(), scroll_id)
         .map(|state| state.offset.x)
@@ -6050,7 +6060,7 @@ fn draw_dataset_table(
                             if select_all {
                                 selected_rows.extend(matching_rows.iter().copied());
                             } else {
-                                for index in &matching_rows {
+                                for index in matching_rows {
                                     selected_rows.remove(index);
                                 }
                             }
@@ -6146,6 +6156,49 @@ fn draw_dataset_table(
         .color(MUTED),
     );
     result
+}
+
+fn build_row_index(
+    data: &TableData,
+    filter: &str,
+    sort_column: Option<usize>,
+    sort_descending: bool,
+) -> Vec<usize> {
+    let needle = filter.to_lowercase();
+    let mut rows = data
+        .rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| {
+            needle.is_empty()
+                || row
+                    .iter()
+                    .any(|value| value.to_lowercase().contains(&needle))
+        })
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    if let Some(column) = sort_column {
+        rows.sort_by(|left_index, right_index| {
+            let left = data.rows[*left_index]
+                .get(column)
+                .map(String::as_str)
+                .unwrap_or_default();
+            let right = data.rows[*right_index]
+                .get(column)
+                .map(String::as_str)
+                .unwrap_or_default();
+            let ordering = match (left.parse::<f64>(), right.parse::<f64>()) {
+                (Ok(left), Ok(right)) => left.total_cmp(&right),
+                _ => left.to_lowercase().cmp(&right.to_lowercase()),
+            };
+            if sort_descending {
+                ordering.reverse()
+            } else {
+                ordering
+            }
+        });
+    }
+    rows
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -6936,5 +6989,20 @@ mod editor_tests {
         assert_eq!(window.start, 0);
         assert_eq!(window.end, 2);
         assert_eq!(window.trailing, 0.0);
+    }
+
+    #[test]
+    fn row_index_filters_and_sorts_numeric_and_text_values() {
+        let table = TableData {
+            columns: vec!["name".into(), "score".into()],
+            rows: vec![
+                vec!["beta".into(), "10".into()],
+                vec!["alpha".into(), "2".into()],
+                vec!["alphabet".into(), "30".into()],
+            ],
+        };
+        assert_eq!(build_row_index(&table, "alpha", None, false), [1, 2]);
+        assert_eq!(build_row_index(&table, "", Some(1), false), [1, 0, 2]);
+        assert_eq!(build_row_index(&table, "", Some(0), true), [0, 2, 1]);
     }
 }

@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.23.0`
+Current application version: `0.24.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -556,6 +556,23 @@ Implementation notes:
 - Column-window calculation is linear in the number of visible columns but widget construction is bounded by viewport width; this removes the dominant per-frame cost for very wide tables.
 - Filtering and sorting still scan materialized row strings. Streamed Arrow batches and query pushdown remain the path to million-row interactive filtering.
 - Pinned columns retain their existing pinned-first ordering; frozen sticky columns require a synchronized split-grid layout and remain a separate UX enhancement.
+
+## 0.24 revision-aware data views — implemented
+
+- [x] Stop cloning complete `TableData` values before every docked or floating viewer frame.
+- [x] Borrow Arrow-backed workspace tables directly during read-only and draft-edit rendering.
+- [x] Assign a monotonic revision whenever a dataset is imported, replaced, queried, or rebuilt after edits.
+- [x] Cache filtered and sorted source-row indexes by dataset revision and view criteria.
+- [x] Invalidate cached indexes when filter text, sort column, sort direction, or dataset revision changes.
+- [x] Bypass persistent caching during draft edits so unsaved value changes are reflected immediately.
+- [x] Preserve vector viewing through a lightweight transient one-column projection.
+- [x] Test dataset revision changes plus numeric/text filtering and sorting behavior.
+
+Implementation notes:
+
+- Steady-state table viewing now avoids both the full table clone and repeated filter/sort scan; only viewport widgets are rebuilt each frame.
+- The cached index stores source-row integers, not copied row data, so selections and linked plots keep stable source identity.
+- A filter or sort change still performs one full in-memory scan. Streamed Arrow ingestion and query pushdown remain future work for datasets that cannot be materialized comfortably.
 
 ## Known technical risks
 

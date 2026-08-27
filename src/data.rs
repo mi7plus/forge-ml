@@ -4,13 +4,25 @@ use arrow::ipc::reader::FileReader;
 use arrow::util::display::array_value_to_string;
 use forge_protocol::{ForgeEvent, TableData};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-use std::{collections::HashMap, fs::File, ops::Deref, path::Path, sync::Arc};
+use std::{
+    collections::HashMap,
+    fs::File,
+    ops::Deref,
+    path::Path,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
+
+static NEXT_DATASET_REVISION: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone)]
 pub struct Dataset {
     pub table: TableData,
     pub batch: RecordBatch,
     pub source: Option<String>,
+    pub revision: u64,
 }
 
 impl Deref for Dataset {
@@ -44,6 +56,7 @@ impl Dataset {
             table,
             batch,
             source,
+            revision: NEXT_DATASET_REVISION.fetch_add(1, Ordering::Relaxed),
         })
     }
 
@@ -319,5 +332,16 @@ mod tests {
         .unwrap();
         assert_eq!(dataset.batch.num_rows(), 3);
         assert_eq!(dataset.profile()[0].mean, Some(2.0));
+    }
+
+    #[test]
+    fn replacement_datasets_receive_new_revisions() {
+        let table = TableData {
+            columns: vec!["x".into()],
+            rows: vec![vec!["1".into()]],
+        };
+        let first = Dataset::from_table(table.clone(), None).unwrap();
+        let second = Dataset::from_table(table, None).unwrap();
+        assert_ne!(first.revision, second.revision);
     }
 }
