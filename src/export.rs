@@ -3,17 +3,22 @@ use crate::{
     experiment::ExperimentRun,
     notebook::{CellKind, NotebookDocument},
 };
-use arrow::{csv::WriterBuilder, ipc::writer::FileWriter};
+use arrow::{
+    csv::WriterBuilder, ipc::writer::FileWriter, record_batch::RecordBatch,
+    util::display::array_value_to_string,
+};
 use parquet::arrow::ArrowWriter;
 use std::{
     fs::{self, File},
     io::Write,
     path::{Component, Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 const MAX_BUNDLE_FILE_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_BUNDLE_BYTES: u64 = 500 * 1024 * 1024;
 const MAX_BUNDLE_FILES: usize = 20_000;
+static NEXT_EXPORT_TEMP: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum DataFormat {
@@ -25,8 +30,36 @@ pub enum DataFormat {
 }
 
 pub fn dataset(dataset: &Dataset, path: &Path, format: DataFormat) -> Result<(), String> {
+    dataset_batch(&dataset.batch, path, format)
+}
+
+pub fn dataset_batch(batch: &RecordBatch, path: &Path, format: DataFormat) -> Result<(), String> {
     let parent = path.parent().ok_or("Export path has no parent")?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or("Export path requires a valid file name")?;
+    let temporary = parent.join(format!(
+        ".{file_name}.forge-{}-{}.tmp",
+        std::process::id(),
+        NEXT_EXPORT_TEMP.fetch_add(1, Ordering::Relaxed)
+    ));
+    let result = write_dataset(batch, &temporary, format).and_then(|()| {
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&temporary)
+            .and_then(|file| file.sync_all())
+            .map_err(|error| error.to_string())?;
+        publish_export(&temporary, path)
+    });
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+fn write_dataset(batch: &RecordBatch, path: &Path, format: DataFormat) -> Result<(), String> {
     match format {
         DataFormat::Csv | DataFormat::Tsv => {
             let file = File::create(path).map_err(|e| e.to_string())?;
@@ -38,23 +71,22 @@ pub fn dataset(dataset: &Dataset, path: &Path, format: DataFormat) -> Result<(),
                     b'\t'
                 })
                 .build(file);
-            writer.write(&dataset.batch).map_err(|e| e.to_string())?;
+            writer.write(batch).map_err(|e| e.to_string())?;
         }
         DataFormat::JsonLines => {
             let mut file = File::create(path).map_err(|e| e.to_string())?;
-            for row in &dataset.table.rows {
-                let object = dataset
-                    .table
-                    .columns
+            for row in 0..batch.num_rows() {
+                let object = batch
+                    .schema()
+                    .fields()
                     .iter()
                     .enumerate()
-                    .map(|(index, name)| {
-                        (
-                            name.clone(),
-                            serde_json::Value::String(row.get(index).cloned().unwrap_or_default()),
-                        )
+                    .map(|(index, field)| {
+                        array_value_to_string(batch.column(index).as_ref(), row)
+                            .map(|value| (field.name().clone(), serde_json::Value::String(value)))
+                            .map_err(|error| error.to_string())
                     })
-                    .collect::<serde_json::Map<_, _>>();
+                    .collect::<Result<serde_json::Map<_, _>, _>>()?;
                 writeln!(file, "{}", serde_json::Value::Object(object))
                     .map_err(|e| e.to_string())?;
             }
@@ -62,24 +94,49 @@ pub fn dataset(dataset: &Dataset, path: &Path, format: DataFormat) -> Result<(),
         DataFormat::Parquet => {
             let mut writer = ArrowWriter::try_new(
                 File::create(path).map_err(|e| e.to_string())?,
-                dataset.batch.schema(),
+                batch.schema(),
                 None,
             )
             .map_err(|e| e.to_string())?;
-            writer.write(&dataset.batch).map_err(|e| e.to_string())?;
+            writer.write(batch).map_err(|e| e.to_string())?;
             writer.close().map_err(|e| e.to_string())?;
         }
         DataFormat::Arrow => {
             let mut writer = FileWriter::try_new(
                 File::create(path).map_err(|e| e.to_string())?,
-                &dataset.batch.schema(),
+                &batch.schema(),
             )
             .map_err(|e| e.to_string())?;
-            writer.write(&dataset.batch).map_err(|e| e.to_string())?;
+            writer.write(batch).map_err(|e| e.to_string())?;
             writer.finish().map_err(|e| e.to_string())?;
         }
     }
     Ok(())
+}
+
+fn publish_export(temporary: &Path, destination: &Path) -> Result<(), String> {
+    if !destination.exists() {
+        return fs::rename(temporary, destination).map_err(|error| error.to_string());
+    }
+    let backup = destination.with_extension(format!(
+        "forge-export-{}-{}.bak",
+        std::process::id(),
+        NEXT_EXPORT_TEMP.fetch_add(1, Ordering::Relaxed)
+    ));
+    if backup.exists() {
+        fs::remove_file(&backup).map_err(|error| error.to_string())?;
+    }
+    fs::rename(destination, &backup).map_err(|error| error.to_string())?;
+    match fs::rename(temporary, destination) {
+        Ok(()) => {
+            let _ = fs::remove_file(backup);
+            Ok(())
+        }
+        Err(error) => {
+            let _ = fs::rename(backup, destination);
+            Err(error.to_string())
+        }
+    }
 }
 
 pub fn notebook_markdown(document: &NotebookDocument) -> String {

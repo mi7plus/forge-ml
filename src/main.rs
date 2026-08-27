@@ -1748,6 +1748,11 @@ impl ForgeApp {
                         self.console = format!("Could not import {}: {error}", path.display())
                     }
                 },
+                ResultEvent::DataExport { name, path, result } => {
+                    self.console = result
+                        .map(|()| format!("Exported `{name}` to {}.", path.display()))
+                        .unwrap_or_else(|error| format!("Dataset export failed: {error}"));
+                }
                 ResultEvent::DatabaseMessage(result) => {
                     self.sql_output = result.unwrap_or_else(|error| error);
                 }
@@ -4458,23 +4463,25 @@ impl ForgeApp {
                             .size(10.0)
                             .color(MUTED),
                         );
-                        ui.menu_button("Export", |ui| {
-                            for (label, format, extension) in [
-                                ("CSV", export::DataFormat::Csv, "csv"),
-                                ("TSV", export::DataFormat::Tsv, "tsv"),
-                                ("JSON Lines", export::DataFormat::JsonLines, "jsonl"),
-                                ("Parquet", export::DataFormat::Parquet, "parquet"),
-                                ("Arrow IPC", export::DataFormat::Arrow, "arrow"),
-                            ] {
-                                if ui.button(label).clicked() {
-                                    export_request = Some((name.clone(), format, extension));
+                        ui.add_enabled_ui(self.integration_pending == 0, |ui| {
+                            ui.menu_button("Export", |ui| {
+                                for (label, format, extension) in [
+                                    ("CSV", export::DataFormat::Csv, "csv"),
+                                    ("TSV", export::DataFormat::Tsv, "tsv"),
+                                    ("JSON Lines", export::DataFormat::JsonLines, "jsonl"),
+                                    ("Parquet", export::DataFormat::Parquet, "parquet"),
+                                    ("Arrow IPC", export::DataFormat::Arrow, "arrow"),
+                                ] {
+                                    if ui.button(label).clicked() {
+                                        export_request = Some((name.clone(), format, extension));
+                                        ui.close();
+                                    }
+                                }
+                                if ui.button("EDA HTML report").clicked() {
+                                    report_request = Some(name.clone());
                                     ui.close();
                                 }
-                            }
-                            if ui.button("EDA HTML report").clicked() {
-                                report_request = Some(name.clone());
-                                ui.close();
-                            }
+                            });
                         });
                         if compact_icon_button(
                             ui,
@@ -4643,14 +4650,27 @@ impl ForgeApp {
                 .set_file_name(format!("{name}.{extension}"))
                 .save_file()
             {
-                self.console = self
+                let request = self
                     .data
                     .tables
                     .get(&name)
                     .ok_or_else(|| "Dataset no longer exists".to_owned())
-                    .and_then(|dataset| export::dataset(dataset, &path, format))
-                    .map(|()| format!("Exported {}", path.display()))
-                    .unwrap_or_else(|e| format!("Dataset export failed: {e}"));
+                    .and_then(|dataset| {
+                        self.integration_worker
+                            .submit(IntegrationRequest::DataExport {
+                                name: name.clone(),
+                                batch: dataset.batch.clone(),
+                                path: path.clone(),
+                                format,
+                            })
+                    });
+                match request {
+                    Ok(()) => {
+                        self.integration_pending += 1;
+                        self.console = format!("Exporting `{name}` in the background…");
+                    }
+                    Err(error) => self.console = format!("Dataset export failed: {error}"),
+                }
             }
         }
         if let Some(name) = report_request {

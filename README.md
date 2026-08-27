@@ -46,6 +46,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - Non-blocking database and object-storage operations with typed background result delivery
 - Non-blocking CSV, TSV, JSON Lines, Parquet, and Arrow IPC imports with a 512 MiB interactive safety limit
 - Bounded dataset materialization with row, column, decoded-text, cell, and Parquet batch limits
+- Non-blocking full-dataset exports with shallow Arrow handoff and crash-safe destination replacement
 - Private Cargo and PyPI-compatible registry discovery plus GitHub Enterprise authentication validation
 - Attested stable/beta update discovery that validates release manifests without silently installing binaries
 - Packaging preflight and executable notebook/table/plot performance budgets

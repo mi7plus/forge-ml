@@ -2,6 +2,7 @@ use crate::{
     database::{self, ConnectionProfile, DatabaseConnector, ProfileConnector},
     object_storage::ObjectProfile,
 };
+use arrow::record_batch::RecordBatch;
 use forge_protocol::TableData;
 use std::{
     path::PathBuf,
@@ -11,6 +12,12 @@ use std::{
 
 pub enum Request {
     DataImport(PathBuf),
+    DataExport {
+        name: String,
+        batch: RecordBatch,
+        path: PathBuf,
+        format: crate::export::DataFormat,
+    },
     DatabaseTest {
         profile: ConnectionProfile,
         root: PathBuf,
@@ -42,6 +49,11 @@ pub enum ResultEvent {
     DataImport {
         path: PathBuf,
         result: Result<(String, TableData, String), String>,
+    },
+    DataExport {
+        name: String,
+        path: PathBuf,
+        result: Result<(), String>,
     },
     DatabaseMessage(Result<String, String>),
     DatabaseTable {
@@ -95,6 +107,16 @@ fn execute(request: Request) -> ResultEvent {
     match request {
         Request::DataImport(path) => ResultEvent::DataImport {
             result: crate::data::load_table(&path),
+            path,
+        },
+        Request::DataExport {
+            name,
+            batch,
+            path,
+            format,
+        } => ResultEvent::DataExport {
+            result: crate::export::dataset_batch(&batch, &path, format),
+            name,
             path,
         },
         Request::DatabaseTest { profile, root } => {
@@ -167,6 +189,42 @@ mod tests {
             }
             _ => panic!("unexpected integration result"),
         }
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn worker_exports_record_batches_atomically() {
+        let root = std::env::temp_dir().join(format!("forge-export-worker-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("result.csv");
+        std::fs::write(&path, "old").unwrap();
+        let dataset = crate::data::Dataset::from_table(
+            TableData {
+                columns: vec!["value".into()],
+                rows: vec![vec!["42".into()]],
+            },
+            None,
+        )
+        .unwrap();
+        let worker = IntegrationWorker::new();
+        worker
+            .submit(Request::DataExport {
+                name: "result".into(),
+                batch: dataset.batch,
+                path: path.clone(),
+                format: crate::export::DataFormat::Csv,
+            })
+            .unwrap();
+        match worker
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap()
+        {
+            ResultEvent::DataExport { result, .. } => result.unwrap(),
+            _ => panic!("unexpected integration result"),
+        }
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "value\n42\n");
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
         let _ = std::fs::remove_dir_all(root);
     }
 

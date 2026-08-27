@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.28.0`
+Current application version: `0.29.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -644,6 +644,24 @@ Implementation notes:
 - Limits cover the display-oriented string projection used by the current viewer. Arrow buffers, vectors, and Rust collection overhead mean process memory can exceed the decoded-text count.
 - Arrow IPC files retain their encoded record-batch boundaries, so a single unusually large batch can still create a transient allocation before Forge validates its projected values.
 - The optional published-Millwright import remains a separate native path; these limits apply to Forge's standard CSV/TSV/JSON Lines/Parquet/Arrow importer.
+
+## 0.29 non-blocking dataset exports — implemented
+
+- [x] Move full-table CSV, TSV, JSON Lines, Parquet, and Arrow IPC exports off the UI thread.
+- [x] Hand a shallow-cloned Arrow record batch to the worker instead of cloning display strings.
+- [x] Generate JSON Lines directly from Arrow values in the worker.
+- [x] Write exports to unique sibling temporary files rather than directly truncating destinations.
+- [x] Sync completed temporary output before publishing it.
+- [x] Replace existing destinations through a backup-and-rollback sequence that works on Windows.
+- [x] Remove partial temporary files after write, sync, or publication failures.
+- [x] Disable conflicting Data-pane operations and show the shared activity indicator while exporting.
+- [x] Add an asynchronous overwrite test that verifies output and temporary-file cleanup.
+
+Implementation notes:
+
+- Full-dataset exports use the sequential integration worker shared by imports, databases, and object storage, bounding concurrent I/O and memory pressure.
+- Exporting only the current grid selection remains synchronous because its projected table is already bounded by explicit user selection; it still uses crash-safe destination publication.
+- Destination replacement retains the previous file until the new file is complete. If final publication fails, Forge attempts to restore the backup and reports the error.
 
 ## Known technical risks
 
