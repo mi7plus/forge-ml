@@ -32,6 +32,11 @@ See the [development plan](DEVELOPMENT_PLAN.md) for the target architecture and 
 - `rust-analyzer` document synchronization, diagnostics, completion, hover, and definition requests
 - Inline rust-analyzer diagnostic underlines with hover messages
 - Caret-anchored, clickable rust-analyzer completion popup
+- Dataset export to CSV, TSV, JSON Lines, Parquet, and Arrow IPC
+- Notebook export to `.ipynb`, Markdown, and self-contained HTML
+- Compressed experiment bundles containing the run manifest and referenced artifacts
+- Project-local versioned model registry with promotion/rollback aliases
+- Generated Rust/Axum inference services with Docker and Compose templates
 
 ## Notebook controls
 

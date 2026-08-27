@@ -3,12 +3,14 @@ mod database;
 mod deep_learning;
 mod diagnostics;
 mod experiment;
+mod export;
 mod git;
 mod github;
 mod jobs;
 mod jupyter;
 mod lsp;
 mod millwright_studio;
+mod model_registry;
 mod notebook;
 mod packages;
 mod plot;
@@ -113,6 +115,7 @@ enum InspectorTab {
     Studio,
     Database,
     DeepLearning,
+    Deploy,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -303,6 +306,12 @@ struct ForgeApp {
     remote_url: String,
     remote_command: String,
     remote_token: String,
+    registry_model: String,
+    registry_version: String,
+    registry_format: String,
+    registry_alias: String,
+    registry_artifact: String,
+    registry_output: String,
     last_file_poll: Instant,
     pending_editor_history: Option<EditorHistoryCommand>,
 }
@@ -527,6 +536,12 @@ impl ForgeApp {
             remote_url: String::new(),
             remote_command: "cargo run --release".into(),
             remote_token: String::new(),
+            registry_model: "model".into(),
+            registry_version: "0.1.0".into(),
+            registry_format: "onnx".into(),
+            registry_alias: "production".into(),
+            registry_artifact: String::new(),
+            registry_output: String::new(),
             last_file_poll: Instant::now(),
             pending_editor_history: None,
         }
@@ -1831,6 +1846,14 @@ impl ForgeApp {
                     self.export_ipynb();
                     ui.close();
                 }
+                if ui.button("Export notebook as Markdown...").clicked() {
+                    self.export_notebook_document("md");
+                    ui.close();
+                }
+                if ui.button("Export notebook as HTML...").clicked() {
+                    self.export_notebook_document("html");
+                    ui.close();
+                }
                 let recent = self.recent_projects.clone();
                 ui.menu_button("Open recent", |ui| {
                     if recent.is_empty() {
@@ -2528,6 +2551,7 @@ impl ForgeApp {
                 (InspectorTab::Studio, "Studio"),
                 (InspectorTab::Database, "SQL"),
                 (InspectorTab::DeepLearning, "Deep"),
+                (InspectorTab::Deploy, "Deploy"),
             ] {
                 if ui
                     .selectable_label(self.inspector_tab == tab, label)
@@ -2695,7 +2719,106 @@ impl ForgeApp {
             InspectorTab::Studio => self.millwright_studio(ui),
             InspectorTab::Database => self.database_inspector(ui),
             InspectorTab::DeepLearning => self.deep_learning_inspector(ui),
+            InspectorTab::Deploy => self.deployment_inspector(ui),
         }
+    }
+
+    fn deployment_inspector(&mut self, ui: &mut egui::Ui) {
+        let Some(root) = self.project_root() else {
+            ui.label("Open a project to use its local model registry.");
+            return;
+        };
+        ui.heading("Model registry & deployment");
+        ui.label(RichText::new("Artifacts remain project-local under .forge/models. Promoting an older version provides rollback without deleting newer versions.").color(MUTED));
+        ui.horizontal_wrapped(|ui| {
+            ui.add(egui::TextEdit::singleline(&mut self.registry_model).hint_text("model"));
+            ui.add(egui::TextEdit::singleline(&mut self.registry_version).hint_text("version"));
+            ui.add(egui::TextEdit::singleline(&mut self.registry_format).hint_text("format"));
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.registry_artifact).hint_text("artifact path"),
+            );
+            if ui.button("Browse").clicked() {
+                if let Some(path) = rfd::FileDialog::new().pick_file() {
+                    self.registry_artifact = path.display().to_string();
+                }
+            }
+            if ui.button("Register").clicked() {
+                self.registry_output = model_registry::ModelRegistry::open(&root)
+                    .and_then(|registry| {
+                        registry.register(
+                            &self.registry_model,
+                            &self.registry_version,
+                            &self.registry_format,
+                            Path::new(&self.registry_artifact),
+                            Vec::new(),
+                        )
+                    })
+                    .map(|item| {
+                        format!(
+                            "Registered {} {} ({})",
+                            item.model, item.version, item.format
+                        )
+                    })
+                    .unwrap_or_else(|e| e);
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.add(egui::TextEdit::singleline(&mut self.registry_alias).hint_text("alias"));
+            if ui.button("Promote / rollback").clicked() {
+                self.registry_output = model_registry::ModelRegistry::open(&root)
+                    .and_then(|registry| {
+                        registry.promote(
+                            &self.registry_model,
+                            &self.registry_alias,
+                            &self.registry_version,
+                        )
+                    })
+                    .map(|()| {
+                        format!(
+                            "{}:{} now resolves to {}",
+                            self.registry_model, self.registry_alias, self.registry_version
+                        )
+                    })
+                    .unwrap_or_else(|e| e);
+            }
+            if ui.button("Generate Rust service").clicked() {
+                self.registry_output = model_registry::ModelRegistry::open(&root)
+                    .and_then(|registry| {
+                        registry.resolve(&self.registry_model, &self.registry_alias)
+                    })
+                    .and_then(|artifact| {
+                        model_registry::generate_inference_service(
+                            &root,
+                            &self.registry_model,
+                            &artifact,
+                        )
+                    })
+                    .map(|path| format!("Generated {}", path.display()))
+                    .unwrap_or_else(|e| e);
+            }
+        });
+        if let Ok(registry) = model_registry::ModelRegistry::open(&root) {
+            if let Ok(versions) = registry.versions(&self.registry_model) {
+                egui::Grid::new("model_versions")
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.strong("Version");
+                        ui.strong("Format");
+                        ui.strong("Artifact");
+                        ui.end_row();
+                        for version in versions {
+                            ui.label(version.version);
+                            ui.label(version.format);
+                            ui.label(version.artifact);
+                            ui.end_row();
+                        }
+                    });
+            }
+        }
+        ui.separator();
+        ui.code(&self.registry_output);
     }
 
     fn deep_learning_inspector(&mut self, ui: &mut egui::Ui) {
@@ -3352,6 +3475,30 @@ impl ForgeApp {
         }
     }
 
+    fn export_notebook_document(&mut self, extension: &str) {
+        let document = NotebookDocument::parse_rust(&self.active().content);
+        let output = if extension == "html" {
+            export::notebook_html(&document)
+        } else {
+            export::notebook_markdown(&document)
+        };
+        let stem = self
+            .active()
+            .path
+            .as_ref()
+            .and_then(|p| p.file_stem())
+            .and_then(|v| v.to_str())
+            .unwrap_or("notebook");
+        if let Some(path) = rfd::FileDialog::new()
+            .set_file_name(format!("{stem}.{extension}"))
+            .save_file()
+        {
+            self.console = std::fs::write(&path, output)
+                .map(|()| format!("Exported {}", path.display()))
+                .unwrap_or_else(|e| format!("Notebook export failed: {e}"));
+        }
+    }
+
     fn discover_jupyter(&mut self) {
         self.jupyter_output = jupyter::discover()
             .map(|kernels| {
@@ -3675,6 +3822,7 @@ impl ForgeApp {
             return;
         }
         let mut dataset_to_delete: Option<(bool, String)> = None;
+        let mut export_request: Option<(String, export::DataFormat, &'static str)> = None;
         egui::ScrollArea::vertical()
             .id_salt("data_inspector_vectors")
             .show(ui, |ui| {
@@ -3700,6 +3848,20 @@ impl ForgeApp {
                             .size(10.0)
                             .color(MUTED),
                         );
+                        ui.menu_button("Export", |ui| {
+                            for (label, format, extension) in [
+                                ("CSV", export::DataFormat::Csv, "csv"),
+                                ("TSV", export::DataFormat::Tsv, "tsv"),
+                                ("JSON Lines", export::DataFormat::JsonLines, "jsonl"),
+                                ("Parquet", export::DataFormat::Parquet, "parquet"),
+                                ("Arrow IPC", export::DataFormat::Arrow, "arrow"),
+                            ] {
+                                if ui.button(label).clicked() {
+                                    export_request = Some((name.clone(), format, extension));
+                                    ui.close();
+                                }
+                            }
+                        });
                         if compact_icon_button(
                             ui,
                             egui_phosphor_icons::icons::TRASH,
@@ -3862,6 +4024,21 @@ impl ForgeApp {
                 self.data.vectors.remove(&name);
             }
             self.console = format!("Deleted dataset `{name}`.");
+        }
+        if let Some((name, format, extension)) = export_request {
+            if let Some(path) = rfd::FileDialog::new()
+                .set_file_name(format!("{name}.{extension}"))
+                .save_file()
+            {
+                self.console = self
+                    .data
+                    .tables
+                    .get(&name)
+                    .ok_or_else(|| "Dataset no longer exists".to_owned())
+                    .and_then(|dataset| export::dataset(dataset, &path, format))
+                    .map(|()| format!("Exported {}", path.display()))
+                    .unwrap_or_else(|e| format!("Dataset export failed: {e}"));
+            }
         }
     }
 
@@ -4070,6 +4247,7 @@ impl ForgeApp {
         let mut run_to_delete = None;
         let mut run_to_clone = None;
         let mut run_to_toggle_archive = None;
+        let mut run_to_export = None;
         egui::ScrollArea::vertical()
             .id_salt("experiment_run_table")
             .show(ui, |ui| {
@@ -4081,6 +4259,7 @@ impl ForgeApp {
                         ui.label(RichText::new("Steps").strong());
                         ui.label(RichText::new("Execs").strong());
                         ui.label(RichText::new("Status").strong());
+                        ui.label("");
                         ui.label("");
                         ui.label("");
                         ui.label("");
@@ -4113,6 +4292,13 @@ impl ForgeApp {
                             .clicked()
                             {
                                 run_to_delete = Some(index);
+                            }
+                            if ui
+                                .small_button("Bundle")
+                                .on_hover_text("Export run manifest and artifacts as ZIP")
+                                .clicked()
+                            {
+                                run_to_export = Some(index);
                             }
                             ui.end_row();
                             ui.label("");
@@ -4155,6 +4341,21 @@ impl ForgeApp {
                 let _ = store.save_experiment(&child.id, &child.name, &child);
             }
             self.saved_runs.push(child);
+        }
+        if let Some(index) = run_to_export {
+            let run = &self.saved_runs[index];
+            if let Some(path) = rfd::FileDialog::new()
+                .set_file_name(format!("{}-{}.zip", run.name, run.id.as_str()))
+                .save_file()
+            {
+                let artifact_root = self
+                    .project_root()
+                    .map(|root| root.join(".forge/artifacts"))
+                    .unwrap_or_default();
+                self.console = export::experiment_bundle(run, &artifact_root, &path)
+                    .map(|()| format!("Exported run bundle {}", path.display()))
+                    .unwrap_or_else(|e| format!("Run export failed: {e}"));
+            }
         }
         if let Some(index) = run_to_toggle_archive {
             self.saved_runs[index].archived = !self.saved_runs[index].archived;

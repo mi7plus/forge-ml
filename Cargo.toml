@@ -1,6 +1,6 @@
 [package]
 name = "forge_ide"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2021"
 
 [workspace]
@@ -27,6 +27,7 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 adbc_core = { version = "0.24", optional = true }
 keyring = "4.1"
 sysinfo = "0.39"
+zip = { version = "4", default-features = false, features = ["deflate"] }
 millwright = { version = "2.2.1", default-features = false, features = ["eda"], optional = true }
 
 [features]

@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.9.0`
+Current application version: `0.10.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -300,8 +300,8 @@ Implementation notes:
 
 ## 1.0 production readiness
 
-- [ ] Complete data, notebook, experiment, and model exports.
-- [ ] Add Millwright ONNX, registry, rollback, and service generation UI.
+- [~] Complete data, notebook, experiment, and model exports (portable data, Markdown/HTML notebooks, and run bundles landed in 0.10).
+- [~] Add Millwright ONNX, registry, rollback, and service generation UI (format-neutral registry and service generation landed; native Millwright ONNX invocation remains).
 - [ ] Add database and object-storage connector hardening.
 - [ ] Add private Cargo/Python registries and GitHub Enterprise validation.
 - [ ] Add signed releases, update channels, provenance, and attestations.
@@ -309,6 +309,23 @@ Implementation notes:
 - [ ] Complete cross-platform packaging and upgrade tests.
 - [ ] Establish performance budgets for startup, tables, notebooks, and plots.
 - [ ] Publish user, extension, protocol, and contributor documentation.
+
+## 0.10 export, registry, and deployment foundations — implemented
+
+- [x] Export complete Arrow-backed datasets as CSV, TSV, JSON Lines, Parquet, and Arrow IPC.
+- [x] Export Rust notebooks as `.ipynb`, Rust source, Markdown, and self-contained HTML.
+- [x] Export experiment manifests and referenced artifacts as compressed ZIP bundles.
+- [x] Add a project-local, versioned model registry with safe names and atomic metadata updates.
+- [x] Add aliases for promotion and rollback without deleting model versions.
+- [x] Register ONNX and other model artifacts independently of their producing framework.
+- [x] Generate editable Axum inference-service projects, Dockerfiles, and Compose manifests.
+
+Implementation notes:
+
+- Registry artifacts live under `.forge/models`; source artifacts are copied so registry versions remain immutable.
+- Millwright remains the published crates.io dependency. Forge accepts its exported artifacts but does not depend on a local checkout.
+- Generated prediction endpoints are intentionally pass-through scaffolds until the user selects an inference runtime compatible with the registered format.
+- PDF reports, reproducible whole-project bundles, selected-row exports, and direct Millwright ONNX API invocation remain part of 1.0 hardening.
 
 ## Known technical risks
 
