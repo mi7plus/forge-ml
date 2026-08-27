@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.16.0`
+Current application version: `0.17.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -300,7 +300,7 @@ Implementation notes:
 
 ## 1.0 production readiness
 
-- [~] Complete data, notebook, experiment, and model exports (portable data, Markdown/HTML notebooks, and run bundles landed in 0.10).
+- [~] Complete data, notebook, experiment, and model exports (portable data, notebooks, run/project bundles, EDA, and comparison reports landed; PDF and direct model conversion remain).
 - [~] Add Millwright ONNX, registry, rollback, and service generation UI (format-neutral registry and service generation landed; native Millwright ONNX invocation remains).
 - [~] Add database and object-storage connector hardening (bounded database previews and secured CLI-backed object profiles landed; broader driver validation remains).
 - [x] Add private Cargo/Python registries and GitHub Enterprise validation.
@@ -433,6 +433,22 @@ Implementation notes:
 - Cell edits affect the in-memory dataset; Forge never overwrites an imported source file implicitly.
 - Hidden columns remain in the dataset and reappear without data loss when made visible.
 - An empty row selection means all rows for export and linked plotting.
+
+## 0.17 reproducible bundles and reports — implemented
+
+- [x] Export a complete project as a deterministic, sorted ZIP archive.
+- [x] Include a machine-readable manifest with file sizes and stable content digests.
+- [x] Exclude Git/Forge/build/environment state, symlinks, and credential-like files.
+- [x] Enforce 20,000-file, 100 MB per-file, and 500 MB total archive limits.
+- [x] Generate self-contained dataset EDA reports with profiles and bounded previews.
+- [x] Generate self-contained experiment-comparison reports with metrics and provenance.
+- [x] Escape project-controlled HTML content and embed no remote scripts or styles.
+
+Implementation notes:
+
+- Project bundles intentionally omit `.forge`; export experiment bundles separately when run artifacts are required.
+- Reports are offline HTML and can be printed to PDF through the operating system or browser.
+- Bundle manifests make it possible to verify content without extracting or executing project code.
 
 ## Known technical risks
 

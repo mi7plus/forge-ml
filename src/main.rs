@@ -1936,6 +1936,10 @@ impl ForgeApp {
                     self.export_notebook_document("html");
                     ui.close();
                 }
+                if ui.button("Export reproducible project bundle...").clicked() {
+                    self.export_project_bundle();
+                    ui.close();
+                }
                 let recent = self.recent_projects.clone();
                 ui.menu_button("Open recent", |ui| {
                     if recent.is_empty() {
@@ -3760,6 +3764,25 @@ impl ForgeApp {
         }
     }
 
+    fn export_project_bundle(&mut self) {
+        let Some(root) = self.project_root() else {
+            self.console = "Open a project before exporting a project bundle.".into();
+            return;
+        };
+        let name = root
+            .file_name()
+            .and_then(|v| v.to_str())
+            .unwrap_or("forge-project");
+        if let Some(path) = rfd::FileDialog::new()
+            .set_file_name(format!("{name}-bundle.zip"))
+            .save_file()
+        {
+            self.console = export::project_bundle(&root, &path)
+                .map(|()| format!("Exported reproducible project bundle to {}", path.display()))
+                .unwrap_or_else(|e| format!("Project bundle failed: {e}"));
+        }
+    }
+
     fn discover_jupyter(&mut self) {
         self.jupyter_output = jupyter::discover()
             .map(|kernels| {
@@ -4136,6 +4159,7 @@ impl ForgeApp {
         }
         let mut dataset_to_delete: Option<(bool, String)> = None;
         let mut export_request: Option<(String, export::DataFormat, &'static str)> = None;
+        let mut report_request: Option<String> = None;
         egui::ScrollArea::vertical()
             .id_salt("data_inspector_vectors")
             .show(ui, |ui| {
@@ -4172,6 +4196,10 @@ impl ForgeApp {
                                     export_request = Some((name.clone(), format, extension));
                                     ui.close();
                                 }
+                            }
+                            if ui.button("EDA HTML report").clicked() {
+                                report_request = Some(name.clone());
+                                ui.close();
                             }
                         });
                         if compact_icon_button(
@@ -4349,6 +4377,21 @@ impl ForgeApp {
                     .and_then(|dataset| export::dataset(dataset, &path, format))
                     .map(|()| format!("Exported {}", path.display()))
                     .unwrap_or_else(|e| format!("Dataset export failed: {e}"));
+            }
+        }
+        if let Some(name) = report_request {
+            if let Some(path) = rfd::FileDialog::new()
+                .set_file_name(format!("{}-eda.html", safe_file_stem(&name)))
+                .save_file()
+            {
+                self.console = self
+                    .data
+                    .tables
+                    .get(&name)
+                    .map(|dataset| std::fs::write(&path, export::dataset_report(&name, dataset)))
+                    .transpose()
+                    .map(|_| format!("Exported EDA report to {}", path.display()))
+                    .unwrap_or_else(|e| format!("EDA report failed: {e}"));
             }
         }
     }
@@ -4568,6 +4611,19 @@ impl ForgeApp {
                 });
             if ui.button("Export CSV").clicked() {
                 self.export_telemetry_csv();
+            }
+            if ui.button("HTML report").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_file_name("experiment-comparison.html")
+                    .save_file()
+                {
+                    self.console = std::fs::write(
+                        &path,
+                        export::experiment_report(&self.saved_runs, &self.comparison_metric),
+                    )
+                    .map(|()| format!("Exported experiment report to {}", path.display()))
+                    .unwrap_or_else(|e| format!("Experiment report failed: {e}"));
+                }
             }
         });
         let colors = [CYAN, EMBER, GREEN, RED, Color32::from_rgb(150, 105, 210)];

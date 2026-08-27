@@ -25,6 +25,10 @@ Import CSV, TSV, JSON Lines, Parquet, or Arrow IPC from Tools. Click a dataset i
 
 Inside the full data viewer, select individual or all filtered rows, hide or pin columns, and adjust each visible width. **Edit cells** creates a draft; **Save edits** replaces the in-memory table and rebuilds its Arrow batch, while **Cancel edits** discards every draft change. Selection export includes selected rows and visible columns. Choose numeric X/Y columns to create a linked scatter plot from the current selection.
 
+Each table can produce a self-contained EDA HTML report with column profiles and a bounded preview. Runs can produce an offline comparison report containing final metrics, step counts, tags, Git commits, and escaped run manifests.
+
+File → **Export reproducible project bundle** creates a deterministic ZIP with a manifest, file sizes, and content digests. It is limited to 20,000 files, 100 MB per file, and 500 MB total. Build directories, virtual environments, Forge state, Git state, symlinks, and credential-like files are excluded. Review the manifest before sharing.
+
 The Plots pane accepts legacy metrics/vectors and versioned `forge_plot:` JSON. Structured plots support lines, scatter, bars, filled areas, histograms, box summaries, heatmaps, ROC, precision–recall, residuals, and feature importance. Each series can be hidden, axes can be transformed to log10, and definitions can be exported as JSON or standalone SVG.
 
 ## External tools and credentials

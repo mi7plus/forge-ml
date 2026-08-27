@@ -45,6 +45,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - Off-by-default local diagnostics and reviewable crash-report ZIP export with no automatic upload
 - Framework-neutral structured plots with 11 plot families, series visibility, log transforms, and JSON/SVG export
 - Advanced data-grid selection, hidden/pinned/resizable columns, explicit draft editing, selection export, and linked plots
+- Reproducible project bundles plus standalone EDA and experiment-comparison HTML reports
 
 ## Notebook controls
 
