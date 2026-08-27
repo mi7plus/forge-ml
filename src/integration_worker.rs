@@ -12,6 +12,8 @@ use std::{
 
 pub enum Request {
     DataImport(PathBuf),
+    #[cfg(feature = "millwright")]
+    MillwrightImport(PathBuf),
     DataExport {
         name: String,
         batch: RecordBatch,
@@ -107,6 +109,11 @@ fn execute(request: Request) -> ResultEvent {
     match request {
         Request::DataImport(path) => ResultEvent::DataImport {
             result: crate::data::load_table(&path),
+            path,
+        },
+        #[cfg(feature = "millwright")]
+        Request::MillwrightImport(path) => ResultEvent::DataImport {
+            result: crate::data::load_millwright_table(&path),
             path,
         },
         Request::DataExport {
@@ -225,6 +232,34 @@ mod tests {
         }
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "value\n42\n");
         assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(feature = "millwright")]
+    #[test]
+    fn worker_imports_through_published_millwright() {
+        let root =
+            std::env::temp_dir().join(format!("forge-millwright-worker-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("native.csv");
+        std::fs::write(&path, "value\n42\n").unwrap();
+        let worker = IntegrationWorker::new();
+        worker
+            .submit(Request::MillwrightImport(path.clone()))
+            .unwrap();
+        match worker
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap()
+        {
+            ResultEvent::DataImport { result, .. } => {
+                let (name, table, source) = result.unwrap();
+                assert_eq!(name, "native");
+                assert_eq!(table.rows, [vec!["42"]]);
+                assert!(source.contains("published Millwright 2.2.1"));
+            }
+            _ => panic!("unexpected integration result"),
+        }
         let _ = std::fs::remove_dir_all(root);
     }
 

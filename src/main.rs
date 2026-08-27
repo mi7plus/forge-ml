@@ -2124,7 +2124,13 @@ impl ForgeApp {
                     ui.close();
                 }
                 #[cfg(feature = "millwright")]
-                if ui.button("Import via Millwright...").clicked() {
+                if ui
+                    .add_enabled(
+                        self.integration_pending == 0,
+                        egui::Button::new("Import via Millwright..."),
+                    )
+                    .clicked()
+                {
                     self.import_millwright_dataset();
                     ui.close();
                 }
@@ -4086,6 +4092,10 @@ impl ForgeApp {
 
     #[cfg(feature = "millwright")]
     fn import_millwright_dataset(&mut self) {
+        if self.integration_pending > 0 {
+            self.console = "Wait for the current data operation to finish.".into();
+            return;
+        }
         let Some(path) = rfd::FileDialog::new()
             .set_title("Import Millwright table")
             .add_filter("Millwright tables", &["csv", "parquet"])
@@ -4093,13 +4103,18 @@ impl ForgeApp {
         else {
             return;
         };
-        match self.data.import_millwright(&path) {
-            Ok(name) => {
-                self.open_dataset = Some(format!("table:{name}"));
-                self.inspector_tab = InspectorTab::Data;
-                self.console = format!("Loaded `{name}` through published Millwright 2.2.1.");
+        match self
+            .integration_worker
+            .submit(IntegrationRequest::MillwrightImport(path.clone()))
+        {
+            Ok(()) => {
+                self.integration_pending += 1;
+                self.console = format!(
+                    "Importing {} through published Millwright 2.2.1 in the background…",
+                    path.display()
+                );
             }
-            Err(error) => self.console = format!("Millwright import failed: {error}"),
+            Err(error) => self.console = format!("Could not start Millwright import: {error}"),
         }
     }
 

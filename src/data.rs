@@ -116,18 +116,8 @@ impl Dataset {
     #[cfg(feature = "millwright")]
     #[allow(dead_code)]
     pub fn from_millwright(table: &millwright::table::Table) -> Result<Self, String> {
-        let columns = table.column_names();
-        let rows = (0..table.nrows())
-            .map(|index| {
-                table
-                    .as_polars()
-                    .get_row(index)
-                    .map(|row| row.0.into_iter().map(|value| value.to_string()).collect())
-                    .map_err(|error| error.to_string())
-            })
-            .collect::<Result<Vec<_>, _>>()?;
         Self::from_table(
-            TableData { columns, rows },
+            millwright_table_data(table, IMPORT_LIMITS)?,
             Some("millwright::Table".into()),
         )
     }
@@ -200,29 +190,6 @@ impl DataWorkspace {
         }
     }
 
-    #[cfg(feature = "millwright")]
-    pub fn import_millwright(&mut self, path: &Path) -> Result<String, String> {
-        let table = match path
-            .extension()
-            .and_then(|value| value.to_str())
-            .unwrap_or_default()
-            .to_ascii_lowercase()
-            .as_str()
-        {
-            "csv" => millwright::table::Table::from_csv(path),
-            "parquet" => millwright::table::Table::from_parquet(path),
-            _ => return Err("Millwright imports CSV and Parquet tables.".into()),
-        }
-        .map_err(|error| error.to_string())?;
-        let name = path
-            .file_stem()
-            .and_then(|value| value.to_str())
-            .unwrap_or("millwright_dataset")
-            .to_owned();
-        self.tables
-            .insert(name.clone(), Dataset::from_millwright(&table)?);
-        Ok(name)
-    }
     pub fn clear(&mut self) {
         self.metrics.clear();
         self.vectors.clear();
@@ -241,16 +208,7 @@ fn load_table_with_limits(
     path: &Path,
     limits: ImportLimits,
 ) -> Result<(String, TableData, String), String> {
-    let metadata = std::fs::metadata(path).map_err(|error| error.to_string())?;
-    if !metadata.is_file() {
-        return Err("Dataset import requires a regular file.".into());
-    }
-    if metadata.len() > MAX_IMPORT_BYTES {
-        return Err(
-            "Dataset files larger than 512 MiB must be queried or streamed instead of imported."
-                .into(),
-        );
-    }
+    validate_import_file(path)?;
     let ext = path
         .extension()
         .and_then(|v| v.to_str())
@@ -281,6 +239,67 @@ fn load_table_with_limits(
         .unwrap_or("dataset")
         .to_owned();
     Ok((name, table, path.display().to_string()))
+}
+
+fn validate_import_file(path: &Path) -> Result<(), String> {
+    let metadata = std::fs::metadata(path).map_err(|error| error.to_string())?;
+    if !metadata.is_file() {
+        return Err("Dataset import requires a regular file.".into());
+    }
+    if metadata.len() > MAX_IMPORT_BYTES {
+        return Err(
+            "Dataset files larger than 512 MiB must be queried or streamed instead of imported."
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+#[cfg(feature = "millwright")]
+pub fn load_millwright_table(path: &Path) -> Result<(String, TableData, String), String> {
+    validate_import_file(path)?;
+    let table = match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "csv" => millwright::table::Table::from_csv(path),
+        "parquet" => millwright::table::Table::from_parquet(path),
+        _ => return Err("Millwright imports CSV and Parquet tables.".into()),
+    }
+    .map_err(|error| error.to_string())?;
+    let name = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("millwright_dataset")
+        .to_owned();
+    Ok((
+        name,
+        millwright_table_data(&table, IMPORT_LIMITS)?,
+        format!("published Millwright 2.2.1: {}", path.display()),
+    ))
+}
+
+#[cfg(feature = "millwright")]
+fn millwright_table_data(
+    table: &millwright::table::Table,
+    limits: ImportLimits,
+) -> Result<TableData, String> {
+    let mut output = TableBuilder::new(table.column_names(), limits)?;
+    for index in 0..table.nrows() {
+        let row = table
+            .as_polars()
+            .get_row(index)
+            .map_err(|error| error.to_string())?
+            .0
+            .into_iter()
+            .map(|value| value.to_string())
+            .collect();
+        output.push(row)?;
+    }
+    Ok(output.finish())
 }
 
 struct TableBuilder {

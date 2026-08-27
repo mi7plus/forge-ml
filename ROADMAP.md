@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.29.0`
+Current application version: `0.30.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -662,6 +662,24 @@ Implementation notes:
 - Full-dataset exports use the sequential integration worker shared by imports, databases, and object storage, bounding concurrent I/O and memory pressure.
 - Exporting only the current grid selection remains synchronous because its projected table is already bounded by explicit user selection; it still uses crash-safe destination publication.
 - Destination replacement retains the previous file until the new file is complete. If final publication fails, Forge attempts to restore the backup and reports the error.
+
+## 0.30 non-blocking native Millwright imports — implemented
+
+- [x] Move optional Millwright CSV and Parquet loading off the UI thread.
+- [x] Continue using only the published `millwright = 2.2.1` crates.io dependency.
+- [x] Convert native Polars rows into typed Forge table results inside the worker.
+- [x] Apply Forge's one-million-row, 10,000-column, 512 MiB decoded-text, and 16 MiB cell limits to the projected result.
+- [x] Apply the existing 512 MiB regular-file preflight before invoking Millwright.
+- [x] Insert the completed result into the Arrow-backed workspace only on the UI thread.
+- [x] Open successful native imports directly in the docked dataset viewer.
+- [x] Disable the Millwright import action while another integration operation is active.
+- [x] Add a feature-gated worker test that executes the published Millwright CSV loader.
+
+Implementation notes:
+
+- Millwright/Polars necessarily materializes its native table before Forge projects display strings, so Forge's decoded-data budget limits the workspace result rather than the native loader's peak allocation.
+- The optional feature remains outside the default desktop binary because its Polars and ONNX graph materially increases build time and binary size.
+- The standard Forge importer remains preferable when native Millwright semantics are not specifically required.
 
 ## Known technical risks
 
