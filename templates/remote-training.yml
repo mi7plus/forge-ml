@@ -1,0 +1,25 @@
+name: Remote ML training
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: Training command
+        required: true
+        default: cargo run --release
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: ${{ inputs.command }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: training-artifacts
+          path: .forge/artifacts/**

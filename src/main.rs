@@ -1,5 +1,6 @@
 mod data;
 mod database;
+mod deep_learning;
 mod diagnostics;
 mod experiment;
 mod git;
@@ -16,16 +17,18 @@ mod publishing;
 mod python_kernel;
 mod python_runtime;
 mod release;
+mod remote;
 mod runtime;
 mod session;
 
 use data::DataWorkspace;
 use database::{ConnectionKind, ConnectionProfile, DatabaseConnector, ProfileConnector};
+use deep_learning::{Backend as DeepBackend, DeepOutputs, ResourceSnapshot};
 use diagnostics::DiagnosticsHandle;
 use eframe::egui;
 use egui::{Color32, Frame, Margin, Panel, RichText, Stroke};
 use egui_code_editor::{CodeEditor, ColorTheme, Syntax};
-use egui_plot::{Line, Plot, PlotPoints};
+use egui_plot::{Line, Plot, PlotPoints, Points};
 use experiment::{capture_provenance, ExperimentRun};
 #[cfg(test)]
 use forge_protocol::RunId;
@@ -109,6 +112,7 @@ enum InspectorTab {
     GitHub,
     Studio,
     Database,
+    DeepLearning,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -287,6 +291,18 @@ struct ForgeApp {
     sql_editor: String,
     sql_output: String,
     sql_history: Vec<String>,
+    deep_backend: DeepBackend,
+    deep_outputs: DeepOutputs,
+    resource_system: sysinfo::System,
+    resource_snapshot: ResourceSnapshot,
+    last_resource_poll: Instant,
+    early_stopping_patience: usize,
+    resume_checkpoint: String,
+    remote_profiles: Vec<remote::RemoteProfile>,
+    remote_name: String,
+    remote_url: String,
+    remote_command: String,
+    remote_token: String,
     last_file_poll: Instant,
     pending_editor_history: Option<EditorHistoryCommand>,
 }
@@ -359,6 +375,10 @@ impl ForgeApp {
         let sql_history = workspace_store
             .as_ref()
             .and_then(|store| store.load_query_history().ok())
+            .unwrap_or_default();
+        let remote_profiles = workspace_store
+            .as_ref()
+            .and_then(|store| store.load_remote_profiles().ok())
             .unwrap_or_default();
         if let Some(root) = project.as_ref().map(|project| project.root.clone()) {
             recent_projects.retain(|path| path != &root);
@@ -495,6 +515,18 @@ impl ForgeApp {
             sql_editor: "SELECT 1 AS value;".into(),
             sql_output: String::new(),
             sql_history,
+            deep_backend: DeepBackend::Cpu,
+            deep_outputs: DeepOutputs::default(),
+            resource_system: sysinfo::System::new_all(),
+            resource_snapshot: ResourceSnapshot::default(),
+            last_resource_poll: Instant::now(),
+            early_stopping_patience: 5,
+            resume_checkpoint: String::new(),
+            remote_profiles,
+            remote_name: "remote".into(),
+            remote_url: String::new(),
+            remote_command: "cargo run --release".into(),
+            remote_token: String::new(),
             last_file_poll: Instant::now(),
             pending_editor_history: None,
         }
@@ -651,6 +683,7 @@ impl ForgeApp {
                 if let Some(store) = &self.workspace_store {
                     self.database_profiles = store.load_connections().unwrap_or_default();
                     self.sql_history = store.load_query_history().unwrap_or_default();
+                    self.remote_profiles = store.load_remote_profiles().unwrap_or_default();
                     self.database_selected = 0;
                     if let Ok(runs) = store.load_experiments::<ExperimentRun>() {
                         self.saved_runs = runs;
@@ -1350,6 +1383,10 @@ impl ForgeApp {
                 self.python_console_input.clear();
             }
         }
+        if self.last_resource_poll.elapsed() >= Duration::from_secs(1) {
+            self.resource_snapshot = deep_learning::resources(&mut self.resource_system);
+            self.last_resource_poll = Instant::now();
+        }
     }
 
     fn run_diagnostics(&mut self) {
@@ -1639,6 +1676,7 @@ impl ForgeApp {
                     if let Some(report) = reports.into_iter().last() {
                         self.evaluation_report = report;
                     }
+                    deep_learning::parse_output(&self.console, &mut self.deep_outputs);
                     for envelope in events {
                         self.data.apply(envelope.event);
                     }
@@ -2489,6 +2527,7 @@ impl ForgeApp {
                 (InspectorTab::GitHub, "GitHub"),
                 (InspectorTab::Studio, "Studio"),
                 (InspectorTab::Database, "SQL"),
+                (InspectorTab::DeepLearning, "Deep"),
             ] {
                 if ui
                     .selectable_label(self.inspector_tab == tab, label)
@@ -2655,6 +2694,254 @@ impl ForgeApp {
             InspectorTab::GitHub => self.github_inspector(ui),
             InspectorTab::Studio => self.millwright_studio(ui),
             InspectorTab::Database => self.database_inspector(ui),
+            InspectorTab::DeepLearning => self.deep_learning_inspector(ui),
+        }
+    }
+
+    fn deep_learning_inspector(&mut self, ui: &mut egui::Ui) {
+        let root = self.project_root();
+        ui.heading("Deep learning");
+        ui.horizontal_wrapped(|ui| {
+            egui::ComboBox::from_id_salt("deep_backend")
+                .selected_text(self.deep_backend.label())
+                .show_ui(ui, |ui| {
+                    for backend in [
+                        DeepBackend::Cpu,
+                        DeepBackend::Wgpu,
+                        DeepBackend::Cuda,
+                        DeepBackend::Rocm,
+                    ] {
+                        ui.selectable_value(&mut self.deep_backend, backend, backend.label());
+                    }
+                });
+            if ui.button("Generate Burn project").clicked() {
+                self.sql_output = root
+                    .as_ref()
+                    .map(|root| {
+                        deep_learning::generate_burn_project(root, self.deep_backend)
+                            .unwrap_or_else(|e| e)
+                    })
+                    .unwrap_or_else(|| "Open a project first.".into());
+            }
+            ui.add(egui::DragValue::new(&mut self.early_stopping_patience).prefix("patience "));
+            ui.add(
+                egui::TextEdit::singleline(&mut self.resume_checkpoint)
+                    .hint_text("checkpoint to resume"),
+            );
+        });
+        ui.label(format!(
+            "Burn template {} · backend dependencies remain project-local",
+            deep_learning::BURN_VERSION
+        ));
+        ui.label(&self.sql_output);
+        let memory = if self.resource_snapshot.total_memory == 0 {
+            0.0
+        } else {
+            self.resource_snapshot.used_memory as f64 / self.resource_snapshot.total_memory as f64
+                * 100.0
+        };
+        ui.horizontal(|ui| {
+            ui.label(format!("CPU {:.1}%", self.resource_snapshot.cpu_percent));
+            ui.label(format!("RAM {:.1}%", memory));
+            ui.label(&self.resource_snapshot.gpu);
+        });
+        if let Some(event) = self.training_events.iter().rev().find_map(|event| {
+            if let TrainingEvent::Epoch {
+                epoch,
+                total,
+                loss,
+                metric,
+            } = event
+            {
+                Some((*epoch, *total, *loss, *metric))
+            } else {
+                None
+            }
+        }) {
+            ui.add(
+                egui::ProgressBar::new(event.0 as f32 / event.1.max(1) as f32).text(format!(
+                    "epoch {}/{} · loss {:.5}{}",
+                    event.0,
+                    event.1,
+                    event.2,
+                    event
+                        .3
+                        .map(|value| format!(" · metric {value:.5}"))
+                        .unwrap_or_default()
+                )),
+            );
+        }
+        if let Some((batch, total, loss, throughput)) =
+            self.training_events.iter().rev().find_map(|event| {
+                if let TrainingEvent::Batch {
+                    batch,
+                    total,
+                    loss,
+                    samples_per_second,
+                    ..
+                } = event
+                {
+                    Some((*batch, *total, *loss, *samples_per_second))
+                } else {
+                    None
+                }
+            })
+        {
+            ui.add(
+                egui::ProgressBar::new(batch as f32 / total.max(1) as f32).text(format!(
+                    "batch {batch}/{total} · loss {loss:.5} · {throughput:.1} samples/s"
+                )),
+            );
+        }
+        for checkpoint in &self.deep_outputs.checkpoints {
+            ui.label(format!("Checkpoint: {checkpoint}"));
+        }
+        if let Some(model) = &self.deep_outputs.model {
+            ui.collapsing(
+                format!(
+                    "Model summary · {} · {} parameters",
+                    model.name, model.parameters
+                ),
+                |ui| {
+                    egui::Grid::new("model_summary")
+                        .striped(true)
+                        .show(ui, |ui| {
+                            for (name, shape, parameters) in &model.layers {
+                                ui.label(name);
+                                ui.label(shape);
+                                ui.label(parameters.to_string());
+                                ui.end_row();
+                            }
+                        });
+                },
+            );
+        }
+        ui.collapsing("Tensors", |ui| {
+            for tensor in &self.deep_outputs.tensors {
+                ui.label(format!(
+                    "{} {:?} · {} values",
+                    tensor.name,
+                    tensor.shape,
+                    tensor.values.len()
+                ));
+                egui::ScrollArea::horizontal().show(ui, |ui| {
+                    ui.monospace(
+                        tensor
+                            .values
+                            .iter()
+                            .take(256)
+                            .map(|value| format!("{value:.4}"))
+                            .collect::<Vec<_>>()
+                            .join("  "),
+                    );
+                });
+            }
+        });
+        ui.collapsing("Images", |ui| {
+            for image in &self.deep_outputs.images {
+                ui.label(format!("{} · {}×{}", image.name, image.width, image.height));
+                if image.rgba.len() == image.width * image.height * 4 {
+                    let color = egui::ColorImage::from_rgba_unmultiplied(
+                        [image.width, image.height],
+                        &image.rgba,
+                    );
+                    let texture = ui.ctx().load_texture(
+                        format!("deep_image_{}", image.name),
+                        color,
+                        Default::default(),
+                    );
+                    let size = texture.size_vec2();
+                    ui.image((texture.id(), size));
+                }
+            }
+        });
+        ui.collapsing("Embeddings", |ui| {
+            for embedding in &self.deep_outputs.embeddings {
+                Plot::new(format!("embedding_{}", embedding.name))
+                    .height(180.0)
+                    .show(ui, |plot_ui| {
+                        plot_ui.points(
+                            Points::new(
+                                &embedding.name,
+                                PlotPoints::from(embedding.points.clone()),
+                            )
+                            .radius(3.0),
+                        );
+                    });
+            }
+        });
+        ui.collapsing("Predictions", |ui| {
+            for prediction in &self.deep_outputs.predictions {
+                ui.label(&prediction.name);
+                for (label, probability) in prediction.labels.iter().zip(&prediction.probabilities)
+                {
+                    ui.add(
+                        egui::ProgressBar::new(*probability as f32)
+                            .text(format!("{label} · {probability:.3}")),
+                    );
+                }
+            }
+        });
+        ui.separator();
+        ui.strong("Remote execution");
+        ui.horizontal_wrapped(|ui| {
+            ui.add(egui::TextEdit::singleline(&mut self.remote_name).hint_text("profile name"));
+            ui.add(egui::TextEdit::singleline(&mut self.remote_url).hint_text("Jupyter URL"));
+            ui.add(
+                egui::TextEdit::singleline(&mut self.remote_token)
+                    .password(true)
+                    .hint_text("token"),
+            );
+            if ui.button("Save remote").clicked() {
+                if let Some(root) = &root {
+                    let profile = remote::RemoteProfile {
+                        name: self.remote_name.clone(),
+                        jupyter_url: self.remote_url.clone(),
+                        agent_command: self.remote_command.clone(),
+                        credential_key: format!("remote:{}:{}", root.display(), self.remote_name),
+                    };
+                    if !self.remote_token.is_empty() {
+                        let _ = remote::store_token(&profile, &self.remote_token);
+                        self.remote_token.clear();
+                    }
+                    self.remote_profiles.push(profile);
+                    if let Some(store) = &self.workspace_store {
+                        let _ = store.save_remote_profiles(&self.remote_profiles);
+                    }
+                }
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.remote_command)
+                    .hint_text("remote training command"),
+            );
+            if ui.button("Generate Actions training").clicked() {
+                self.sql_output = root
+                    .as_ref()
+                    .map(|root| remote::generate_actions_workflow(root).unwrap_or_else(|e| e))
+                    .unwrap_or_else(|| "Open a project first.".into());
+            }
+            if ui.button("Dispatch Actions training").clicked() {
+                self.sql_output = root
+                    .as_ref()
+                    .map(|root| {
+                        github::dispatch_training(root, &self.remote_command).unwrap_or_else(|e| e)
+                    })
+                    .unwrap_or_else(|| "Open a project first.".into());
+            }
+            if ui.button("Retrieve artifacts").clicked() {
+                self.sql_output = root
+                    .as_ref()
+                    .map(|root| github::download_artifacts(root).unwrap_or_else(|e| e))
+                    .unwrap_or_else(|| "Open a project first.".into());
+            }
+        });
+        for profile in &self.remote_profiles {
+            ui.label(format!(
+                "{} · {} · {}",
+                profile.name, profile.jupyter_url, profile.agent_command
+            ));
         }
     }
 

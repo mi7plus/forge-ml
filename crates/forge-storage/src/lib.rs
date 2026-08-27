@@ -138,6 +138,20 @@ impl WorkspaceStore {
             .map_err(|e| e.to_string())
     }
 
+    pub fn save_remote_profiles<T: Serialize>(&self, profiles: &T) -> Result<(), String> {
+        atomic_json_write(&self.forge_dir.join("remote-profiles.json"), profiles)
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn load_remote_profiles<T: DeserializeOwned + Default>(&self) -> Result<T, String> {
+        let path = self.forge_dir.join("remote-profiles.json");
+        if !path.is_file() {
+            return Ok(T::default());
+        }
+        serde_json::from_slice(&fs::read(path).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())
+    }
+
     pub fn write_artifact(&self, relative_path: &Path, bytes: &[u8]) -> Result<PathBuf, String> {
         if relative_path.is_absolute()
             || relative_path

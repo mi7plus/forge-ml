@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.8.0`
+Current application version: `0.9.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -280,15 +280,23 @@ Implementation notes:
 - ADBC core is linked as the common API foundation; concrete driver-manager installation remains user-controlled.
 - The coordinated release workflow requires explicit dispatch inputs before any registry publishing occurs.
 
-## 0.9 deep learning and remote execution
+## 0.9 deep learning and remote execution — implemented
 
-- [ ] Add Burn adapter and project templates.
-- [ ] Add backend/device selection and model summaries.
-- [ ] Add epoch/batch metrics, checkpoints, early stopping, and resume.
-- [ ] Monitor CPU, RAM, GPU, throughput, and ETA.
-- [ ] Add tensor, image, embedding, and prediction viewers.
-- [ ] Add remote Jupyter kernels and training agents.
-- [ ] Add GitHub Actions remote training workflows and artifact retrieval.
+- [x] Add published Burn project templates without linking Burn into the IDE.
+- [x] Add backend/device selection and framework-neutral model summaries.
+- [x] Add epoch/batch metrics, checkpoints, early stopping, and resume controls.
+- [x] Monitor CPU, RAM, NVIDIA GPU, throughput, and ETA.
+- [x] Add tensor, image, embedding, and prediction viewers.
+- [x] Add secured remote Jupyter/training-agent profiles.
+- [x] Add GitHub Actions remote training dispatch, workflows, and artifact retrieval.
+
+Implementation notes:
+
+- Generated projects target published Burn `0.22.0-pre.3`; Burn is not linked into the Forge binary.
+- Deep-learning outputs use framework-neutral `forge_model`, `forge_tensor`, `forge_image`, `forge_embedding`, `forge_predictions`, and `forge_checkpoint` records.
+- This does not restore the removed Burn-specific telemetry implementation.
+- Remote tokens use the OS credential manager and never enter project profile JSON.
+- GitHub Actions training is explicit, command-driven, time-bounded, and always attempts artifact upload.
 
 ## 1.0 production readiness
 

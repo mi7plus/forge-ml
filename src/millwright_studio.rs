@@ -27,6 +27,22 @@ pub enum TrainingEvent {
         loss: f64,
         metric: Option<f64>,
     },
+    Batch {
+        epoch: usize,
+        batch: usize,
+        total: usize,
+        loss: f64,
+        samples_per_second: f64,
+    },
+    Checkpoint {
+        path: String,
+        epoch: usize,
+    },
+    EarlyStopping {
+        epoch: usize,
+        best_epoch: usize,
+        best_score: f64,
+    },
     Completed {
         best_score: f64,
     },

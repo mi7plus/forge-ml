@@ -76,6 +76,24 @@ pub fn create_issue(root: &Path, title: &str) -> Result<String, String> {
 pub fn actions(root: &Path) -> Result<String, String> {
     gh(Some(root), &["run", "list", "--limit", "20"])
 }
+pub fn dispatch_training(root: &Path, command: &str) -> Result<String, String> {
+    gh(
+        Some(root),
+        &[
+            "workflow",
+            "run",
+            "remote-training.yml",
+            "-f",
+            &format!("command={command}"),
+        ],
+    )
+}
+pub fn download_artifacts(root: &Path) -> Result<String, String> {
+    gh(
+        Some(root),
+        &["run", "download", "--dir", ".forge/remote-artifacts"],
+    )
+}
 
 #[cfg(test)]
 mod tests {
