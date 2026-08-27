@@ -39,6 +39,8 @@ See the [development plan](DEVELOPMENT_PLAN.md) for the target architecture and 
 - Generated Rust/Axum inference services with Docker and Compose templates
 - S3-compatible and rclone object-storage profiles with bounded browsing and project-local downloads
 - Private Cargo and PyPI-compatible registry discovery plus GitHub Enterprise authentication validation
+- Attested stable/beta update discovery that validates release manifests without silently installing binaries
+- Packaging preflight and executable notebook/table/plot performance budgets
 
 ## Notebook controls
 
@@ -77,5 +79,7 @@ rustup component add rust-analyzer
 ## Packaging
 
 Tagged releases and manual release workflow runs build an NSIS installer for Windows, a DMG for macOS, and DEB/AppImage packages for Linux. The release workflow downloads the matching official `rust-analyzer` sidecar and includes it in each package.
+
+Tagged release artifacts and their update-channel manifests receive GitHub build-provenance attestations. Forge can verify and report an available update from the Crates pane, but installation remains an explicit user action. Operating-system code signing and notarization require the release environment's own signing identities.
 
 Select a cell in the left notebook rail, then choose **Run cell**. Cells share one Evcxr session, so setup and dataset cells can define values used by later cells.

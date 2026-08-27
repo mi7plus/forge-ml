@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.11.0`
+Current application version: `0.12.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -103,7 +103,7 @@ tables, plots, and metrics still enter through a compatibility stdout adapter.
 - [x] Cross-platform release workflow scaffold.
 - [x] rust-analyzer sidecar packaging design.
 - [~] Windows/macOS/Linux package definitions exist but require ongoing release validation.
-- [ ] Automatic application update channel.
+- [~] Automatic application update channel (attested stable/beta discovery landed; installation remains intentionally manual).
 - [ ] Crash reporting and opt-in diagnostics.
 
 ### Integrations
@@ -304,10 +304,10 @@ Implementation notes:
 - [~] Add Millwright ONNX, registry, rollback, and service generation UI (format-neutral registry and service generation landed; native Millwright ONNX invocation remains).
 - [~] Add database and object-storage connector hardening (bounded database previews and secured CLI-backed object profiles landed; broader driver validation remains).
 - [x] Add private Cargo/Python registries and GitHub Enterprise validation.
-- [ ] Add signed releases, update channels, provenance, and attestations.
+- [~] Add signed releases, update channels, provenance, and attestations (artifact and channel-manifest attestations landed; OS code-signing identities remain release-environment work).
 - [ ] Complete accessibility and keyboard navigation review.
-- [ ] Complete cross-platform packaging and upgrade tests.
-- [ ] Establish performance budgets for startup, tables, notebooks, and plots.
+- [~] Complete cross-platform packaging and upgrade tests (matrix preflight landed; clean-machine upgrade runs remain).
+- [x] Establish performance budgets for startup, tables, notebooks, and plots.
 - [ ] Publish user, extension, protocol, and contributor documentation.
 
 ## 0.10 export, registry, and deployment foundations — implemented
@@ -345,6 +345,25 @@ Implementation notes:
 - Forge stores no object-storage, registry, or GitHub tokens in project files.
 - Cargo, Python, AWS CLI, rclone, and GitHub CLI remain the owners of authentication and trust configuration.
 - Object downloads require an explicit key and are confined to the project cache.
+
+## 0.12 trusted updates and performance budgets — implemented
+
+- [x] Generate stable or beta update manifests from tagged release artifacts.
+- [x] Include platform, HTTPS URL, byte size, and SHA-256 for every update artifact.
+- [x] Attach GitHub build-provenance attestations to installers and update manifests.
+- [x] Verify downloaded update manifests with `gh attestation verify` before parsing them.
+- [x] Validate manifest schema, channel, version, platform, HTTPS URL, and checksum shape.
+- [x] Keep update installation manual; update checks never replace a running binary.
+- [x] Restrict release artifact upload patterns and fail packaging when installers are absent.
+- [x] Add a packaging preflight for version alignment, platform matrix, provenance, and update assets.
+- [x] Add repeatable notebook parsing, 100k-row table, and million-point plot-preparation budgets.
+
+Implementation notes:
+
+- GitHub attestations provide identity-bound signatures through the existing OIDC release trust chain.
+- Windows Authenticode, Apple Developer ID/notarization, and Linux package signing still require project-owned signing identities.
+- Current interactive budgets are 250 ms for 10k notebook cells, 350 ms for filtering/sorting 100k rows, and 500 ms for preparing one million plot points.
+- Startup remains governed by the existing three-second product target; precise cold-start automation requires packaged clean-machine runners.
 
 ## Known technical risks
 

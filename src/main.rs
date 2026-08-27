@@ -14,6 +14,7 @@ mod model_registry;
 mod notebook;
 mod object_storage;
 mod packages;
+mod performance;
 mod plot;
 mod project;
 mod publishing;
@@ -23,6 +24,7 @@ mod release;
 mod remote;
 mod runtime;
 mod session;
+mod updater;
 
 use data::DataWorkspace;
 use database::{ConnectionKind, ConnectionProfile, DatabaseConnector, ProfileConnector};
@@ -325,6 +327,8 @@ struct ForgeApp {
     object_key: String,
     object_output: String,
     github_enterprise_host: String,
+    update_repository: String,
+    update_channel: updater::Channel,
     last_file_poll: Instant,
     pending_editor_history: Option<EditorHistoryCommand>,
 }
@@ -570,6 +574,8 @@ impl ForgeApp {
             object_key: String::new(),
             object_output: String::new(),
             github_enterprise_host: String::new(),
+            update_repository: "mi7plus/forge-ml".into(),
+            update_channel: updater::Channel::Stable,
             last_file_poll: Instant::now(),
             pending_editor_history: None,
         }
@@ -3893,6 +3899,33 @@ impl ForgeApp {
             }
             if ui.button("Generate release workflow").clicked() {
                 self.package_output = release::install_workflow(&root).unwrap_or_else(|e| e);
+            }
+            if ui.button("Packaging preflight").clicked() {
+                self.package_output = release::validate_packaging(&root).unwrap_or_else(|e| e);
+            }
+            if ui.button("Performance budgets").clicked() {
+                self.package_output = performance::report(&performance::run());
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.update_repository)
+                    .hint_text("update repository owner/name"),
+            );
+            egui::ComboBox::from_id_salt("update_channel")
+                .selected_text(self.update_channel.label())
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut self.update_channel,
+                        updater::Channel::Stable,
+                        "stable",
+                    );
+                    ui.selectable_value(&mut self.update_channel, updater::Channel::Beta, "beta");
+                });
+            if ui.button("Check signed updates").clicked() {
+                self.package_output =
+                    updater::check(&root, &self.update_repository, self.update_channel)
+                        .unwrap_or_else(|e| e);
             }
         });
         ui.separator();

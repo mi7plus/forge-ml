@@ -51,12 +51,54 @@ pub fn install_workflow(root: &Path) -> Result<String, String> {
     Ok(format!("Generated {}", path.display()))
 }
 
+pub fn validate_packaging(root: &Path) -> Result<String, String> {
+    let packager =
+        std::fs::read_to_string(root.join("Packager.toml")).map_err(|e| e.to_string())?;
+    let workflow = std::fs::read_to_string(root.join(".github/workflows/release.yml"))
+        .map_err(|e| e.to_string())?;
+    let cargo_version = manifest_version(
+        &std::fs::read_to_string(root.join("Cargo.toml")).map_err(|e| e.to_string())?,
+    )
+    .ok_or("Cargo.toml has no package version")?;
+    let package_version = manifest_version(&packager).ok_or("Packager.toml has no version")?;
+    if cargo_version != package_version {
+        return Err(format!(
+            "Version mismatch: Cargo {cargo_version}, Packager {package_version}"
+        ));
+    }
+    for required in [
+        "windows-latest",
+        "macos-14",
+        "ubuntu-24.04",
+        "nsis",
+        "dmg",
+        "deb,appimage",
+        "attest-build-provenance",
+        "update-*.json",
+        "if-no-files-found: error",
+    ] {
+        if !workflow.contains(required) {
+            return Err(format!("Release workflow is missing `{required}`"));
+        }
+    }
+    Ok(format!("Packaging preflight passed for {cargo_version}\nWindows: NSIS\nmacOS: DMG\nLinux: DEB + AppImage\nUpdate manifests: attested stable/beta channels"))
+}
+
+fn manifest_version(text: &str) -> Option<String> {
+    text.lines().find_map(|line| {
+        line.trim()
+            .strip_prefix("version = \"")
+            .and_then(|v| v.strip_suffix('"'))
+            .map(str::to_owned)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
     fn reports_manifest_version() {
-        assert!(version_report(Path::new(env!("CARGO_MANIFEST_DIR"))).contains("0.11.0"));
+        assert!(version_report(Path::new(env!("CARGO_MANIFEST_DIR"))).contains("0.12.0"));
     }
     #[test]
     fn workflow_generation_refuses_overwrite() {
@@ -65,5 +107,9 @@ mod tests {
         assert!(install_workflow(&root).is_ok());
         assert!(install_workflow(&root).is_err());
         let _ = std::fs::remove_dir_all(root);
+    }
+    #[test]
+    fn validates_repository_packaging_configuration() {
+        assert!(validate_packaging(Path::new(env!("CARGO_MANIFEST_DIR"))).is_ok());
     }
 }

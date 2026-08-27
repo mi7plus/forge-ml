@@ -39,7 +39,12 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: forge-ml-${{ runner.os }}
-          path: target/release/*
+          if-no-files-found: error
+          path: |
+            target/release/*.exe
+            target/release/*.dmg
+            target/release/*.deb
+            target/release/*.AppImage
 
   release:
     if: startsWith(github.ref, 'refs/tags/')
@@ -50,11 +55,35 @@ jobs:
         with:
           path: release-artifacts
       - run: find release-artifacts -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+      - name: Create signed update-channel manifest
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, urllib.parse
+          tag = os.environ["RELEASE_TAG"]
+          channel = "beta" if any(mark in tag.lower() for mark in ("beta", "alpha", "rc")) else "stable"
+          artifacts = []
+          for path in pathlib.Path("release-artifacts").rglob("*"):
+              if not path.is_file(): continue
+              name = path.name
+              platform = ("windows-x86_64" if name.endswith(".exe") else
+                          "macos-aarch64" if name.endswith(".dmg") else
+                          "linux-x86_64" if name.endswith((".AppImage", ".deb")) else None)
+              if not platform or any(a["platform"] == platform for a in artifacts): continue
+              artifacts.append({"platform": platform, "url": f"https://github.com/{os.environ['RELEASE_REPOSITORY']}/releases/download/{urllib.parse.quote(tag)}/{urllib.parse.quote(name)}", "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "size": path.stat().st_size})
+          manifest = {"schema": 1, "channel": channel, "version": tag.removeprefix("v"), "published_at": "${{ github.event.repository.updated_at }}", "artifacts": artifacts}
+          pathlib.Path(f"update-{channel}.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          PY
       - uses: actions/attest-build-provenance@v2
         with:
-          subject-path: release-artifacts/**/*
+          subject-path: |
+            release-artifacts/**/*
+            update-*.json
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             release-artifacts/**/*
             SHA256SUMS
+            update-*.json
