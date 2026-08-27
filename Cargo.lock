@@ -2326,7 +2326,7 @@ dependencies = [
 
 [[package]]
 name = "forge_ide"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "adbc_core",
  "arrow",

@@ -162,9 +162,48 @@ pub fn generate_inference_service(
         .join("models")
         .join(format!("model.{extension}"));
     fs::copy(model_path, &bundled_model).map_err(|e| e.to_string())?;
-    let cargo = format!("[package]\nname = \"{crate_name}-service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\naxum = \"0.8\"\ntokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\", \"net\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nserde_json = \"1\"\n");
-    let main = format!(
-        r#"use axum::{{routing::{{get, post}}, Json, Router}};
+    let onnx = version.format.eq_ignore_ascii_case("onnx");
+    let cargo = if onnx {
+        format!("[package]\nname = \"{crate_name}-service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\naxum = \"0.8\"\ntokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\", \"net\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nmillwright = {{ version = \"2.2.1\", default-features = false, features = [\"serve\"] }}\n")
+    } else {
+        format!("[package]\nname = \"{crate_name}-service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\naxum = \"0.8\"\ntokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\", \"net\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nserde_json = \"1\"\n")
+    };
+    let main = if onnx {
+        format!(
+            r#"use axum::{{routing::get, Json, Router}};
+use millwright::prelude::Server;
+use serde::Serialize;
+use std::time::Duration;
+const MODEL_PATH: &str = "models/model.{extension}";
+const MODEL: &str = {model:?};
+const VERSION: &str = {version_number:?};
+#[derive(Serialize)] struct Metadata {{ model: &'static str, version: &'static str, format: &'static str, artifact: &'static str, runtime: &'static str }}
+async fn health() -> &'static str {{ "ok" }}
+async fn ready() -> Result<&'static str, (axum::http::StatusCode, &'static str)> {{
+    std::fs::metadata(MODEL_PATH).map(|_| "ready").map_err(|_| (axum::http::StatusCode::SERVICE_UNAVAILABLE, "model missing"))
+}}
+async fn metadata() -> Json<Metadata> {{ Json(Metadata {{ model: MODEL, version: VERSION, format: "onnx", artifact: MODEL_PATH, runtime: "millwright-2.2.1" }}) }}
+#[tokio::main] async fn main() -> Result<(), Box<dyn std::error::Error>> {{
+    if std::env::args().any(|arg| arg == "--healthcheck") {{
+        std::process::exit(if std::fs::metadata(MODEL_PATH).is_ok() {{ 0 }} else {{ 1 }});
+    }}
+    let inference = Server::from_onnx(MODEL_PATH)?
+        .request_limits(10_000, 10_000, 8 * 1024 * 1024)
+        .max_concurrency(64)
+        .inference_timeout(Duration::from_secs(30))
+        .router();
+    let operations = Router::new().route("/health", get(health)).route("/ready", get(ready)).route("/metadata", get(metadata));
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
+    axum::serve(listener, inference.merge(operations)).await?;
+    Ok(())
+}}
+"#,
+            model = version.model,
+            version_number = version.version,
+        )
+    } else {
+        format!(
+            r#"use axum::{{routing::{{get, post}}, Json, Router}};
 use serde::{{Deserialize, Serialize}};
 use std::sync::atomic::{{AtomicU64, Ordering}};
 const MODEL_PATH: &str = "models/model.{extension}";
@@ -194,15 +233,21 @@ async fn predict(Json(input): Json<Request>) -> Json<Response> {{
     axum::serve(listener, app).await.unwrap();
 }}
 "#,
-        model = version.model,
-        version_number = version.version,
-        format = version.format,
-    );
+            model = version.model,
+            version_number = version.version,
+            format = version.format,
+        )
+    };
     fs::write(destination.join("Cargo.toml"), cargo).map_err(|e| e.to_string())?;
     fs::write(destination.join("src/main.rs"), main).map_err(|e| e.to_string())?;
     fs::write(destination.join("Dockerfile"), "FROM rust:1-slim AS build\nWORKDIR /app\nCOPY . .\nRUN cargo build --release\nFROM debian:bookworm-slim\nWORKDIR /app\nCOPY --from=build /app/target/release/*-service /usr/local/bin/model-service\nCOPY --from=build /app/models ./models\nEXPOSE 3000\nHEALTHCHECK CMD [\"/usr/local/bin/model-service\", \"--healthcheck\"]\nCMD [\"model-service\"]\n").map_err(|e| e.to_string())?;
     fs::write(destination.join("compose.yaml"), "services:\n  model:\n    build: .\n    ports: [\"3000:3000\"]\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD\", \"/usr/local/bin/model-service\", \"--healthcheck\"]\n      interval: 10s\n      timeout: 3s\n      retries: 3\n").map_err(|e| e.to_string())?;
-    fs::write(destination.join("README.md"), format!("# {crate_name} inference service\n\nGenerated from registered model `{}` version `{}` (`{}`). The artifact is copied into `models/` and will not change if a registry alias is later promoted or rolled back.\n\nEndpoints: `GET /health`, `GET /ready`, `GET /metadata`, and `POST /predict`. The generated prediction handler is integration scaffolding; replace its pass-through body with the tensor adapter for the selected model format before production use.\n", version.model, version.version, version.format)).map_err(|e| e.to_string())?;
+    let prediction_note = if onnx {
+        "`POST /predict` accepts `{\"rows\":[[...], ...]}` and performs bounded, timeout-protected inference through the published Millwright 2.2.1 ONNX runtime."
+    } else {
+        "The generated `POST /predict` handler is integration scaffolding; replace its pass-through body with the tensor adapter for the selected model format before production use."
+    };
+    fs::write(destination.join("README.md"), format!("# {crate_name} inference service\n\nGenerated from registered model `{}` version `{}` (`{}`). The artifact is copied into `models/` and will not change if a registry alias is later promoted or rolled back.\n\nEndpoints: `GET /health`, `GET /ready`, `GET /metadata`, and `POST /predict`. {prediction_note}\n", version.model, version.version, version.format)).map_err(|e| e.to_string())?;
     fs::write(destination.join("deployment.yaml"), format!("apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: {crate_name}\nspec:\n  replicas: 1\n  selector:\n    matchLabels: {{ app: {crate_name} }}\n  template:\n    metadata:\n      labels: {{ app: {crate_name} }}\n    spec:\n      containers:\n        - name: model\n          image: {crate_name}-service:0.1.0\n          ports: [{{ containerPort: 3000 }}]\n          readinessProbe:\n            httpGet: {{ path: /ready, port: 3000 }}\n          livenessProbe:\n            httpGet: {{ path: /health, port: 3000 }}\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: {crate_name}\nspec:\n  selector: {{ app: {crate_name} }}\n  ports: [{{ port: 80, targetPort: 3000 }}]\n")).map_err(|e| e.to_string())?;
     Ok(destination)
 }
@@ -254,8 +299,60 @@ mod tests {
         let source = fs::read_to_string(service.join("src/main.rs")).unwrap();
         assert!(source.contains("/health"));
         assert!(source.contains("/ready"));
-        assert!(source.contains("forge_service:"));
+        assert!(source.contains("Server::from_onnx(MODEL_PATH)"));
+        assert!(source.contains("request_limits(10_000, 10_000, 8 * 1024 * 1024)"));
+        let cargo = fs::read_to_string(service.join("Cargo.toml")).unwrap();
+        assert!(cargo.contains("millwright = { version = \"2.2.1\""));
         assert!(service.join("deployment.yaml").is_file());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn non_onnx_service_remains_an_explicit_adapter() {
+        let root = std::env::temp_dir().join(format!("forge-adapter-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let artifact = root.join("source.bin");
+        fs::write(&artifact, b"model").unwrap();
+        let version = ModelVersion {
+            model: "custom".into(),
+            version: "1".into(),
+            format: "safetensors".into(),
+            artifact: "unused".into(),
+            created_at_unix: 0,
+            tags: vec![],
+        };
+        let service = generate_inference_service(&root, "custom", &version, &artifact).unwrap();
+        let source = fs::read_to_string(service.join("src/main.rs")).unwrap();
+        assert!(source.contains("forge_service:"));
+        assert!(!source.contains("Server::from_onnx"));
+        let readme = fs::read_to_string(service.join("README.md")).unwrap();
+        assert!(readme.contains("integration scaffolding"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    #[ignore = "compiles a standalone generated Cargo project"]
+    fn generated_onnx_service_compiles() {
+        let root = std::env::temp_dir().join(format!("forge-service-check-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let artifact = root.join("source.onnx");
+        fs::write(&artifact, b"compile-only placeholder").unwrap();
+        let version = ModelVersion {
+            model: "verified".into(),
+            version: "1".into(),
+            format: "onnx".into(),
+            artifact: "unused".into(),
+            created_at_unix: 0,
+            tags: vec![],
+        };
+        let service = generate_inference_service(&root, "verified", &version, &artifact).unwrap();
+        let status = std::process::Command::new("cargo")
+            .args(["check", "--quiet"])
+            .current_dir(&service)
+            .status()
+            .unwrap();
+        let _ = fs::remove_dir_all(root);
+        assert!(status.success());
     }
 }

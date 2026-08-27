@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.18.0`
+Current application version: `0.19.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -467,6 +467,22 @@ Implementation notes:
 - ONNX support remains optional because Millwright's ONNX/runtime dependency graph materially increases compile and binary size.
 - Generated prediction handlers deliberately remain editable integration scaffolds: model formats require format-specific tensor adapters before production inference.
 - The service copies the exact alias-resolved artifact, so later alias promotion or rollback cannot silently change an already generated deployment.
+
+## 0.19 executable ONNX inference services — implemented
+
+- [x] Generate actual ONNX prediction endpoints through the published Millwright 2.2.1 serving runtime.
+- [x] Accept rectangular `f64` row batches and return model predictions instead of pass-through values.
+- [x] Apply Millwright's 10,000-row/column limits, 8 MB body limit, 64-request concurrency limit, and 30-second inference timeout.
+- [x] Keep health, readiness, immutable metadata, container, Compose, and Kubernetes operations around the inference router.
+- [x] Identify the Millwright runtime in service metadata and generated documentation.
+- [x] Keep non-ONNX formats explicit as editable adapters rather than pretending to execute an unsupported runtime.
+- [x] Add a standalone generated-project compile verification in addition to template unit tests.
+
+Implementation notes:
+
+- The inference runtime is linked only into generated ONNX service projects, not Forge's default desktop binary.
+- Generated projects depend on `millwright = 2.2.1` from crates.io with its `serve` feature; local Millwright repositories are not consulted.
+- Millwright's tract-backed loader handles ordinary ONNX graphs. ONNX-ML tree operators may require a different runtime adapter, which remains explicit rather than silently falling back.
 
 ## Known technical risks
 
