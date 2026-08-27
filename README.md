@@ -4,7 +4,7 @@ Forge ML is an experimental desktop compute studio for interactive Rust machine-
 
 Its workspace follows the scientific-IDE model popularized by Spyder: an editor-centered layout surrounded by project, outline, variable, plot, help, diagnostics, console, and history panes.
 
-See the [user guide](docs/USER_GUIDE.md), [development plan](DEVELOPMENT_PLAN.md), [roadmap](ROADMAP.md), [event protocol](docs/PROTOCOL.md), [extension guide](docs/EXTENSIONS.md), and [contributor guide](CONTRIBUTING.md).
+See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [development plan](DEVELOPMENT_PLAN.md), [roadmap](ROADMAP.md), [event protocol](docs/PROTOCOL.md), [extension guide](docs/EXTENSIONS.md), and [contributor guide](CONTRIBUTING.md).
 
 ## Current prototype
 
@@ -42,6 +42,7 @@ See the [user guide](docs/USER_GUIDE.md), [development plan](DEVELOPMENT_PLAN.md
 - Attested stable/beta update discovery that validates release manifests without silently installing binaries
 - Packaging preflight and executable notebook/table/plot performance budgets
 - Searchable keyboard command palette, inspector-pane cycling, high contrast, and reduced motion
+- Off-by-default local diagnostics and reviewable crash-report ZIP export with no automatic upload
 
 ## Notebook controls
 

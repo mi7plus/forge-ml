@@ -46,6 +46,8 @@ pub struct SessionState {
     #[serde(default)]
     pub reduced_motion: bool,
     #[serde(default)]
+    pub diagnostics_opt_in: bool,
+    #[serde(default)]
     pub saved_runs: Vec<ExperimentRun>,
     #[serde(default = "default_experiment_name")]
     pub experiment_name: String,
@@ -78,5 +80,6 @@ mod tests {
         assert_eq!(state.dataset_pane_height, 280.0);
         assert!(!state.high_contrast);
         assert!(!state.reduced_motion);
+        assert!(!state.diagnostics_opt_in);
     }
 }

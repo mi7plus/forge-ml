@@ -17,6 +17,7 @@ mod object_storage;
 mod packages;
 mod performance;
 mod plot;
+mod privacy_diagnostics;
 mod project;
 mod publishing;
 mod python_kernel;
@@ -268,6 +269,7 @@ struct ForgeApp {
     command_query: String,
     command_selection: usize,
     status_announcement: String,
+    diagnostics_opt_in: bool,
     completion_popup_open: bool,
     git_output: String,
     git_commit_message: String,
@@ -413,6 +415,10 @@ impl ForgeApp {
             .as_ref()
             .and_then(|store| store.load_remote_profiles().ok())
             .unwrap_or_default();
+        privacy_diagnostics::configure(
+            session.diagnostics_opt_in,
+            project.as_ref().map(|p| p.root.as_path()),
+        );
         let object_profiles = workspace_store
             .as_ref()
             .and_then(|store| store.load_object_profiles().ok())
@@ -517,6 +523,7 @@ impl ForgeApp {
             command_query: String::new(),
             command_selection: 0,
             status_announcement: "Forge ML ready".into(),
+            diagnostics_opt_in: session.diagnostics_opt_in,
             completion_popup_open: false,
             git_output: String::new(),
             git_commit_message: String::new(),
@@ -742,6 +749,7 @@ impl ForgeApp {
                 self.console = format!("Opened {}", project.root.display());
                 self.project = Some(project);
                 self.workspace_store = WorkspaceStore::open(&root).ok();
+                privacy_diagnostics::configure(self.diagnostics_opt_in, Some(&root));
                 if let Some(store) = &self.workspace_store {
                     self.database_profiles = store.load_connections().unwrap_or_default();
                     self.sql_history = store.load_query_history().unwrap_or_default();
@@ -1777,6 +1785,7 @@ impl ForgeApp {
                     }
                 }
                 CellResult::RuntimeError(message) => {
+                    let _ = privacy_diagnostics::record("rust_runtime_error");
                     if self.runtime_restart_attempts < 2 {
                         self.runtime_restart_attempts += 1;
                         self.run_state = RunState::Booting;
@@ -2185,6 +2194,44 @@ impl ForgeApp {
                 );
                 if contrast_changed {
                     configure_style(ctx, self.dark_mode, self.high_contrast);
+                }
+                ui.heading("Privacy & diagnostics");
+                let consent_changed = ui
+                    .checkbox(
+                        &mut self.diagnostics_opt_in,
+                        "Record bounded local diagnostics for this project",
+                    )
+                    .changed();
+                ui.label(
+                    RichText::new("Off by default. Records event types and crash summaries only; no source, datasets, environment variables, or automatic upload.")
+                        .size(10.0)
+                        .color(MUTED),
+                );
+                if consent_changed {
+                    let root = self.project_root();
+                    privacy_diagnostics::configure(self.diagnostics_opt_in, root.as_deref());
+                    if self.diagnostics_opt_in {
+                        let _ = privacy_diagnostics::record("diagnostics_enabled");
+                    }
+                    self.status_announcement = if self.diagnostics_opt_in {
+                        "Local diagnostics enabled".into()
+                    } else {
+                        "Local diagnostics disabled".into()
+                    };
+                }
+                if ui.button("Export reviewable diagnostics ZIP…").clicked() {
+                    self.console = match (
+                        self.project_root(),
+                        rfd::FileDialog::new()
+                            .set_file_name("forge-diagnostics.zip")
+                            .save_file(),
+                    ) {
+                        (Some(root), Some(path)) => privacy_diagnostics::export_bundle(&root, &path)
+                            .map(|()| format!("Exported diagnostics to {}. Nothing was uploaded.", path.display()))
+                            .unwrap_or_else(|e| format!("Diagnostics export failed: {e}")),
+                        (None, _) => "Open a project before exporting diagnostics.".into(),
+                        (_, None) => "Diagnostics export cancelled.".into(),
+                    };
                 }
                 ui.add_space(8.0);
                 ui.label(
@@ -5404,6 +5451,7 @@ impl eframe::App for ForgeApp {
             caret_blink: self.caret_blink,
             high_contrast: self.high_contrast,
             reduced_motion: self.reduced_motion,
+            diagnostics_opt_in: self.diagnostics_opt_in,
             saved_runs: self.saved_runs.clone(),
             experiment_name: self.experiment_name.clone(),
             comparison_metric: self.comparison_metric.clone(),

@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.13.0`
+Current application version: `0.14.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -104,7 +104,7 @@ tables, plots, and metrics still enter through a compatibility stdout adapter.
 - [x] rust-analyzer sidecar packaging design.
 - [~] Windows/macOS/Linux package definitions exist but require ongoing release validation.
 - [~] Automatic application update channel (attested stable/beta discovery landed; installation remains intentionally manual).
-- [ ] Crash reporting and opt-in diagnostics.
+- [x] Crash reporting and opt-in diagnostics.
 
 ### Integrations
 
@@ -381,6 +381,23 @@ Implementation notes:
 - State continues to use labels, symbols, or counts in addition to color.
 - The command catalog is centralized and tested so menu discovery can evolve without duplicating search logic.
 - Formal NVDA, Narrator, VoiceOver, keyboard-only, and contrast audits remain required on packaged builds before 1.0.
+
+## 0.14 private diagnostics and crash reports — implemented
+
+- [x] Keep diagnostics disabled by default and persist explicit user consent.
+- [x] Scope local diagnostic recording to the currently open project.
+- [x] Record bounded event categories without source, data, SQL, environment, or command output.
+- [x] Install a panic hook that preserves the standard hook and writes sanitized crash summaries only when opted in.
+- [x] Redact home paths and common inline token, password, secret, and key assignments.
+- [x] Rotate event logs at 1 MB and cap exported crash summaries.
+- [x] Export a reviewable ZIP with a machine-readable privacy manifest.
+- [x] Never upload diagnostics or crash reports automatically.
+
+Implementation notes:
+
+- Diagnostic data lives under `.forge/diagnostics` and remains entirely user-controlled.
+- Disabling consent stops new recording but does not silently delete existing files.
+- The export manifest lists excluded sensitive categories so a bundle can be inspected before sharing.
 
 ## Known technical risks
 
