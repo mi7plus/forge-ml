@@ -1239,6 +1239,7 @@ impl ForgeApp {
         run.provenance = capture_provenance(
             self.project.as_ref().map(|project| project.root.as_path()),
             self.data.fingerprints(),
+            self.data.source_fingerprints(),
         );
         if let Some(store) = &self.workspace_store {
             let artifact = PathBuf::from("runs").join(run.id.as_str()).join("run.json");
@@ -5005,9 +5006,18 @@ impl ForgeApp {
                                 .color(MUTED),
                             );
                             ui.label(
-                                RichText::new(format!("artifacts: {}", run.artifacts.len()))
-                                    .size(9.0)
-                                    .color(MUTED),
+                                RichText::new(format!(
+                                    "artifacts: {} · datasets: {} · {}",
+                                    run.artifacts.len(),
+                                    run.provenance.datasets.len(),
+                                    if run.provenance.fingerprint_algorithm.is_empty() {
+                                        "legacy fingerprints"
+                                    } else {
+                                        run.provenance.fingerprint_algorithm.as_str()
+                                    }
+                                ))
+                                .size(9.0)
+                                .color(MUTED),
                             );
                             ui.label(RichText::new(run.notes.clone()).size(9.0).color(MUTED));
                             ui.end_row();

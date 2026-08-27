@@ -201,7 +201,7 @@ pub fn project_bundle(root: &Path, destination: &Path) -> Result<(), String> {
         zip.write_all(&fs::read(canonical_root.join(relative)).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?;
     }
-    let manifest = serde_json::json!({"schema":1,"forge_version":env!("CARGO_PKG_VERSION"),"file_count":entries.len(),"total_uncompressed_bytes":total,"entries":entries,"excluded":[".git",".forge","target",".venv","node_modules","credential-like files","symlinks"]});
+    let manifest = serde_json::json!({"schema":2,"forge_version":env!("CARGO_PKG_VERSION"),"digest_algorithm":"sha256","file_count":entries.len(),"total_uncompressed_bytes":total,"entries":entries,"excluded":[".git",".forge","target",".venv","node_modules","credential-like files","symlinks"]});
     zip.start_file("forge-bundle.json", options)
         .map_err(|e| e.to_string())?;
     zip.write_all(&serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?)

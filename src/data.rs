@@ -148,6 +148,19 @@ impl DataWorkspace {
             })
             .collect()
     }
+    pub fn source_fingerprints(&self) -> HashMap<String, String> {
+        self.tables
+            .iter()
+            .filter_map(|(name, dataset)| {
+                dataset.source.as_ref().map(|source| {
+                    (
+                        name.clone(),
+                        crate::experiment::stable_digest(source.as_bytes()),
+                    )
+                })
+            })
+            .collect()
+    }
     pub fn apply(&mut self, event: ForgeEvent) {
         match event {
             ForgeEvent::Metric { name, value } => {

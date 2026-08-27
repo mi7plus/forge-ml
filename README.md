@@ -24,6 +24,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - Telemetry-driven line charts and vector bar visualizations
 - Spyder-style dataset viewer in an adjustable bottom-right pane, with undocking, row filtering, and two-dimensional tables
 - Deletable live datasets and plots, with experiment snapshots and comparison settings persisted across launches
+- SHA-256 experiment provenance for datasets, source identities, Cargo lockfiles, environments, and project bundles
 - Project and Outline navigation tabs
 - Project-wide search with clickable line and column results
 - Clickable source outline for functions, structs, enums, traits, implementations, and modules

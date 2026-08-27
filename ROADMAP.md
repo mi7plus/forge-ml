@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.26.0`
+Current application version: `0.27.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -45,9 +45,9 @@ tables, plots, and metrics still enter through a compatibility stdout adapter.
 - [x] Runtime reset without restarting the application.
 - [x] Interactive Rust console with command history.
 - [~] Runtime cancellation currently restarts the runtime and loses live state.
-- [ ] Markdown cells.
-- [ ] Standard `.ipynb` import/export.
-- [ ] Jupyter kernel protocol support.
+- [x] Markdown cells.
+- [x] Standard `.ipynb` import/export.
+- [~] Jupyter kernel protocol support (kernelspec integration is available; native Evcxr remains the default).
 - [ ] Remote kernels.
 
 ### Rust language intelligence
@@ -88,15 +88,15 @@ tables, plots, and metrics still enter through a compatibility stdout adapter.
 - [x] Experiment snapshot persistence across launches.
 - [x] Metric comparison across saved runs.
 - [x] Experiment CSV export.
-- [ ] Project-local experiment database.
-- [ ] Dataset and source fingerprints.
-- [ ] Git/Cargo/environment provenance.
-- [ ] Millwright integration.
-- [ ] Visual classical ML pipeline builder.
-- [ ] Search, cross-validation, and AutoML progress.
-- [ ] Evaluation, explainability, and diagnostics dashboards.
-- [ ] Burn deep-learning integration.
-- [ ] Checkpoints, resource monitoring, and remote training.
+- [x] Project-local experiment database.
+- [x] Dataset and source fingerprints.
+- [x] Git/Cargo/environment provenance.
+- [x] Millwright integration.
+- [x] Visual classical ML pipeline builder.
+- [x] Search, cross-validation, and AutoML progress.
+- [x] Evaluation, explainability, and diagnostics dashboards.
+- [x] Burn deep-learning project integration.
+- [x] Checkpoints, resource monitoring, and remote training.
 
 ### Packaging and delivery
 
@@ -108,13 +108,13 @@ tables, plots, and metrics still enter through a compatibility stdout adapter.
 
 ### Integrations
 
-- [ ] Local Git status, diff, staging, commits, branches, and remotes.
-- [ ] GitHub authentication, repositories, pull requests, issues, and Actions.
-- [ ] crates.io discovery and Cargo dependency management UI.
-- [ ] crates.io publishing assistant.
-- [ ] Python environment discovery and management.
-- [ ] PyPI discovery, installation, and publishing.
-- [ ] Coordinated Millwright crates.io/PyPI releases.
+- [x] Local Git status, diff, staging, commits, branches, and remotes.
+- [x] GitHub authentication, repositories, pull requests, issues, and Actions.
+- [x] crates.io discovery and Cargo dependency management UI.
+- [x] crates.io publishing assistant with explicit dry runs.
+- [x] Python runtime/environment discovery and explicit `.venv` creation.
+- [~] PyPI discovery, installation, and publishing (discovery/build validation landed; packages remain user-managed and uploads stay external).
+- [x] Coordinated Millwright crates.io/PyPI release workflow.
 
 ## Now: stabilize the 0.1 prototype
 
@@ -608,6 +608,24 @@ Implementation notes:
 - The 512 MiB limit applies to the compressed/on-disk file size; expanded datasets can require substantially more memory and streaming record batches remain future work.
 - Imports share the sequential integration worker with databases and object storage, preventing concurrent large allocations and external transfers.
 - File selection remains a native modal dialog, while all parsing and conversion work runs in the background.
+
+## 0.27 cryptographic experiment provenance — implemented
+
+- [x] Replace implementation-dependent 64-bit hashes with stable SHA-256 fingerprints.
+- [x] Apply SHA-256 to dataset content, Cargo lockfiles, Python runtime packages, and project-bundle entries.
+- [x] Record the fingerprint algorithm explicitly in every new experiment run.
+- [x] Record separate hashed dataset-source identities without exposing source paths or connection labels.
+- [x] Preserve loading of historical runs through serde defaults and label their fingerprints as legacy in the UI.
+- [x] Show dataset count and fingerprint algorithm in the experiment comparison pane.
+- [x] Upgrade reproducible project-bundle manifests to schema 2 with an explicit digest algorithm.
+- [x] Reconcile the high-level roadmap checklist with capabilities already delivered by milestones 0.3–0.9.
+- [x] Verify the SHA-256 implementation against a known digest vector.
+
+Implementation notes:
+
+- Source fingerprints hash the recorded source identity; they support equality checks without serializing local paths into run metadata.
+- Existing run and bundle fingerprints are not rewritten. Empty algorithm metadata identifies legacy experiment records.
+- SHA-256 strengthens reproducibility and integrity comparison but does not by itself provide authenticity; signed release attestations remain the trust mechanism for distributed artifacts.
 
 ## Known technical risks
 

@@ -31,7 +31,9 @@ Inside the full data viewer, select individual or all filtered rows, hide or pin
 
 Each table can produce a self-contained EDA HTML report with column profiles and a bounded preview. Runs can produce an offline comparison report containing final metrics, step counts, tags, Git commits, and escaped run manifests.
 
-File → **Export reproducible project bundle** creates a deterministic ZIP with a manifest, file sizes, and content digests. It is limited to 20,000 files, 100 MB per file, and 500 MB total. Build directories, virtual environments, Forge state, Git state, symlinks, and credential-like files are excluded. Review the manifest before sharing.
+New experiment runs use SHA-256 fingerprints for dataset contents, hashed source identities, the Cargo lockfile, and selected runtime package metadata. The experiment pane shows the algorithm and captured dataset count. Historical runs remain readable and are labeled as using legacy fingerprints; Forge does not silently rewrite their provenance.
+
+File → **Export reproducible project bundle** creates a deterministic ZIP with a schema-2 manifest, file sizes, and SHA-256 content digests. It is limited to 20,000 files, 100 MB per file, and 500 MB total. Build directories, virtual environments, Forge state, Git state, symlinks, and credential-like files are excluded. Review the manifest before sharing.
 
 The Plots pane accepts legacy metrics/vectors and versioned `forge_plot:` JSON. Structured plots support lines, scatter, bars, filled areas, histograms, box summaries, heatmaps, ROC, precision–recall, residuals, and feature importance. Each series can be hidden, axes can be transformed to log10, and definitions can be exported as JSON or standalone SVG.
 

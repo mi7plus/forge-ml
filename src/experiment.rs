@@ -7,6 +7,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct RunProvenance {
+    #[serde(default)]
+    pub fingerprint_algorithm: String,
     pub git_commit: String,
     pub git_dirty: bool,
     pub cargo_lock_hash: String,
@@ -16,6 +18,8 @@ pub struct RunProvenance {
     pub architecture: String,
     pub cpu_count: usize,
     pub datasets: HashMap<String, String>,
+    #[serde(default)]
+    pub dataset_sources: HashMap<String, String>,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -92,7 +96,11 @@ impl ExperimentRun {
     }
 }
 
-pub fn capture_provenance(root: Option<&Path>, datasets: HashMap<String, String>) -> RunProvenance {
+pub fn capture_provenance(
+    root: Option<&Path>,
+    datasets: HashMap<String, String>,
+    dataset_sources: HashMap<String, String>,
+) -> RunProvenance {
     let command = |program: &str, args: &[&str]| {
         Command::new(program)
             .args(args)
@@ -110,6 +118,7 @@ pub fn capture_provenance(root: Option<&Path>, datasets: HashMap<String, String>
         .map(|bytes| stable_digest(&bytes))
         .unwrap_or_default();
     RunProvenance {
+        fingerprint_algorithm: "sha256".into(),
         git_commit,
         git_dirty,
         cargo_lock_hash,
@@ -121,14 +130,13 @@ pub fn capture_provenance(root: Option<&Path>, datasets: HashMap<String, String>
             .map(usize::from)
             .unwrap_or(1),
         datasets,
+        dataset_sources,
     }
 }
 
 pub fn stable_digest(bytes: &[u8]) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    bytes.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 #[cfg(test)]
@@ -149,5 +157,13 @@ mod tests {
         let run = ExperimentRun::snapshot("parent".into(), &HashMap::new(), &HashMap::new(), 1);
         let child = run.clone_as_child("child".into());
         assert_eq!(child.parent_id, Some(run.id));
+    }
+
+    #[test]
+    fn fingerprints_use_stable_sha256() {
+        assert_eq!(
+            stable_digest(b"forge"),
+            "71b41d6dd48dc58eba8f5cf9edf30fef6597fdf285a521bb8fcbad4b3d50887d"
+        );
     }
 }
