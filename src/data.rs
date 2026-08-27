@@ -7,12 +7,34 @@ use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use std::{
     collections::HashMap,
     fs::File,
+    io::{BufRead, BufReader},
     ops::Deref,
     path::Path,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
     },
+};
+
+const MAX_IMPORT_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_IMPORT_ROWS: usize = 1_000_000;
+const MAX_IMPORT_COLUMNS: usize = 10_000;
+const MAX_DECODED_BYTES: usize = 512 * 1024 * 1024;
+const MAX_CELL_BYTES: usize = 16 * 1024 * 1024;
+
+#[derive(Clone, Copy)]
+struct ImportLimits {
+    rows: usize,
+    columns: usize,
+    decoded_bytes: usize,
+    cell_bytes: usize,
+}
+
+const IMPORT_LIMITS: ImportLimits = ImportLimits {
+    rows: MAX_IMPORT_ROWS,
+    columns: MAX_IMPORT_COLUMNS,
+    decoded_bytes: MAX_DECODED_BYTES,
+    cell_bytes: MAX_CELL_BYTES,
 };
 
 static NEXT_DATASET_REVISION: AtomicU64 = AtomicU64::new(1);
@@ -212,7 +234,13 @@ impl DataWorkspace {
 }
 
 pub fn load_table(path: &Path) -> Result<(String, TableData, String), String> {
-    const MAX_IMPORT_BYTES: u64 = 512 * 1024 * 1024;
+    load_table_with_limits(path, IMPORT_LIMITS)
+}
+
+fn load_table_with_limits(
+    path: &Path,
+    limits: ImportLimits,
+) -> Result<(String, TableData, String), String> {
     let metadata = std::fs::metadata(path).map_err(|error| error.to_string())?;
     if !metadata.is_file() {
         return Err("Dataset import requires a regular file.".into());
@@ -229,18 +257,21 @@ pub fn load_table(path: &Path) -> Result<(String, TableData, String), String> {
         .unwrap_or_default()
         .to_ascii_lowercase();
     let table = match ext.as_str() {
-        "csv" => delimited(path, b','),
-        "tsv" => delimited(path, b'\t'),
-        "jsonl" | "ndjson" => json_lines(path),
+        "csv" => delimited(path, b',', limits),
+        "tsv" => delimited(path, b'\t', limits),
+        "jsonl" | "ndjson" => json_lines(path, limits),
         "parquet" => record_batches(
             ParquetRecordBatchReaderBuilder::try_new(File::open(path).map_err(|e| e.to_string())?)
                 .map_err(|e| e.to_string())?
+                .with_batch_size(8_192)
                 .build()
                 .map_err(|e| e.to_string())?,
+            limits,
         ),
         "arrow" | "ipc" => record_batches(
             FileReader::try_new(File::open(path).map_err(|e| e.to_string())?, None)
                 .map_err(|e| e.to_string())?,
+            limits,
         ),
         _ => return Err("Supported formats: CSV, TSV, JSON Lines, Parquet, Arrow IPC.".into()),
     }?;
@@ -252,7 +283,78 @@ pub fn load_table(path: &Path) -> Result<(String, TableData, String), String> {
     Ok((name, table, path.display().to_string()))
 }
 
-fn delimited(path: &Path, delimiter: u8) -> Result<TableData, String> {
+struct TableBuilder {
+    columns: Vec<String>,
+    rows: Vec<Vec<String>>,
+    decoded_bytes: usize,
+    limits: ImportLimits,
+}
+
+impl TableBuilder {
+    fn new(columns: Vec<String>, limits: ImportLimits) -> Result<Self, String> {
+        if columns.len() > limits.columns {
+            return Err(format!(
+                "Dataset exceeds the {}-column import limit.",
+                limits.columns
+            ));
+        }
+        let decoded_bytes = columns.iter().map(String::len).sum();
+        if decoded_bytes > limits.decoded_bytes {
+            return Err("Dataset headers exceed the decoded-data import limit.".into());
+        }
+        Ok(Self {
+            columns,
+            rows: Vec::new(),
+            decoded_bytes,
+            limits,
+        })
+    }
+
+    fn push(&mut self, row: Vec<String>) -> Result<(), String> {
+        if self.rows.len() >= self.limits.rows {
+            return Err(format!(
+                "Dataset exceeds the {}-row import limit.",
+                self.limits.rows
+            ));
+        }
+        if row.len() != self.columns.len() {
+            return Err(format!(
+                "Dataset row has {} values but the schema has {} columns.",
+                row.len(),
+                self.columns.len()
+            ));
+        }
+        for value in &row {
+            if value.len() > self.limits.cell_bytes {
+                return Err(format!(
+                    "Dataset cell exceeds the {} MiB import limit.",
+                    self.limits.cell_bytes / (1024 * 1024)
+                ));
+            }
+            self.decoded_bytes = self
+                .decoded_bytes
+                .checked_add(value.len())
+                .ok_or("Decoded dataset size overflow")?;
+            if self.decoded_bytes > self.limits.decoded_bytes {
+                return Err(format!(
+                    "Dataset exceeds the {} MiB decoded-data import limit.",
+                    self.limits.decoded_bytes / (1024 * 1024)
+                ));
+            }
+        }
+        self.rows.push(row);
+        Ok(())
+    }
+
+    fn finish(self) -> TableData {
+        TableData {
+            columns: self.columns,
+            rows: self.rows,
+        }
+    }
+}
+
+fn delimited(path: &Path, delimiter: u8, limits: ImportLimits) -> Result<TableData, String> {
     let mut reader = csv::ReaderBuilder::new()
         .delimiter(delimiter)
         .from_path(path)
@@ -263,77 +365,113 @@ fn delimited(path: &Path, delimiter: u8) -> Result<TableData, String> {
         .iter()
         .map(str::to_owned)
         .collect();
-    let rows = reader
-        .records()
-        .map(|r| {
-            r.map(|r| r.iter().map(str::to_owned).collect())
-                .map_err(|e| e.to_string())
-        })
-        .collect::<Result<_, _>>()?;
-    Ok(TableData { columns, rows })
+    let mut table = TableBuilder::new(columns, limits)?;
+    for record in reader.records() {
+        table.push(
+            record
+                .map_err(|error| error.to_string())?
+                .iter()
+                .map(str::to_owned)
+                .collect(),
+        )?;
+    }
+    Ok(table.finish())
 }
 
-fn json_lines(path: &Path) -> Result<TableData, String> {
-    let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let objects = text
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .map(|line| {
-            serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(line)
-                .map_err(|e| e.to_string())
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+fn json_lines(path: &Path, limits: ImportLimits) -> Result<TableData, String> {
     let mut columns = Vec::new();
-    for object in &objects {
+    let mut known = std::collections::HashSet::new();
+    let mut row_count = 0usize;
+    for line in BufReader::new(File::open(path).map_err(|e| e.to_string())?).lines() {
+        let line = line.map_err(|e| e.to_string())?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        if line.len() > limits.cell_bytes {
+            return Err(format!(
+                "JSON line exceeds the {} MiB import limit.",
+                limits.cell_bytes / (1024 * 1024)
+            ));
+        }
+        row_count += 1;
+        if row_count > limits.rows {
+            return Err(format!(
+                "Dataset exceeds the {}-row import limit.",
+                limits.rows
+            ));
+        }
+        let object = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&line)
+            .map_err(|e| e.to_string())?;
         for key in object.keys() {
-            if !columns.contains(key) {
+            if known.insert(key.clone()) {
                 columns.push(key.clone());
+                if columns.len() > limits.columns {
+                    return Err(format!(
+                        "Dataset exceeds the {}-column import limit.",
+                        limits.columns
+                    ));
+                }
             }
         }
     }
-    let rows = objects
-        .into_iter()
-        .map(|object| {
-            columns
-                .iter()
-                .map(|key| match object.get(key) {
-                    Some(serde_json::Value::String(v)) => v.clone(),
-                    Some(serde_json::Value::Null) | None => String::new(),
-                    Some(v) => v.to_string(),
-                })
-                .collect()
-        })
-        .collect();
-    Ok(TableData { columns, rows })
+    let mut table = TableBuilder::new(columns, limits)?;
+    for line in BufReader::new(File::open(path).map_err(|e| e.to_string())?).lines() {
+        let line = line.map_err(|e| e.to_string())?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let object = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&line)
+            .map_err(|e| e.to_string())?;
+        let row = table
+            .columns
+            .iter()
+            .map(|key| match object.get(key) {
+                Some(serde_json::Value::String(value)) => value.clone(),
+                Some(serde_json::Value::Null) | None => String::new(),
+                Some(value) => value.to_string(),
+            })
+            .collect();
+        table.push(row)?;
+    }
+    Ok(table.finish())
 }
 
-fn record_batches<I>(batches: I) -> Result<TableData, String>
+fn record_batches<I>(batches: I, limits: ImportLimits) -> Result<TableData, String>
 where
     I: IntoIterator<Item = Result<RecordBatch, arrow::error::ArrowError>>,
 {
-    let mut columns = Vec::new();
-    let mut rows = Vec::new();
+    let mut table: Option<TableBuilder> = None;
     for batch in batches {
         let batch = batch.map_err(|e| e.to_string())?;
-        if columns.is_empty() {
-            columns = batch
-                .schema()
-                .fields()
-                .iter()
-                .map(|f| f.name().clone())
-                .collect();
+        let batch_columns = batch
+            .schema()
+            .fields()
+            .iter()
+            .map(|f| f.name().clone())
+            .collect::<Vec<_>>();
+        if let Some(table) = &table {
+            if table.columns != batch_columns {
+                return Err("Arrow record batches contain incompatible schemas.".into());
+            }
+        } else {
+            table = Some(TableBuilder::new(batch_columns, limits)?);
         }
         for row in 0..batch.num_rows() {
-            rows.push(
+            table.as_mut().expect("table initialized above").push(
                 batch
                     .columns()
                     .iter()
-                    .map(|a| array_value_to_string(a.as_ref(), row).unwrap_or_default())
-                    .collect(),
-            );
+                    .map(|array| {
+                        array_value_to_string(array.as_ref(), row).map_err(|e| e.to_string())
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+            )?;
         }
     }
-    Ok(TableData { columns, rows })
+    Ok(table.map(TableBuilder::finish).unwrap_or(TableData {
+        columns: Vec::new(),
+        rows: Vec::new(),
+    }))
 }
 
 #[cfg(test)]
@@ -362,5 +500,34 @@ mod tests {
         let first = Dataset::from_table(table.clone(), None).unwrap();
         let second = Dataset::from_table(table, None).unwrap();
         assert_ne!(first.revision, second.revision);
+    }
+
+    #[test]
+    fn import_budget_rejects_excess_rows_and_decoded_bytes() {
+        let limits = ImportLimits {
+            rows: 1,
+            columns: 2,
+            decoded_bytes: 8,
+            cell_bytes: 8,
+        };
+        let mut rows = TableBuilder::new(vec!["x".into()], limits).unwrap();
+        rows.push(vec!["1".into()]).unwrap();
+        assert!(rows.push(vec!["2".into()]).unwrap_err().contains("row"));
+
+        let mut bytes = TableBuilder::new(vec!["x".into()], limits).unwrap();
+        assert!(bytes
+            .push(vec!["12345678".into()])
+            .unwrap_err()
+            .contains("decoded-data"));
+    }
+
+    #[test]
+    fn json_lines_streaming_preserves_late_columns() {
+        let path = std::env::temp_dir().join(format!("forge-jsonl-{}.jsonl", std::process::id()));
+        std::fs::write(&path, "{\"a\":1}\n{\"b\":2}\n").unwrap();
+        let table = json_lines(&path, IMPORT_LIMITS).unwrap();
+        assert_eq!(table.columns, ["a", "b"]);
+        assert_eq!(table.rows, [vec!["1", ""], vec!["", "2"]]);
+        let _ = std::fs::remove_file(path);
     }
 }

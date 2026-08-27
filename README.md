@@ -45,6 +45,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - Hardened SQLite, DuckDB, and PostgreSQL profiles with test probes, command timeouts, output caps, and credential-safe errors
 - Non-blocking database and object-storage operations with typed background result delivery
 - Non-blocking CSV, TSV, JSON Lines, Parquet, and Arrow IPC imports with a 512 MiB interactive safety limit
+- Bounded dataset materialization with row, column, decoded-text, cell, and Parquet batch limits
 - Private Cargo and PyPI-compatible registry discovery plus GitHub Enterprise authentication validation
 - Attested stable/beta update discovery that validates release manifests without silently installing binaries
 - Packaging preflight and executable notebook/table/plot performance budgets

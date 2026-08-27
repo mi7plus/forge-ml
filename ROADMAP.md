@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.27.0`
+Current application version: `0.28.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -626,6 +626,24 @@ Implementation notes:
 - Source fingerprints hash the recorded source identity; they support equality checks without serializing local paths into run metadata.
 - Existing run and bundle fingerprints are not rewritten. Empty algorithm metadata identifies legacy experiment records.
 - SHA-256 strengthens reproducibility and integrity comparison but does not by itself provide authenticity; signed release attestations remain the trust mechanism for distributed artifacts.
+
+## 0.28 bounded dataset materialization — implemented
+
+- [x] Enforce a common one-million-row limit across standard local dataset formats.
+- [x] Enforce a common 10,000-column limit before building the workspace table.
+- [x] Cap decoded header and cell text at 512 MiB in addition to the on-disk file limit.
+- [x] Reject individual cells and JSON lines larger than 16 MiB.
+- [x] Stream CSV and TSV records through the shared budget checker instead of collecting unchecked rows.
+- [x] Discover JSON Lines schemas through a bounded first pass and materialize rows through a second streaming pass.
+- [x] Decode Parquet with 8,192-row record batches to reduce compressed-data expansion peaks.
+- [x] Reject incompatible Arrow record-batch schemas and propagate value-formatting errors.
+- [x] Add tests for row/decoded-size rejection and late-column JSON Lines materialization.
+
+Implementation notes:
+
+- Limits cover the display-oriented string projection used by the current viewer. Arrow buffers, vectors, and Rust collection overhead mean process memory can exceed the decoded-text count.
+- Arrow IPC files retain their encoded record-batch boundaries, so a single unusually large batch can still create a transient allocation before Forge validates its projected values.
+- The optional published-Millwright import remains a separate native path; these limits apply to Forge's standard CSV/TSV/JSON Lines/Parquet/Arrow importer.
 
 ## Known technical risks
 
