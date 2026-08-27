@@ -21,7 +21,7 @@ Settings offers light/dark themes, a 10–24 px editor font, high contrast, redu
 
 ## Data and experiments
 
-Import CSV, TSV, JSON Lines, Parquet, or Arrow IPC from Tools. Click a dataset in Data to open the adjustable lower-right viewer. Export tables from their Data menu. Runs can be compared, cloned, archived, and exported as ZIP bundles.
+Import CSV, TSV, JSON Lines, Parquet, or Arrow IPC from the Data pane or Tools menu. Parsing runs in the background, shows an activity indicator, and opens a successful import in the adjustable lower-right viewer. Interactive imports are limited to 512 MiB on disk; query or stream larger sources. Export tables from their Data menu. Runs can be compared, cloned, archived, and exported as ZIP bundles.
 
 The data grid renders only the rows and columns intersecting the viewport, with a small overscan buffer for smooth scrolling. This keeps very wide tables responsive without changing sorting, filtering, selection, editing, column visibility/widths, or linked plots. The footer reports how many visible columns are currently rendered. Filtering and sorting still scan the in-memory table, so extremely large datasets should use a narrowed database query or pre-filtered import.
 

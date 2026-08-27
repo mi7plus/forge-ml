@@ -1725,6 +1725,28 @@ impl ForgeApp {
         while let Some(event) = self.integration_worker.try_recv() {
             self.integration_pending = self.integration_pending.saturating_sub(1);
             match event {
+                ResultEvent::DataImport { path, result } => match result {
+                    Ok((dataset_name, table, source)) => {
+                        let rows = table.rows.len();
+                        let columns = table.columns.len();
+                        match self.data.insert_table(dataset_name.clone(), table, source) {
+                            Ok(()) => {
+                                self.open_dataset = Some(format!("table:{dataset_name}"));
+                                self.inspector_tab = InspectorTab::Data;
+                                self.console = format!(
+                                    "Imported {} as `{dataset_name}` ({rows} rows × {columns} columns).",
+                                    path.display()
+                                );
+                            }
+                            Err(error) => {
+                                self.console = format!("Could not build imported dataset: {error}")
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        self.console = format!("Could not import {}: {error}", path.display())
+                    }
+                },
                 ResultEvent::DatabaseMessage(result) => {
                     self.sql_output = result.unwrap_or_else(|error| error);
                 }
@@ -2085,7 +2107,13 @@ impl ForgeApp {
                 ui.label("Debugger integration is not connected yet.");
             });
             ui.menu_button("Tools", |ui| {
-                if ui.button("Import dataset...").clicked() {
+                if ui
+                    .add_enabled(
+                        self.integration_pending == 0,
+                        egui::Button::new("Import dataset..."),
+                    )
+                    .clicked()
+                {
                     self.import_dataset();
                     ui.close();
                 }
@@ -4024,6 +4052,10 @@ impl ForgeApp {
     }
 
     fn import_dataset(&mut self) {
+        if self.integration_pending > 0 {
+            self.console = "Wait for the current data operation to finish.".into();
+            return;
+        }
         let Some(path) = rfd::FileDialog::new()
             .set_title("Import dataset")
             .add_filter(
@@ -4034,13 +4066,15 @@ impl ForgeApp {
         else {
             return;
         };
-        match self.data.import(&path) {
-            Ok(name) => {
-                self.open_dataset = Some(format!("table:{name}"));
-                self.inspector_tab = InspectorTab::Data;
-                self.console = format!("Imported {} as `{name}`.", path.display());
+        match self
+            .integration_worker
+            .submit(IntegrationRequest::DataImport(path.clone()))
+        {
+            Ok(()) => {
+                self.integration_pending += 1;
+                self.console = format!("Importing {} in the background…", path.display());
             }
-            Err(error) => self.console = format!("Could not import dataset: {error}"),
+            Err(error) => self.console = format!("Could not start dataset import: {error}"),
         }
     }
 
@@ -4353,10 +4387,31 @@ impl ForgeApp {
     }
 
     fn data_inspector(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(
+                    self.integration_pending == 0,
+                    egui::Button::new("Import file…"),
+                )
+                .on_hover_text("Import CSV, TSV, JSON Lines, Parquet, or Arrow IPC")
+                .clicked()
+            {
+                self.import_dataset();
+            }
+            if self.integration_pending > 0 {
+                ui.spinner();
+                ui.label(
+                    RichText::new("Data operation running")
+                        .size(9.0)
+                        .color(MUTED),
+                );
+            }
+        });
+        ui.separator();
         if self.data.vectors.is_empty() && self.data.tables.is_empty() {
             ui.label(
                 RichText::new(
-                    "Emit `forge_vector:name=1,2,3` or `forge_table:name={...}` to inspect data.",
+                    "Import a supported file, or emit `forge_vector:name=1,2,3` or `forge_table:name={...}`.",
                 )
                 .monospace()
                 .size(10.0)

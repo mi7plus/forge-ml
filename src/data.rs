@@ -165,41 +165,6 @@ impl DataWorkspace {
         }
     }
 
-    pub fn import(&mut self, path: &Path) -> Result<String, String> {
-        let ext = path
-            .extension()
-            .and_then(|v| v.to_str())
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        let table = match ext.as_str() {
-            "csv" => delimited(path, b','),
-            "tsv" => delimited(path, b'\t'),
-            "jsonl" | "ndjson" => json_lines(path),
-            "parquet" => record_batches(
-                ParquetRecordBatchReaderBuilder::try_new(
-                    File::open(path).map_err(|e| e.to_string())?,
-                )
-                .map_err(|e| e.to_string())?
-                .build()
-                .map_err(|e| e.to_string())?,
-            ),
-            "arrow" | "ipc" => record_batches(
-                FileReader::try_new(File::open(path).map_err(|e| e.to_string())?, None)
-                    .map_err(|e| e.to_string())?,
-            ),
-            _ => return Err("Supported formats: CSV, TSV, JSON Lines, Parquet, Arrow IPC.".into()),
-        }?;
-        let name = path
-            .file_stem()
-            .and_then(|v| v.to_str())
-            .unwrap_or("dataset")
-            .to_owned();
-        self.tables.insert(
-            name.clone(),
-            Dataset::from_table(table, Some(path.display().to_string()))?,
-        );
-        Ok(name)
-    }
     #[cfg(feature = "millwright")]
     pub fn import_millwright(&mut self, path: &Path) -> Result<String, String> {
         let table = match path
@@ -231,6 +196,47 @@ impl DataWorkspace {
     pub fn has_telemetry(&self) -> bool {
         !self.metrics.is_empty() || !self.vectors.is_empty()
     }
+}
+
+pub fn load_table(path: &Path) -> Result<(String, TableData, String), String> {
+    const MAX_IMPORT_BYTES: u64 = 512 * 1024 * 1024;
+    let metadata = std::fs::metadata(path).map_err(|error| error.to_string())?;
+    if !metadata.is_file() {
+        return Err("Dataset import requires a regular file.".into());
+    }
+    if metadata.len() > MAX_IMPORT_BYTES {
+        return Err(
+            "Dataset files larger than 512 MiB must be queried or streamed instead of imported."
+                .into(),
+        );
+    }
+    let ext = path
+        .extension()
+        .and_then(|v| v.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let table = match ext.as_str() {
+        "csv" => delimited(path, b','),
+        "tsv" => delimited(path, b'\t'),
+        "jsonl" | "ndjson" => json_lines(path),
+        "parquet" => record_batches(
+            ParquetRecordBatchReaderBuilder::try_new(File::open(path).map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?
+                .build()
+                .map_err(|e| e.to_string())?,
+        ),
+        "arrow" | "ipc" => record_batches(
+            FileReader::try_new(File::open(path).map_err(|e| e.to_string())?, None)
+                .map_err(|e| e.to_string())?,
+        ),
+        _ => return Err("Supported formats: CSV, TSV, JSON Lines, Parquet, Arrow IPC.".into()),
+    }?;
+    let name = path
+        .file_stem()
+        .and_then(|v| v.to_str())
+        .unwrap_or("dataset")
+        .to_owned();
+    Ok((name, table, path.display().to_string()))
 }
 
 fn delimited(path: &Path, delimiter: u8) -> Result<TableData, String> {

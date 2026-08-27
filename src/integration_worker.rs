@@ -10,6 +10,7 @@ use std::{
 };
 
 pub enum Request {
+    DataImport(PathBuf),
     DatabaseTest {
         profile: ConnectionProfile,
         root: PathBuf,
@@ -38,6 +39,10 @@ pub enum Request {
 }
 
 pub enum ResultEvent {
+    DataImport {
+        path: PathBuf,
+        result: Result<(String, TableData, String), String>,
+    },
     DatabaseMessage(Result<String, String>),
     DatabaseTable {
         dataset_name: String,
@@ -88,6 +93,10 @@ impl IntegrationWorker {
 
 fn execute(request: Request) -> ResultEvent {
     match request {
+        Request::DataImport(path) => ResultEvent::DataImport {
+            result: crate::data::load_table(&path),
+            path,
+        },
         Request::DatabaseTest { profile, root } => {
             ResultEvent::DatabaseMessage(database::test_connection(&profile, &root))
         }
@@ -132,6 +141,34 @@ fn execute(request: Request) -> ResultEvent {
 mod tests {
     use super::*;
     use crate::database::ConnectionKind;
+
+    #[test]
+    fn worker_imports_csv_without_mutating_the_workspace() {
+        let root = std::env::temp_dir().join(format!("forge-import-worker-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("sample.csv");
+        std::fs::write(&path, "value,label\n42,answer\n").unwrap();
+        let worker = IntegrationWorker::new();
+        worker.submit(Request::DataImport(path.clone())).unwrap();
+        match worker
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap()
+        {
+            ResultEvent::DataImport {
+                path: actual,
+                result,
+            } => {
+                let (name, table, source) = result.unwrap();
+                assert_eq!(actual, path);
+                assert_eq!(name, "sample");
+                assert_eq!(table.rows, [vec!["42", "answer"]]);
+                assert!(source.ends_with("sample.csv"));
+            }
+            _ => panic!("unexpected integration result"),
+        }
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     #[test]
     fn worker_returns_typed_sqlite_tables() {

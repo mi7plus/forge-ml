@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.25.0`
+Current application version: `0.26.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -76,7 +76,7 @@ tables, plots, and metrics still enter through a compatibility stdout adapter.
 - [~] Arrow-backed datasets and streamed record batches (Arrow-backed storage landed; streaming ingestion remains).
 - [x] Virtualized rows and columns.
 - [x] Sorting, column controls, selection, editing, and linked plots.
-- [ ] CSV/Parquet/Arrow/JSON file browser and importer UI.
+- [x] CSV/Parquet/Arrow/JSON file browser and importer UI.
 - [x] Database connections and SQL workbench.
 - [x] Object-storage connections.
 - [x] General MIME and structured plot output.
@@ -591,6 +591,23 @@ Implementation notes:
 - The worker is deliberately sequential: this prevents overlapping credential prompts, competing cache writes, and unbounded external process fan-out.
 - Existing database and object-storage timeouts remain the terminal guarantee for commands running inside the worker.
 - Workspace mutation remains on the UI thread after result delivery, keeping egui and dataset state single-threaded.
+
+## 0.26 non-blocking local dataset imports — implemented
+
+- [x] Add a first-class file importer to the Data inspector as well as the Tools menu.
+- [x] Move CSV, TSV, JSON Lines, Parquet, and Arrow IPC parsing off the UI thread.
+- [x] Deliver dataset names, tables, sources, and original paths through a typed worker result.
+- [x] Build Arrow-backed workspace datasets on the UI thread after successful parsing.
+- [x] Open successful imports directly in the docked data viewer.
+- [x] Show an active-operation spinner and disable conflicting data operations while importing.
+- [x] Reject non-files and files larger than 512 MiB before allocating parser state.
+- [x] Add a bounded asynchronous CSV import test.
+
+Implementation notes:
+
+- The 512 MiB limit applies to the compressed/on-disk file size; expanded datasets can require substantially more memory and streaming record batches remain future work.
+- Imports share the sequential integration worker with databases and object storage, preventing concurrent large allocations and external transfers.
+- File selection remains a native modal dialog, while all parsing and conversion work runs in the background.
 
 ## Known technical risks
 
