@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.21.0`
+Current application version: `0.22.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -520,6 +520,25 @@ Implementation notes:
 - Passwords are passed to PostgreSQL through the child-process environment and are never placed in command arguments or saved profile JSON.
 - Queries remain explicit user actions and may contain writes; Forge bounds execution but does not silently rewrite SQL semantics.
 - Broader ADBC driver-manager validation remains dependent on each user-installed driver and is still tracked for 1.0 hardening.
+
+## 0.22 object-storage transfer hardening — implemented
+
+- [x] Add explicit S3-compatible and rclone reachability probes to the Storage inspector.
+- [x] Interpret download keys relative to the configured profile prefix.
+- [x] Mirror profile names and complete object keys in `.forge/object-cache` to prevent basename collisions.
+- [x] Write downloads to temporary files and atomically publish or replace cache entries.
+- [x] Remove partial files after failed, timed-out, or oversized transfers.
+- [x] Enforce a 2 GiB per-object project-cache limit.
+- [x] Stop listings after 30 seconds and downloads after 120 seconds.
+- [x] Drain child stdout and stderr concurrently without unbounded memory growth.
+- [x] Cap retained listing output at 4 MiB and retained error output at 1 MiB.
+- [x] Redact configured endpoints and common token/password/secret assignments from errors.
+
+Implementation notes:
+
+- AWS CLI and rclone continue to own authentication; Forge persists no object-storage credentials.
+- Cache paths preserve remote hierarchy beneath a validated profile name, and traversal/root/prefix components are rejected.
+- The cache limit is deliberately conservative for interactive dataset work; larger artifacts should remain in external storage or use an explicit project import workflow.
 
 ## Known technical risks
 

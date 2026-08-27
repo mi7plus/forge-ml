@@ -2884,7 +2884,7 @@ impl ForgeApp {
             return;
         };
         ui.heading("Object storage");
-        ui.label(RichText::new("AWS and rclone own authentication. Forge stores profile metadata only and limits previews to 200 objects.").color(MUTED));
+        ui.label(RichText::new("AWS and rclone own authentication. Forge stores profile metadata only; commands and cache downloads are bounded.").color(MUTED));
         ui.horizontal_wrapped(|ui| {
             ui.add(egui::TextEdit::singleline(&mut self.object_name).hint_text("profile name"));
             egui::ComboBox::from_id_salt("object_provider")
@@ -2962,6 +2962,17 @@ impl ForgeApp {
             self.object_endpoint = profile.endpoint;
         }
         ui.horizontal_wrapped(|ui| {
+            if ui.button("Test").clicked() {
+                let profile = object_storage::ObjectProfile {
+                    name: self.object_name.clone(),
+                    provider: self.object_provider,
+                    bucket: self.object_bucket.clone(),
+                    prefix: self.object_prefix.clone(),
+                    endpoint: self.object_endpoint.clone(),
+                    credential_hint: String::new(),
+                };
+                self.object_output = profile.test().unwrap_or_else(|error| error);
+            }
             if ui.button("List objects").clicked() {
                 let profile = object_storage::ObjectProfile {
                     name: self.object_name.clone(),
@@ -2975,7 +2986,7 @@ impl ForgeApp {
             }
             ui.add(
                 egui::TextEdit::singleline(&mut self.object_key)
-                    .hint_text("object key to download"),
+                    .hint_text("key relative to prefix"),
             );
             if ui.button("Download to project cache").clicked() {
                 let profile = object_storage::ObjectProfile {
