@@ -23,6 +23,13 @@ pub fn run() -> Vec<BudgetResult> {
             rows.sort();
             std::hint::black_box(rows);
         }),
+        measure("Column window (100k columns)", 100, || {
+            let columns = (0..100_000).collect::<Vec<_>>();
+            let widths = vec![120.0; columns.len()];
+            std::hint::black_box(crate::visible_column_window(
+                &columns, &widths, 500_000.0, 1_200.0,
+            ));
+        }),
         measure("Plot preparation (1m points)", 500, || {
             let points = (0..1_000_000)
                 .map(|i| [i as f64, (i as f64 / 100.0).sin()])
@@ -64,7 +71,8 @@ mod tests {
     #[test]
     fn report_has_all_budgets() {
         let results = run();
-        assert_eq!(results.len(), 3);
+        assert_eq!(results.len(), 4);
         assert!(report(&results).contains("Notebook parse"));
+        assert!(report(&results).contains("Column window"));
     }
 }

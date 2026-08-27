@@ -23,6 +23,8 @@ Settings offers light/dark themes, a 10–24 px editor font, high contrast, redu
 
 Import CSV, TSV, JSON Lines, Parquet, or Arrow IPC from Tools. Click a dataset in Data to open the adjustable lower-right viewer. Export tables from their Data menu. Runs can be compared, cloned, archived, and exported as ZIP bundles.
 
+The data grid renders only the rows and columns intersecting the viewport, with a small overscan buffer for smooth scrolling. This keeps very wide tables responsive without changing sorting, filtering, selection, editing, column visibility/widths, or linked plots. The footer reports how many visible columns are currently rendered. Filtering and sorting still scan the in-memory table, so extremely large datasets should use a narrowed database query or pre-filtered import.
+
 Inside the full data viewer, select individual or all filtered rows, hide or pin columns, and adjust each visible width. **Edit cells** creates a draft; **Save edits** replaces the in-memory table and rebuilds its Arrow batch, while **Cancel edits** discards every draft change. Selection export includes selected rows and visible columns. Choose numeric X/Y columns to create a linked scatter plot from the current selection.
 
 Each table can produce a self-contained EDA HTML report with column profiles and a bounded preview. Runs can produce an offline comparison report containing final metrics, step counts, tags, Git commits, and escaped run manifests.

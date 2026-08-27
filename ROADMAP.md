@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.22.0`
+Current application version: `0.23.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -73,8 +73,8 @@ tables, plots, and metrics still enter through a compatibility stdout adapter.
 - [x] Dataset and plot deletion.
 - [x] CSV telemetry export.
 - [~] Table rendering is suitable for prototypes, not million-row datasets.
-- [ ] Arrow-backed datasets and streamed record batches.
-- [ ] Virtualized rows and columns.
+- [~] Arrow-backed datasets and streamed record batches (Arrow-backed storage landed; streaming ingestion remains).
+- [x] Virtualized rows and columns.
 - [x] Sorting, column controls, selection, editing, and linked plots.
 - [ ] CSV/Parquet/Arrow/JSON file browser and importer UI.
 - [ ] Database connections and SQL workbench.
@@ -539,6 +539,23 @@ Implementation notes:
 - AWS CLI and rclone continue to own authentication; Forge persists no object-storage credentials.
 - Cache paths preserve remote hierarchy beneath a validated profile name, and traversal/root/prefix components are rejected.
 - The cache limit is deliberately conservative for interactive dataset work; larger artifacts should remain in external storage or use an explicit project import workflow.
+
+## 0.23 two-axis data-grid virtualization — implemented
+
+- [x] Retain the existing vertical row virtualization for filtered and sorted row indexes.
+- [x] Read the persistent horizontal scroll position and calculate the intersecting column window.
+- [x] Render only viewport columns plus one-column overscan on each side.
+- [x] Preserve the full virtual width with leading and trailing spacers for stable horizontal scrolling.
+- [x] Apply the same window to headers, read-only cells, and editable draft cells.
+- [x] Preserve column visibility, pinned-first ordering, custom widths, sorting, selection, export, and linked plots.
+- [x] Report rendered versus visible column counts in the viewer footer.
+- [x] Add wide, empty, and small-table window tests plus a 100,000-column performance budget.
+
+Implementation notes:
+
+- Column-window calculation is linear in the number of visible columns but widget construction is bounded by viewport width; this removes the dominant per-frame cost for very wide tables.
+- Filtering and sorting still scan materialized row strings. Streamed Arrow batches and query pushdown remain the path to million-row interactive filtering.
+- Pinned columns retain their existing pinned-first ordering; frozen sticky columns require a synchronized split-grid layout and remain a separate UX enhancement.
 
 ## Known technical risks
 

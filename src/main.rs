@@ -6021,6 +6021,17 @@ fn draw_dataset_table(
             }
         });
     }
+    let scroll_id = ui.make_persistent_id(("dataset_table_scroll", id_salt));
+    let horizontal_offset = egui::scroll_area::State::load(ui.ctx(), scroll_id)
+        .map(|state| state.offset.x)
+        .unwrap_or_default();
+    let column_window = visible_column_window(
+        &ordered_columns,
+        widths,
+        (horizontal_offset - 48.0).max(0.0),
+        ui.available_width().max(120.0),
+    );
+    let rendered_columns = &ordered_columns[column_window.start..column_window.end];
     egui::ScrollArea::both()
         .id_salt(("dataset_table_scroll", id_salt))
         .auto_shrink([false, false])
@@ -6044,7 +6055,10 @@ fn draw_dataset_table(
                                 }
                             }
                         }
-                        for index in &ordered_columns {
+                        if column_window.leading > 0.0 {
+                            ui.add_space(column_window.leading);
+                        }
+                        for index in rendered_columns {
                             let column = &display.columns[*index];
                             let arrow = if *sort_column == Some(*index) {
                                 if *sort_descending {
@@ -6074,6 +6088,9 @@ fn draw_dataset_table(
                                 }
                             }
                         }
+                        if column_window.trailing > 0.0 {
+                            ui.add_space(column_window.trailing);
+                        }
                         ui.end_row();
                     }
                     for index in matching_rows
@@ -6089,7 +6106,10 @@ fn draw_dataset_table(
                                 selected_rows.remove(index);
                             }
                         }
-                        for column in &ordered_columns {
+                        if column_window.leading > 0.0 {
+                            ui.add_space(column_window.leading);
+                        }
+                        for column in rendered_columns {
                             if editing {
                                 ui.add_sized(
                                     [widths[*column], 20.0],
@@ -6108,19 +6128,83 @@ fn draw_dataset_table(
                                 );
                             }
                         }
+                        if column_window.trailing > 0.0 {
+                            ui.add_space(column_window.trailing);
+                        }
                         ui.end_row();
                     }
                 });
         });
     ui.label(
         RichText::new(format!(
-            "{} matching rows · virtualized rendering",
-            matching_rows.len()
+            "{} matching rows · {} of {} visible columns rendered",
+            matching_rows.len(),
+            rendered_columns.len(),
+            ordered_columns.len()
         ))
         .size(9.0)
         .color(MUTED),
     );
     result
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ColumnWindow {
+    start: usize,
+    end: usize,
+    leading: f32,
+    trailing: f32,
+}
+
+fn visible_column_window(
+    columns: &[usize],
+    widths: &[f32],
+    offset: f32,
+    viewport_width: f32,
+) -> ColumnWindow {
+    if columns.is_empty() {
+        return ColumnWindow {
+            start: 0,
+            end: 0,
+            leading: 0.0,
+            trailing: 0.0,
+        };
+    }
+    let cell_width = |column: usize| widths.get(column).copied().unwrap_or(120.0) + 8.0;
+    let total = columns
+        .iter()
+        .map(|column| cell_width(*column))
+        .sum::<f32>();
+    let offset = offset.max(0.0).min(total);
+    let viewport_end = offset + viewport_width.max(1.0);
+    let mut cursor = 0.0;
+    let mut first = 0;
+    while first < columns.len() && cursor + cell_width(columns[first]) < offset {
+        cursor += cell_width(columns[first]);
+        first += 1;
+    }
+    first = first.saturating_sub(1);
+    let leading = columns[..first]
+        .iter()
+        .map(|column| cell_width(*column))
+        .sum::<f32>();
+    cursor = leading;
+    let mut end = first;
+    while end < columns.len() && cursor < viewport_end {
+        cursor += cell_width(columns[end]);
+        end += 1;
+    }
+    end = (end + 1).min(columns.len());
+    let rendered = columns[first..end]
+        .iter()
+        .map(|column| cell_width(*column))
+        .sum::<f32>();
+    ColumnWindow {
+        start: first,
+        end,
+        leading,
+        trailing: (total - leading - rendered).max(0.0),
+    }
 }
 
 fn selected_table(
@@ -6823,5 +6907,34 @@ mod editor_tests {
         let projected = selected_table(&table, &selected, &[2, 0]);
         assert_eq!(projected.columns, ["c", "a"]);
         assert_eq!(projected.rows, [vec!["6", "4"]]);
+    }
+
+    #[test]
+    fn column_window_bounds_rendering_for_wide_datasets() {
+        let columns = (0..10_000).collect::<Vec<_>>();
+        let widths = vec![100.0; columns.len()];
+        let window = visible_column_window(&columns, &widths, 5_000.0, 500.0);
+        assert!(window.start > 0);
+        assert!(window.end < columns.len());
+        assert!(window.end - window.start <= 8);
+        let rendered = (window.end - window.start) as f32 * 108.0;
+        assert!((window.leading + rendered + window.trailing - 1_080_000.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn column_window_handles_empty_and_small_tables() {
+        assert_eq!(
+            visible_column_window(&[], &[], 0.0, 500.0),
+            ColumnWindow {
+                start: 0,
+                end: 0,
+                leading: 0.0,
+                trailing: 0.0,
+            }
+        );
+        let window = visible_column_window(&[0, 1], &[80.0, 80.0], 0.0, 500.0);
+        assert_eq!(window.start, 0);
+        assert_eq!(window.end, 2);
+        assert_eq!(window.trailing, 0.0);
     }
 }
