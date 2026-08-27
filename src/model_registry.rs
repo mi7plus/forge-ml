@@ -89,6 +89,14 @@ impl ModelRegistry {
         self.save(&index)
     }
     pub fn resolve(&self, model: &str, version_or_alias: &str) -> Result<PathBuf, String> {
+        self.resolve_version(model, version_or_alias)
+            .map(|version| self.root.join(version.artifact))
+    }
+    pub fn resolve_version(
+        &self,
+        model: &str,
+        version_or_alias: &str,
+    ) -> Result<ModelVersion, String> {
         let index = self.load()?;
         let version = index
             .aliases
@@ -99,7 +107,7 @@ impl ModelRegistry {
             .versions
             .iter()
             .find(|v| v.model == model && v.version == version)
-            .map(|v| self.root.join(&v.artifact))
+            .cloned()
             .ok_or_else(|| "Model version or alias was not found".into())
     }
     fn load(&self) -> Result<RegistryIndex, String> {
@@ -136,6 +144,7 @@ fn validate(value: &str) -> Result<(), String> {
 pub fn generate_inference_service(
     root: &Path,
     crate_name: &str,
+    version: &ModelVersion,
     model_path: &Path,
 ) -> Result<PathBuf, String> {
     validate(crate_name)?;
@@ -144,12 +153,57 @@ pub fn generate_inference_service(
         return Err(format!("{} already exists", destination.display()));
     }
     fs::create_dir_all(destination.join("src")).map_err(|e| e.to_string())?;
-    let cargo = format!("[package]\nname = \"{crate_name}-service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\naxum = \"0.8\"\ntokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\n");
-    let main = format!("use axum::{{routing::post, Json, Router}};\nuse serde::{{Deserialize, Serialize}};\nconst MODEL_PATH: &str = {:?};\n#[derive(Deserialize)] struct Request {{ values: Vec<f32> }}\n#[derive(Serialize)] struct Response {{ values: Vec<f32>, model: &'static str }}\nasync fn predict(Json(input): Json<Request>) -> Json<Response> {{ Json(Response {{ values: input.values, model: MODEL_PATH }}) }}\n#[tokio::main] async fn main() {{ let app = Router::new().route(\"/predict\", post(predict)); let listener = tokio::net::TcpListener::bind(\"0.0.0.0:3000\").await.unwrap(); axum::serve(listener, app).await.unwrap(); }}\n", model_path.display().to_string());
+    fs::create_dir_all(destination.join("models")).map_err(|e| e.to_string())?;
+    let extension = model_path
+        .extension()
+        .and_then(|v| v.to_str())
+        .unwrap_or("bin");
+    let bundled_model = destination
+        .join("models")
+        .join(format!("model.{extension}"));
+    fs::copy(model_path, &bundled_model).map_err(|e| e.to_string())?;
+    let cargo = format!("[package]\nname = \"{crate_name}-service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\naxum = \"0.8\"\ntokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\", \"net\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nserde_json = \"1\"\n");
+    let main = format!(
+        r#"use axum::{{routing::{{get, post}}, Json, Router}};
+use serde::{{Deserialize, Serialize}};
+use std::sync::atomic::{{AtomicU64, Ordering}};
+const MODEL_PATH: &str = "models/model.{extension}";
+const MODEL: &str = {model:?};
+const VERSION: &str = {version_number:?};
+const FORMAT: &str = {format:?};
+static REQUESTS: AtomicU64 = AtomicU64::new(0);
+#[derive(Deserialize)] struct Request {{ values: Vec<f32> }}
+#[derive(Serialize)] struct Response {{ values: Vec<f32>, model: &'static str, version: &'static str }}
+#[derive(Serialize)] struct Metadata {{ model: &'static str, version: &'static str, format: &'static str, artifact: &'static str, requests: u64 }}
+async fn health() -> &'static str {{ "ok" }}
+async fn ready() -> Result<&'static str, (axum::http::StatusCode, &'static str)> {{
+    std::fs::metadata(MODEL_PATH).map(|_| "ready").map_err(|_| (axum::http::StatusCode::SERVICE_UNAVAILABLE, "model missing"))
+}}
+async fn metadata() -> Json<Metadata> {{ Json(Metadata {{ model: MODEL, version: VERSION, format: FORMAT, artifact: MODEL_PATH, requests: REQUESTS.load(Ordering::Relaxed) }}) }}
+async fn predict(Json(input): Json<Request>) -> Json<Response> {{
+    let requests = REQUESTS.fetch_add(1, Ordering::Relaxed) + 1;
+    println!("forge_service:{{}}", serde_json::json!({{"model": MODEL, "version": VERSION, "requests": requests, "errors": 0}}));
+    Json(Response {{ values: input.values, model: MODEL, version: VERSION }})
+}}
+#[tokio::main] async fn main() {{
+    if std::env::args().any(|arg| arg == "--healthcheck") {{
+        std::process::exit(if std::fs::metadata(MODEL_PATH).is_ok() {{ 0 }} else {{ 1 }});
+    }}
+    let app = Router::new().route("/health", get(health)).route("/ready", get(ready)).route("/metadata", get(metadata)).route("/predict", post(predict));
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    axum::serve(listener, app).await.unwrap();
+}}
+"#,
+        model = version.model,
+        version_number = version.version,
+        format = version.format,
+    );
     fs::write(destination.join("Cargo.toml"), cargo).map_err(|e| e.to_string())?;
     fs::write(destination.join("src/main.rs"), main).map_err(|e| e.to_string())?;
-    fs::write(destination.join("Dockerfile"), "FROM rust:1-slim AS build\nWORKDIR /app\nCOPY . .\nRUN cargo build --release\nFROM debian:bookworm-slim\nCOPY --from=build /app/target/release/*-service /usr/local/bin/model-service\nEXPOSE 3000\nCMD [\"model-service\"]\n").map_err(|e| e.to_string())?;
-    fs::write(destination.join("compose.yaml"), "services:\n  model:\n    build: .\n    ports: [\"3000:3000\"]\n    restart: unless-stopped\n").map_err(|e| e.to_string())?;
+    fs::write(destination.join("Dockerfile"), "FROM rust:1-slim AS build\nWORKDIR /app\nCOPY . .\nRUN cargo build --release\nFROM debian:bookworm-slim\nWORKDIR /app\nCOPY --from=build /app/target/release/*-service /usr/local/bin/model-service\nCOPY --from=build /app/models ./models\nEXPOSE 3000\nHEALTHCHECK CMD [\"/usr/local/bin/model-service\", \"--healthcheck\"]\nCMD [\"model-service\"]\n").map_err(|e| e.to_string())?;
+    fs::write(destination.join("compose.yaml"), "services:\n  model:\n    build: .\n    ports: [\"3000:3000\"]\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD\", \"/usr/local/bin/model-service\", \"--healthcheck\"]\n      interval: 10s\n      timeout: 3s\n      retries: 3\n").map_err(|e| e.to_string())?;
+    fs::write(destination.join("README.md"), format!("# {crate_name} inference service\n\nGenerated from registered model `{}` version `{}` (`{}`). The artifact is copied into `models/` and will not change if a registry alias is later promoted or rolled back.\n\nEndpoints: `GET /health`, `GET /ready`, `GET /metadata`, and `POST /predict`. The generated prediction handler is integration scaffolding; replace its pass-through body with the tensor adapter for the selected model format before production use.\n", version.model, version.version, version.format)).map_err(|e| e.to_string())?;
+    fs::write(destination.join("deployment.yaml"), format!("apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: {crate_name}\nspec:\n  replicas: 1\n  selector:\n    matchLabels: {{ app: {crate_name} }}\n  template:\n    metadata:\n      labels: {{ app: {crate_name} }}\n    spec:\n      containers:\n        - name: model\n          image: {crate_name}-service:0.1.0\n          ports: [{{ containerPort: 3000 }}]\n          readinessProbe:\n            httpGet: {{ path: /ready, port: 3000 }}\n          livenessProbe:\n            httpGet: {{ path: /health, port: 3000 }}\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: {crate_name}\nspec:\n  selector: {{ app: {crate_name} }}\n  ports: [{{ port: 80, targetPort: 3000 }}]\n")).map_err(|e| e.to_string())?;
     Ok(destination)
 }
 
@@ -168,6 +222,40 @@ mod tests {
             .unwrap();
         registry.promote("iris", "production", "1.0.0").unwrap();
         assert!(registry.resolve("iris", "production").unwrap().is_file());
+        assert_eq!(
+            registry
+                .resolve_version("iris", "production")
+                .unwrap()
+                .version,
+            "1.0.0"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn generated_service_bundles_immutable_model_and_operational_endpoints() {
+        let root = std::env::temp_dir().join(format!("forge-service-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let artifact = root.join("source.onnx");
+        fs::write(&artifact, b"portable model").unwrap();
+        let version = ModelVersion {
+            model: "iris".into(),
+            version: "1.2.0".into(),
+            format: "onnx".into(),
+            artifact: "unused".into(),
+            created_at_unix: 0,
+            tags: vec![],
+        };
+        let service = generate_inference_service(&root, "iris", &version, &artifact).unwrap();
+        assert_eq!(
+            fs::read(service.join("models/model.onnx")).unwrap(),
+            b"portable model"
+        );
+        let source = fs::read_to_string(service.join("src/main.rs")).unwrap();
+        assert!(source.contains("/health"));
+        assert!(source.contains("/ready"));
+        assert!(source.contains("forge_service:"));
+        assert!(service.join("deployment.yaml").is_file());
         let _ = fs::remove_dir_all(root);
     }
 }

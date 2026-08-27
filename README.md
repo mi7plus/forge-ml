@@ -36,7 +36,9 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - Notebook export to `.ipynb`, Markdown, and self-contained HTML
 - Compressed experiment bundles containing the run manifest and referenced artifacts
 - Project-local versioned model registry with promotion/rollback aliases
-- Generated Rust/Axum inference services with Docker and Compose templates
+- Native Millwright 2.2 ONNX export/round-trip cells using the published crates.io API
+- Self-contained Rust/Axum inference services with health, readiness, metadata, Docker, Compose, and Kubernetes templates
+- Framework-neutral request/error/latency and feature-drift monitoring records in the deployment pane
 - S3-compatible and rclone object-storage profiles with bounded browsing and project-local downloads
 - Private Cargo and PyPI-compatible registry discovery plus GitHub Enterprise authentication validation
 - Attested stable/beta update discovery that validates release manifests without silently installing binaries

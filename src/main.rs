@@ -25,6 +25,7 @@ mod python_runtime;
 mod release;
 mod remote;
 mod runtime;
+mod service_monitor;
 mod session;
 mod updater;
 
@@ -54,6 +55,7 @@ use notebook::{
 use plot::{metric_line, vector_bars, PlotKind, PlotSpec};
 use project::{FileNode, Project};
 use runtime::{CellResult, RuntimeHandle, VariableMeta};
+use service_monitor::{DriftEvent, ServiceEvent};
 use session::SessionState;
 use std::collections::{HashMap, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -347,6 +349,8 @@ struct ForgeApp {
     registry_alias: String,
     registry_artifact: String,
     registry_output: String,
+    service_events: Vec<ServiceEvent>,
+    drift_events: Vec<DriftEvent>,
     object_profiles: Vec<object_storage::ObjectProfile>,
     object_name: String,
     object_provider: object_storage::Provider,
@@ -604,6 +608,8 @@ impl ForgeApp {
             registry_alias: "production".into(),
             registry_artifact: String::new(),
             registry_output: String::new(),
+            service_events: Vec::new(),
+            drift_events: Vec::new(),
             object_profiles,
             object_name: "datasets".into(),
             object_provider: object_storage::Provider::S3,
@@ -1766,6 +1772,10 @@ impl ForgeApp {
                     if let Some(report) = reports.into_iter().last() {
                         self.evaluation_report = report;
                     }
+                    let (service_events, drift_events) =
+                        service_monitor::parse_runtime_output(&self.console);
+                    self.service_events.extend(service_events);
+                    self.drift_events.extend(drift_events);
                     deep_learning::parse_output(&self.console, &mut self.deep_outputs);
                     for spec in plot::parse_output(&self.console) {
                         self.structured_plots
@@ -3051,12 +3061,17 @@ impl ForgeApp {
             if ui.button("Generate Rust service").clicked() {
                 self.registry_output = model_registry::ModelRegistry::open(&root)
                     .and_then(|registry| {
-                        registry.resolve(&self.registry_model, &self.registry_alias)
+                        let version =
+                            registry.resolve_version(&self.registry_model, &self.registry_alias)?;
+                        let artifact =
+                            registry.resolve(&self.registry_model, &self.registry_alias)?;
+                        Ok((version, artifact))
                     })
-                    .and_then(|artifact| {
+                    .and_then(|(version, artifact)| {
                         model_registry::generate_inference_service(
                             &root,
                             &self.registry_model,
+                            &version,
                             &artifact,
                         )
                     })
@@ -3081,6 +3096,51 @@ impl ForgeApp {
                         }
                     });
             }
+        }
+        ui.separator();
+        ui.strong("Service monitoring");
+        if let Some(event) = self.service_events.last() {
+            let error_rate = if event.requests == 0 {
+                0.0
+            } else {
+                event.errors as f64 * 100.0 / event.requests as f64
+            };
+            ui.horizontal_wrapped(|ui| {
+                ui.label(format!("{} {}", event.model, event.version));
+                ui.label(format!("{} requests", event.requests));
+                ui.label(format!("{error_rate:.2}% errors"));
+                if let Some(p95) = event.p95_ms {
+                    ui.label(format!("p95 {p95:.1} ms"));
+                }
+            });
+        } else {
+            ui.label(
+                RichText::new("Run or stream forge_service JSON lines to populate request health.")
+                    .color(MUTED),
+            );
+        }
+        if !self.drift_events.is_empty() {
+            egui::Grid::new("model_drift_events")
+                .striped(true)
+                .show(ui, |ui| {
+                    ui.strong("Feature");
+                    ui.strong("Drift");
+                    ui.strong("Threshold");
+                    ui.end_row();
+                    for event in self.drift_events.iter().rev().take(20) {
+                        ui.label(&event.feature);
+                        ui.colored_label(
+                            if event.score > event.threshold {
+                                Color32::from_rgb(214, 126, 44)
+                            } else {
+                                GREEN
+                            },
+                            format!("{:.3}", event.score),
+                        );
+                        ui.label(format!("{:.3}", event.threshold));
+                        ui.end_row();
+                    }
+                });
         }
         ui.separator();
         ui.code(&self.registry_output);
@@ -3527,6 +3587,23 @@ impl ForgeApp {
                 title: format!("{}.rs", self.pipeline_design.name),
                 path: None,
                 content: format!("//# %% generated Millwright pipeline\n{code}"),
+                dirty: true,
+                disk_hash: None,
+                external_change_pending: false,
+            });
+            self.active_tab = self.tabs.len() - 1;
+            self.selected_cell = 0;
+        }
+        if ui
+            .button("Generate native Millwright ONNX export cell")
+            .clicked()
+        {
+            let artifact = format!("models/{}.onnx", self.pipeline_design.name);
+            let code = self.pipeline_design.onnx_export_code(&artifact);
+            self.tabs.push(EditorTab {
+                title: format!("{}_onnx.rs", self.pipeline_design.name),
+                path: None,
+                content: format!("//# %% generated Millwright ONNX export\n{code}"),
                 dirty: true,
                 disk_hash: None,
                 external_change_pending: false,

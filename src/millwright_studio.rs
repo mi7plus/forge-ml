@@ -111,14 +111,12 @@ impl PipelineDesign {
             "let train = table.into_dataset(\"{}\")?;\n",
             self.target
         ));
-        code.push_str("let pipeline = Pipeline::builder()\n");
+        code.push_str("let mut pipeline = Pipeline::new()\n");
         for step in &self.steps {
             let line = match step {
-                PipelineStep::Impute => "    .transformer(\"impute\", SimpleImputer::mean())\n",
-                PipelineStep::Standardize => "    .transformer(\"scale\", StandardScaler::new())\n",
-                PipelineStep::OneHotEncode => {
-                    "    .transformer(\"encode\", OneHotEncoder::new())\n"
-                }
+                PipelineStep::Impute => "    .step(\"impute\", SimpleImputer::mean())\n",
+                PipelineStep::Standardize => "    .step(\"scale\", StandardScaler::new())\n",
+                PipelineStep::OneHotEncode => "    .step(\"encode\", OneHotEncoder::infer())\n",
                 PipelineStep::RandomForest => "    .estimator(\"model\", RandomForest::new())\n",
                 PipelineStep::LogisticRegression => {
                     "    .estimator(\"model\", LogisticRegression::new())\n"
@@ -129,7 +127,22 @@ impl PipelineDesign {
             };
             code.push_str(line);
         }
-        code.push_str("    .build()?;\nlet fitted = pipeline.fit(&train)?;\n");
+        code.push_str(";\npipeline.fit(&train)?;\n");
+        code
+    }
+
+    pub fn onnx_export_code(&self, artifact: &str) -> String {
+        let mut code = self.rust_code();
+        code.push_str("\n// Millwright 2.2's native, published-crate portability boundary.\n");
+        code.push_str("use millwright::onnx::{ExportOnnx, InferenceModel};\n");
+        code.push_str(&format!(
+            "let artifact = std::path::Path::new({artifact:?});\npipeline.export_onnx(artifact)?;\n"
+        ));
+        code.push_str("let portable = InferenceModel::load(artifact)?;\n");
+        code.push_str("let native = pipeline.predict(train.features())?;\n");
+        code.push_str("let round_trip = portable.predict(train.features())?;\n");
+        code.push_str("assert_eq!(native.len(), round_trip.len());\n");
+        code.push_str("println!(\"Exported and verified {} predictions at {}\", round_trip.len(), artifact.display());\n");
         code
     }
 }
@@ -183,6 +196,18 @@ mod tests {
         let code = design.rust_code();
         assert!(code.find("SimpleImputer").unwrap() < code.find("RandomForest").unwrap());
         assert!(code.contains("into_dataset(\"label\")"));
+    }
+    #[test]
+    fn generates_native_onnx_export_and_round_trip() {
+        let design = PipelineDesign {
+            name: "portable".into(),
+            target: "label".into(),
+            steps: vec![PipelineStep::Standardize, PipelineStep::LinearRegression],
+        };
+        let code = design.onnx_export_code("models/portable.onnx");
+        assert!(code.contains("millwright::onnx::{ExportOnnx, InferenceModel}"));
+        assert!(code.contains("pipeline.export_onnx(artifact)?"));
+        assert!(code.contains("InferenceModel::load(artifact)?"));
     }
     #[test]
     fn channel_observer_forwards_events() {

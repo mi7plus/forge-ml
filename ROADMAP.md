@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.17.0`
+Current application version: `0.18.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -301,7 +301,7 @@ Implementation notes:
 ## 1.0 production readiness
 
 - [~] Complete data, notebook, experiment, and model exports (portable data, notebooks, run/project bundles, EDA, and comparison reports landed; PDF and direct model conversion remain).
-- [~] Add Millwright ONNX, registry, rollback, and service generation UI (format-neutral registry and service generation landed; native Millwright ONNX invocation remains).
+- [x] Add Millwright ONNX, registry, rollback, and service generation UI.
 - [~] Add database and object-storage connector hardening (bounded database previews and secured CLI-backed object profiles landed; broader driver validation remains).
 - [x] Add private Cargo/Python registries and GitHub Enterprise validation.
 - [~] Add signed releases, update channels, provenance, and attestations (artifact and channel-manifest attestations landed; OS code-signing identities remain release-environment work).
@@ -449,6 +449,24 @@ Implementation notes:
 - Project bundles intentionally omit `.forge`; export experiment bundles separately when run artifacts are required.
 - Reports are offline HTML and can be printed to PDF through the operating system or browser.
 - Bundle manifests make it possible to verify content without extracting or executing project code.
+
+## 0.18 Millwright portability and model operations — implemented
+
+- [x] Enable Millwright 2.2.1's native ONNX API behind Forge's optional `millwright` feature.
+- [x] Generate editable pipeline export cells that call `ExportOnnx` and verify a load/predict round trip.
+- [x] Resolve registry aliases to immutable version metadata before service generation.
+- [x] Copy the selected registered artifact into the generated service instead of retaining a workspace path.
+- [x] Generate health, readiness, metadata, and prediction endpoints with bounded request counters.
+- [x] Generate Docker, Compose, and Kubernetes deployment/readiness templates.
+- [x] Parse framework-neutral `forge_service:` and `forge_drift:` JSON records into the Deploy pane.
+- [x] Show request count, error rate, optional p95 latency, and recent per-feature drift status.
+
+Implementation notes:
+
+- Forge consumes the published `millwright = 2.2.1` crate only; no local repository or path override is used.
+- ONNX support remains optional because Millwright's ONNX/runtime dependency graph materially increases compile and binary size.
+- Generated prediction handlers deliberately remain editable integration scaffolds: model formats require format-specific tensor adapters before production inference.
+- The service copies the exact alias-resolved artifact, so later alias promotion or rollback cannot silently change an already generated deployment.
 
 ## Known technical risks
 

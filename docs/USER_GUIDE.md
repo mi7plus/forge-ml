@@ -42,3 +42,10 @@ Use Crates → Check signed updates. Forge downloads the small channel manifest,
 ## Diagnostics and privacy
 
 Diagnostics are off by default. Settings can enable bounded local events and sanitized crash summaries for the open project. Forge never uploads them automatically. Use the explicit ZIP export to review the exact bundle before sharing it. See [Diagnostics and privacy](PRIVACY.md).
+## Portable Millwright models and deployment
+
+In Millwright Studio, build a pipeline and choose **Generate native Millwright ONNX export cell**. The generated Rust cell uses the published Millwright 2.2.1 crate, exports the fitted pipeline through `ExportOnnx`, reloads it with `InferenceModel`, and checks the prediction count. Add Millwright with its `onnx` feature to the notebook project before running the cell.
+
+Use the Deploy inspector to register the resulting artifact, assign an alias such as `production`, and generate a Rust service. Forge resolves the alias first and copies that exact model version into the service. The scaffold includes health, readiness, metadata, and prediction routes plus Docker, Compose, and Kubernetes templates. Its prediction handler is intentionally an editable adapter; connect the selected format's runtime before production use.
+
+Runtime output prefixed with `forge_service:` or `forge_drift:` and followed by JSON appears in the Deploy monitoring view. Service records can report `model`, `version`, `requests`, `errors`, and optional `p95_ms`; drift records report `model`, `version`, `feature`, `score`, and `threshold`.

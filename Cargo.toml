@@ -1,6 +1,6 @@
 [package]
 name = "forge_ide"
-version = "0.17.0"
+version = "0.18.0"
 edition = "2021"
 
 [workspace]
@@ -28,7 +28,7 @@ adbc_core = { version = "0.24", optional = true }
 keyring = "4.1"
 sysinfo = "0.39"
 zip = { version = "4", default-features = false, features = ["deflate"] }
-millwright = { version = "2.2.1", default-features = false, features = ["eda"], optional = true }
+millwright = { version = "2.2.1", default-features = false, features = ["eda", "onnx"], optional = true }
 
 [features]
 default = []
