@@ -1,6 +1,6 @@
 [package]
 name = "forge_ide"
-version = "0.46.0"
+version = "0.47.0"
 edition = "2021"
 
 [workspace]
@@ -17,6 +17,7 @@ evcxr = "0.22"
 serde = { version = "1.0", features = ["derive"] }
 rfd = "0.17.2"
 serde_json = "1.0"
+png = "0.18.1"
 sha2 = "0.10"
 url = "2.5"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }

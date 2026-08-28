@@ -4003,7 +4003,7 @@ dependencies = [
 
 [[package]]
 name = "forge_ide"
-version = "0.46.0"
+version = "0.47.0"
 dependencies = [
  "adbc_core",
  "arrow",
@@ -4021,6 +4021,7 @@ dependencies = [
  "keyring",
  "millwright",
  "parquet",
+ "png",
  "rfd",
  "rusqlite",
  "serde",

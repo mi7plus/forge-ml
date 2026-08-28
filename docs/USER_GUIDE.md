@@ -43,7 +43,7 @@ New experiment runs use SHA-256 fingerprints for dataset contents, hashed source
 
 File → **Export reproducible project bundle** creates a deterministic ZIP with a schema-2 manifest, file sizes, and SHA-256 content digests. It is limited to 20,000 files, 100 MB per file, and 500 MB total. Build directories, virtual environments, Forge state, Git state, symlinks, and credential-like files are excluded. Review the manifest before sharing.
 
-The Plots pane accepts legacy metrics/vectors and versioned `forge_plot:` JSON. Structured plots support lines, scatter, bars, filled areas, histograms, box summaries, heatmaps, ROC, precision–recall, residuals, and feature importance. Each series can be hidden, axes can be transformed to log10, and definitions can be exported as JSON or standalone SVG.
+The Plots pane accepts legacy metrics/vectors and versioned `forge_plot:` JSON. Structured plots support lines, scatter, bars, filled areas, histograms, box summaries, heatmaps, ROC, precision–recall, residuals, and feature importance. Each series can be hidden, axes can be transformed to log10, and definitions can be exported as JSON, standalone SVG, or a native 960×540 PNG. Raster export runs entirely inside Forge and enforces a 16-megapixel memory-safety limit.
 
 ## External tools and credentials
 

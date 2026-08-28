@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.46.0`
+Current application version: `0.47.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -80,6 +80,7 @@ tables, plots, and metrics still enter through a compatibility stdout adapter.
 - [x] Database connections and SQL workbench.
 - [x] Object-storage connections.
 - [x] General MIME and structured plot output.
+- [x] Portable native PNG export for structured plots.
 
 ### Experiments and ML
 
@@ -954,6 +955,20 @@ Implementation notes:
 
 - The compact writer intentionally targets text-first offline reports and the built-in Helvetica font. Non-ASCII glyphs are replaced with `?`; richer Unicode/font embedding and vector chart pages remain future enhancements.
 - Dataset PDF content is bounded to 100 alerts, 500 column profiles, 20 correlations, and a 50-row by 20-column preview so report generation cannot accidentally mirror a full dataset.
+
+## 0.47 native PNG plot export — implemented
+
+- [x] Add portable 960×540 PNG export beside structured plot JSON and SVG actions.
+- [x] Render line-like, scatter/residual, bar-like, and heatmap families entirely in process.
+- [x] Preserve series visibility and the structured plot's validated finite-data contract.
+- [x] Use deterministic axes, colors, point marks, lines, bars, and heatmap cells.
+- [x] Enforce a 16-megapixel raster allocation limit before allocating the canvas.
+- [x] Verify the PNG signature and encoded IHDR dimensions in the plot test suite.
+
+Implementation notes:
+
+- PNG export intentionally uses a compact software renderer and does not require Python, a browser, GPU readback, or an external plotting executable.
+- The raster currently prioritizes portable visual output over SVG-level text and legends; richer typography and multi-panel composition remain future work.
 
 ## Known technical risks
 
