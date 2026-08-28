@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.54.0`
+Current application version: `0.55.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1074,6 +1074,21 @@ Implementation notes:
 
 - Query history contains SQL text only; connection credentials, profile secrets, result rows, and dataset contents are never written with it.
 - History remains project-scoped under `.forge`, allowing different data workspaces to retain independent query context.
+
+## 0.55 read-only analytical SQL guard — implemented
+
+- [x] Require a recognized analytical statement form before database workbench dispatch.
+- [x] Allow `SELECT`, `WITH`, `EXPLAIN`, `SHOW`, `DESCRIBE`/`DESC`, and `VALUES` queries.
+- [x] Reject recognized mutation, DDL, transaction, locking, maintenance, and `SELECT INTO` keywords.
+- [x] Reject stacked statements while allowing one optional trailing semicolon.
+- [x] Ignore keywords and semicolons inside line comments, block comments, and quoted strings/identifiers.
+- [x] Validate once in the UI for immediate feedback and again inside every connector query path.
+- [x] Test CTEs, comments, quoted mutation words, writes, transactions, `SELECT INTO`, and stacked statements.
+
+Implementation notes:
+
+- SQL lexical validation is defense in depth rather than an authorization boundary. Users should configure database-enforced read-only roles because vendor functions or extensions may have side effects even within a `SELECT`.
+- Schema discovery and connection tests continue through the same connector limits; their internal queries are read-only forms accepted by the validator.
 
 ## Known technical risks
 

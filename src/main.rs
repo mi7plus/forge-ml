@@ -4147,6 +4147,10 @@ impl ForgeApp {
             .clicked()
         {
             if let Some(profile) = self.database_profiles.get(self.database_selected) {
+                if let Err(error) = database::validate_query(&self.sql_editor) {
+                    self.sql_output = error;
+                    return;
+                }
                 let name = format!("{}_query_{}", profile.name, self.sql_history.len() + 1);
                 self.sql_output =
                     match self

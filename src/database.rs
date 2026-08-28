@@ -415,7 +415,7 @@ fn redact_error(message: &str, location: &str, password: Option<&str>) -> String
     safe
 }
 
-fn validate_query(sql: &str) -> Result<(), String> {
+pub fn validate_query(sql: &str) -> Result<(), String> {
     if sql.trim().is_empty() {
         return Err("Enter a SQL statement first.".into());
     }
@@ -425,7 +425,129 @@ fn validate_query(sql: &str) -> Result<(), String> {
     if sql.len() > 1_000_000 {
         return Err("SQL statements are limited to 1 MB.".into());
     }
+    let tokens = sql_tokens(sql);
+    let first = tokens
+        .iter()
+        .find(|token| token.as_str() != ";")
+        .map(String::as_str)
+        .ok_or("Enter a SQL statement first.")?;
+    if !matches!(
+        first,
+        "select" | "with" | "explain" | "show" | "describe" | "desc" | "values"
+    ) {
+        return Err("The data-viewer workbench accepts read-only analytical queries only.".into());
+    }
+    let semicolons = tokens
+        .iter()
+        .enumerate()
+        .filter(|(_, token)| token.as_str() == ";")
+        .collect::<Vec<_>>();
+    if semicolons.len() > 1
+        || semicolons
+            .first()
+            .is_some_and(|(index, _)| *index + 1 != tokens.len())
+    {
+        return Err("Run one SQL statement at a time; stacked statements are not allowed.".into());
+    }
+    const MUTATING: &[&str] = &[
+        "insert",
+        "update",
+        "delete",
+        "merge",
+        "replace",
+        "upsert",
+        "create",
+        "alter",
+        "drop",
+        "truncate",
+        "grant",
+        "revoke",
+        "vacuum",
+        "attach",
+        "detach",
+        "copy",
+        "call",
+        "execute",
+        "exec",
+        "set",
+        "reset",
+        "begin",
+        "commit",
+        "rollback",
+        "savepoint",
+        "release",
+        "lock",
+        "unlock",
+        "analyze",
+        "reindex",
+        "refresh",
+        "into",
+    ];
+    if let Some(keyword) = tokens
+        .iter()
+        .find(|token| MUTATING.contains(&token.as_str()))
+    {
+        return Err(format!(
+            "Read-only SQL cannot contain the `{keyword}` keyword."
+        ));
+    }
     Ok(())
+}
+
+fn sql_tokens(sql: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut chars = sql.chars().peekable();
+    while let Some(character) = chars.next() {
+        match character {
+            '-' if chars.peek() == Some(&'-') => {
+                chars.next();
+                for value in chars.by_ref() {
+                    if value == '\n' {
+                        break;
+                    }
+                }
+            }
+            '/' if chars.peek() == Some(&'*') => {
+                chars.next();
+                let mut previous = '\0';
+                for value in chars.by_ref() {
+                    if previous == '*' && value == '/' {
+                        break;
+                    }
+                    previous = value;
+                }
+            }
+            '\'' | '"' | '`' => {
+                let quote = character;
+                while let Some(value) = chars.next() {
+                    if value == quote {
+                        if chars.peek() == Some(&quote) {
+                            chars.next();
+                        } else {
+                            break;
+                        }
+                    } else if value == '\\' {
+                        chars.next();
+                    }
+                }
+            }
+            ';' => tokens.push(";".into()),
+            value if value.is_ascii_alphabetic() || value == '_' => {
+                let mut token = value.to_ascii_lowercase().to_string();
+                while let Some(value) = chars.peek().copied() {
+                    if value.is_ascii_alphanumeric() || value == '_' {
+                        token.push(value.to_ascii_lowercase());
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                tokens.push(token);
+            }
+            _ => {}
+        }
+    }
+    tokens
 }
 
 pub fn store_secret(key: &str, secret: &str) -> Result<(), String> {
@@ -468,6 +590,22 @@ mod tests {
         );
         let oversized = vec!["x".repeat(MAX_QUERY_HISTORY_BYTES + 1)];
         assert!(bounded_query_history(oversized).is_empty());
+    }
+
+    #[test]
+    fn permits_one_read_only_statement_and_rejects_mutations() {
+        assert!(validate_query("-- report\nWITH rows AS (SELECT 1) SELECT * FROM rows;").is_ok());
+        assert!(validate_query("SELECT 'delete; update' AS note").is_ok());
+        assert!(validate_query("SHOW TABLES").is_ok());
+        for query in [
+            "DELETE FROM samples",
+            "WITH old AS (SELECT 1) UPDATE samples SET x = 2",
+            "SELECT * INTO backup FROM samples",
+            "SELECT 1; DROP TABLE samples",
+            "BEGIN",
+        ] {
+            assert!(validate_query(query).is_err(), "accepted {query}");
+        }
     }
     #[test]
     fn queries_sqlite_to_table() {
