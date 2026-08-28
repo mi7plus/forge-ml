@@ -46,6 +46,11 @@ pub enum Request {
         root: PathBuf,
     },
     RemoteTest(crate::remote::RemoteProfile),
+    RemoteKernelStart {
+        profile: crate::remote::RemoteProfile,
+        kernel_name: String,
+    },
+    RemoteKernelStop(crate::remote::RemoteKernelSession),
 }
 
 pub enum ResultEvent {
@@ -67,6 +72,8 @@ pub enum ResultEvent {
     ObjectMessage(Result<String, String>),
     ObjectDownload(Result<PathBuf, String>),
     RemoteMessage(Result<String, String>),
+    RemoteKernelStarted(Result<crate::remote::RemoteKernelSession, String>),
+    RemoteKernelStopped(Result<String, String>),
 }
 
 pub struct IntegrationWorker {
@@ -173,6 +180,13 @@ fn execute(request: Request) -> ResultEvent {
         }
         Request::RemoteTest(profile) => {
             ResultEvent::RemoteMessage(crate::remote::test_jupyter(&profile))
+        }
+        Request::RemoteKernelStart {
+            profile,
+            kernel_name,
+        } => ResultEvent::RemoteKernelStarted(crate::remote::start_kernel(&profile, &kernel_name)),
+        Request::RemoteKernelStop(session) => {
+            ResultEvent::RemoteKernelStopped(crate::remote::stop_kernel(&session))
         }
     }
 }

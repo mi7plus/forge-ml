@@ -13,6 +13,14 @@ pub struct RemoteProfile {
     pub credential_key: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct RemoteKernelSession {
+    pub id: String,
+    pub name: String,
+    #[serde(skip)]
+    pub profile: RemoteProfile,
+}
+
 pub fn store_token(profile: &RemoteProfile, token: &str) -> Result<(), String> {
     crate::database::store_secret(&profile.credential_key, token)
 }
@@ -90,12 +98,110 @@ pub fn test_jupyter(profile: &RemoteProfile) -> Result<String, String> {
     ))
 }
 
+pub fn start_kernel(
+    profile: &RemoteProfile,
+    kernel_name: &str,
+) -> Result<RemoteKernelSession, String> {
+    validate_profile(profile)?;
+    validate_identifier(kernel_name, "Kernel name")?;
+    let endpoint = api_endpoint(&profile.jupyter_url, "api/kernels")?;
+    let body = serde_json::json!({ "name": kernel_name }).to_string();
+    let output = curl_request(profile, "POST", &endpoint, Some(&body))?;
+    let mut session: RemoteKernelSession = serde_json::from_slice(&output)
+        .map_err(|e| format!("Invalid kernel creation response: {e}"))?;
+    validate_identifier(&session.id, "Kernel session ID")?;
+    if session.name.is_empty() {
+        session.name = kernel_name.to_owned();
+    }
+    session.profile = profile.clone();
+    Ok(session)
+}
+
+pub fn stop_kernel(session: &RemoteKernelSession) -> Result<String, String> {
+    validate_profile(&session.profile)?;
+    validate_identifier(&session.id, "Kernel session ID")?;
+    let endpoint = api_endpoint(
+        &session.profile.jupyter_url,
+        &format!("api/kernels/{}", session.id),
+    )?;
+    curl_request(&session.profile, "DELETE", &endpoint, None)?;
+    Ok(format!(
+        "Stopped remote kernel `{}` ({}) on `{}`.",
+        session.name, session.id, session.profile.name
+    ))
+}
+
+fn curl_request(
+    profile: &RemoteProfile,
+    method: &str,
+    endpoint: &url::Url,
+    body: Option<&str>,
+) -> Result<Vec<u8>, String> {
+    let token = crate::database::load_secret(&profile.credential_key).unwrap_or_default();
+    let mut command = Command::new("curl");
+    command.args([
+        "--silent",
+        "--show-error",
+        "--fail",
+        "--max-time",
+        "10",
+        "--max-filesize",
+        "1048576",
+        "--header",
+        "@-",
+        "--request",
+        method,
+    ]);
+    if let Some(body) = body {
+        command.args(["--data-binary", body]);
+    }
+    let mut child = command
+        .arg(endpoint.as_str())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("Could not start curl: {error}"))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        if !token.is_empty() {
+            writeln!(stdin, "Authorization: token {token}").map_err(|e| e.to_string())?;
+        }
+        if body.is_some() {
+            writeln!(stdin, "Content-Type: application/json").map_err(|e| e.to_string())?;
+        }
+    }
+    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        let error = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        return Err(redact(&error, &token));
+    }
+    Ok(output.stdout)
+}
+
 fn kernelspec_endpoint(base: &str) -> Result<url::Url, String> {
+    api_endpoint(base, "api/kernelspecs")
+}
+
+fn api_endpoint(base: &str, route: &str) -> Result<url::Url, String> {
     let mut url = url::Url::parse(base).map_err(|e| e.to_string())?;
     if !url.path().ends_with('/') {
         url.set_path(&format!("{}/", url.path()));
     }
-    url.join("api/kernelspecs").map_err(|e| e.to_string())
+    url.join(route).map_err(|e| e.to_string())
+}
+
+fn validate_identifier(value: &str, label: &str) -> Result<(), String> {
+    if value.is_empty()
+        || value.len() > 128
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        return Err(format!(
+            "{label} must contain only letters, numbers, dots, underscores, or hyphens."
+        ));
+    }
+    Ok(())
 }
 
 fn redact(message: &str, token: &str) -> String {
@@ -158,5 +264,18 @@ mod tests {
             redact("request token-secret failed", "token-secret"),
             "request [REDACTED] failed"
         );
+    }
+
+    #[test]
+    fn validates_kernel_identifiers_and_session_responses() {
+        validate_identifier("python3", "Kernel name").unwrap();
+        validate_identifier("session-id_1", "Session").unwrap();
+        assert!(validate_identifier("../../escape", "Session").is_err());
+        assert!(validate_identifier("name with spaces", "Kernel name").is_err());
+
+        let session: RemoteKernelSession =
+            serde_json::from_str(r#"{"id":"abc-123","name":"python3"}"#).unwrap();
+        assert_eq!(session.id, "abc-123");
+        assert_eq!(session.name, "python3");
     }
 }

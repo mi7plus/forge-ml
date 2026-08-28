@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.35.0`
+Current application version: `0.36.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -48,7 +48,7 @@ tables, plots, and metrics still enter through a compatibility stdout adapter.
 - [x] Markdown cells.
 - [x] Standard `.ipynb` import/export.
 - [~] Jupyter kernel protocol support (kernelspec integration is available; native Evcxr remains the default).
-- [~] Remote kernels (secured profile validation and kernelspec probing landed; session/WebSocket execution remains).
+- [~] Remote kernels (secured discovery and start/stop lifecycle landed; WebSocket execution remains).
 
 ### Rust language intelligence
 
@@ -765,6 +765,23 @@ Implementation notes:
 - Forge currently uses the installed curl executable for the small Jupyter REST probe, avoiding another embedded HTTP/TLS stack while keeping output and time bounded.
 - Remote session creation, Jupyter messaging authentication, WebSocket channels, interrupts, and shutdown remain necessary before remote kernels can execute notebook cells.
 - Python support remains runtime-only: discovering a remote Python kernelspec does not install or distribute Python or its packages.
+
+## 0.36 remote Jupyter kernel lifecycle — implemented
+
+- [x] Start a named kernelspec through Jupyter's authenticated kernel REST endpoint.
+- [x] Parse and validate the server-issued kernel ID and effective kernel name.
+- [x] Keep the originating validated remote profile attached to the in-memory session.
+- [x] Show the active remote, kernelspec, and session ID in the Deep Learning pane.
+- [x] Stop the managed kernel through Jupyter's authenticated DELETE endpoint.
+- [x] Disable additional Start actions while Forge owns an active remote kernel.
+- [x] Run creation and shutdown on the background integration worker.
+- [x] Reuse the 10-second timeout, 1 MiB response cap, HTTPS policy, OS credential store, stdin authorization header, and error redaction.
+
+Implementation notes:
+
+- The active session is deliberately not persisted: restarting Forge cannot safely assume a server-side kernel remains live or owned by the same client.
+- Kernelspec names and server IDs are limited to 128 ASCII letters, numbers, dots, underscores, or hyphens before use in API routes.
+- Remote cell execution still requires authenticated Jupyter WebSocket channels and message signing; lifecycle support alone is not marked as complete remote-kernel execution.
 
 ## Known technical risks
 

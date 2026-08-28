@@ -358,6 +358,8 @@ struct ForgeApp {
     remote_url: String,
     remote_command: String,
     remote_token: String,
+    remote_kernel_name: String,
+    remote_kernel_session: Option<remote::RemoteKernelSession>,
     registry_model: String,
     registry_version: String,
     registry_format: String,
@@ -619,6 +621,8 @@ impl ForgeApp {
             remote_url: String::new(),
             remote_command: "cargo run --release".into(),
             remote_token: String::new(),
+            remote_kernel_name: "python3".into(),
+            remote_kernel_session: None,
             registry_model: "model".into(),
             registry_version: "0.1.0".into(),
             registry_format: "onnx".into(),
@@ -1784,6 +1788,23 @@ impl ForgeApp {
                 ResultEvent::RemoteMessage(result) => {
                     self.sql_output = result.unwrap_or_else(|error| error);
                 }
+                ResultEvent::RemoteKernelStarted(result) => match result {
+                    Ok(session) => {
+                        self.sql_output = format!(
+                            "Started remote kernel `{}` ({}) on `{}`.",
+                            session.name, session.id, session.profile.name
+                        );
+                        self.remote_kernel_session = Some(session);
+                    }
+                    Err(error) => self.sql_output = error,
+                },
+                ResultEvent::RemoteKernelStopped(result) => match result {
+                    Ok(message) => {
+                        self.remote_kernel_session = None;
+                        self.sql_output = message;
+                    }
+                    Err(error) => self.sql_output = error,
+                },
             }
         }
         if let Some(kernel) = &self.python_kernel {
@@ -3556,6 +3577,37 @@ impl ForgeApp {
                     .unwrap_or_else(|| "Open a project first.".into());
             }
         });
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Remote kernelspec");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.remote_kernel_name)
+                    .hint_text("for example: python3 or rust"),
+            );
+            if let Some(session) = &self.remote_kernel_session {
+                ui.label(format!(
+                    "Active: {} · {} · {}",
+                    session.profile.name, session.name, session.id
+                ));
+                if ui
+                    .add_enabled(
+                        self.integration_pending == 0,
+                        egui::Button::new("Stop remote kernel"),
+                    )
+                    .clicked()
+                {
+                    match self
+                        .integration_worker
+                        .submit(IntegrationRequest::RemoteKernelStop(session.clone()))
+                    {
+                        Ok(()) => {
+                            self.integration_pending += 1;
+                            self.sql_output = "Stopping remote kernel…".into();
+                        }
+                        Err(error) => self.sql_output = error,
+                    }
+                }
+            }
+        });
         for profile in self.remote_profiles.clone() {
             ui.horizontal_wrapped(|ui| {
                 ui.label(format!(
@@ -3576,6 +3628,30 @@ impl ForgeApp {
                         Ok(()) => {
                             self.integration_pending += 1;
                             self.sql_output = format!("Testing remote `{}`…", profile.name);
+                        }
+                        Err(error) => self.sql_output = error,
+                    }
+                }
+                if ui
+                    .add_enabled(
+                        self.integration_pending == 0 && self.remote_kernel_session.is_none(),
+                        egui::Button::new("Start kernel"),
+                    )
+                    .clicked()
+                {
+                    match self
+                        .integration_worker
+                        .submit(IntegrationRequest::RemoteKernelStart {
+                            profile: profile.clone(),
+                            kernel_name: self.remote_kernel_name.trim().to_owned(),
+                        }) {
+                        Ok(()) => {
+                            self.integration_pending += 1;
+                            self.sql_output = format!(
+                                "Starting `{}` on remote `{}`…",
+                                self.remote_kernel_name.trim(),
+                                profile.name
+                            );
                         }
                         Err(error) => self.sql_output = error,
                     }
