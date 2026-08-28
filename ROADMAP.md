@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.63.0`
+Current application version: `0.64.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1210,6 +1210,22 @@ Implementation notes:
 
 - CSV and HTML are integrity-checked review artifacts; typed JSON remains the source used to restore live state.
 - Import never extracts archive paths to disk, preventing traversal and overwrite behavior from untrusted ZIP entry names.
+
+## 0.64 bounded deployment monitoring snapshots — implemented
+
+- [x] Validate service model/version text, request/error consistency, and optional p95 latency.
+- [x] Validate drift model/version/feature text, finite non-negative score, and threshold.
+- [x] Bound text fields to 256 bytes without NULs and retain the newest 10,000 events per stream.
+- [x] Apply validation to runtime telemetry before it enters deployment UI state.
+- [x] Export service and drift telemetry together in a versioned JSON snapshot capped at 16 MiB.
+- [x] Import snapshots all-or-nothing after schema, count, size, and event validation.
+- [x] Add visible stream counts and explicit monitoring clear controls.
+- [x] Test snapshot round trips, invalid-event rejection, oldest-event eviction, and oversized input rejection.
+
+Implementation notes:
+
+- Monitoring snapshots contain operational counters and feature names but no credentials, model binaries, request bodies, or prediction payloads.
+- Monitoring remains live memory state unless explicitly exported, matching the privacy posture used for training telemetry.
 
 ## Known technical risks
 

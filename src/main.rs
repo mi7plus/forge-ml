@@ -2143,8 +2143,12 @@ impl ForgeApp {
                     }
                     let (service_events, drift_events) =
                         service_monitor::parse_runtime_output(&self.console);
-                    self.service_events.extend(service_events);
-                    self.drift_events.extend(drift_events);
+                    for event in service_events {
+                        service_monitor::record_service(&mut self.service_events, event);
+                    }
+                    for event in drift_events {
+                        service_monitor::record_drift(&mut self.drift_events, event);
+                    }
                     deep_learning::parse_output(&self.console, &mut self.deep_outputs);
                     for spec in plot::parse_output(&self.console) {
                         self.structured_plots
@@ -3535,6 +3539,52 @@ impl ForgeApp {
         }
         ui.separator();
         ui.strong("Service monitoring");
+        ui.horizontal_wrapped(|ui| {
+            ui.label(format!(
+                "{} service · {} drift events",
+                self.service_events.len(),
+                self.drift_events.len()
+            ));
+            if (!self.service_events.is_empty() || !self.drift_events.is_empty())
+                && ui.button("Export snapshot").clicked()
+            {
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_file_name("forge-monitoring-snapshot.json")
+                    .save_file()
+                {
+                    self.registry_output =
+                        service_monitor::snapshot_json(&self.service_events, &self.drift_events)
+                            .and_then(|bytes| {
+                                std::fs::write(&path, bytes).map_err(|error| error.to_string())
+                            })
+                            .map(|()| format!("Exported monitoring snapshot to {}", path.display()))
+                            .unwrap_or_else(|error| format!("Monitoring export failed: {error}"));
+                }
+            }
+            if ui.button("Import snapshot").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Forge monitoring JSON", &["json"])
+                    .pick_file()
+                {
+                    self.registry_output = std::fs::read(&path)
+                        .map_err(|error| error.to_string())
+                        .and_then(|bytes| service_monitor::parse_snapshot(&bytes))
+                        .map(|snapshot| {
+                            self.service_events = snapshot.service_events;
+                            self.drift_events = snapshot.drift_events;
+                            format!("Imported monitoring snapshot from {}", path.display())
+                        })
+                        .unwrap_or_else(|error| format!("Monitoring import failed: {error}"));
+                }
+            }
+            if (!self.service_events.is_empty() || !self.drift_events.is_empty())
+                && ui.button("Clear monitoring").clicked()
+            {
+                self.service_events.clear();
+                self.drift_events.clear();
+                self.registry_output = "Cleared live monitoring events.".into();
+            }
+        });
         if let Some(event) = self.service_events.last() {
             let error_rate = if event.requests == 0 {
                 0.0
