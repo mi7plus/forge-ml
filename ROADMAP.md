@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.31.0`
+Current application version: `0.32.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -127,7 +127,7 @@ tables, plots, and metrics still enter through a compatibility stdout adapter.
 - [x] Add a runnable dataset-viewer notebook example.
 - [x] Add the complete development plan and living roadmap.
 - [ ] Exercise the dataset viewer manually on Windows, macOS, and Linux.
-- [ ] Add UI-level tests for docking and divider persistence where practical.
+- [x] Add UI-level tests for docking and divider persistence where practical.
 - [x] Package the dataset-viewer and planning milestone as release `0.1.5`.
 
 ## 0.2 foundation — implemented
@@ -701,6 +701,20 @@ Implementation notes:
 - Burn GPU support embedded in the cross-platform package is WGPU. CUDA and ROCm require vendor SDK/runtime compatibility and remain generated-project or remote-training targets.
 - Python remains runtime-only and user-managed; embedding Rust ML frameworks does not expand Forge into Python framework distribution.
 - The `millwright` feature name no longer changes dependency selection, preserving existing build scripts while ensuring all builds contain Millwright.
+
+## 0.32 docked data-viewer layout hardening — implemented
+
+- [x] Extract the right-pane split and divider-drag calculations into a focused layout component.
+- [x] Test upward/downward divider dragging and both minimum-height clamps.
+- [x] Keep narrow right panes within their actual available height instead of over-allocating two minimum-size children.
+- [x] Make brand-new session defaults match legacy-session restoration: docked with a 280 px dataset pane.
+- [x] Test docking defaults across both fresh construction and JSON persistence round trips.
+
+Implementation notes:
+
+- The visual drag target remains 12 px high and keeps the vertical-resize cursor and hover treatment.
+- When less than 252 px is available, the two panes share the usable height evenly; at normal sizes each pane retains a 120 px minimum.
+- These deterministic layout tests cover the state and geometry boundaries practical without a platform window; cross-platform visual smoke testing remains a release activity.
 
 ## Known technical risks
 

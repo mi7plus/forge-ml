@@ -16,6 +16,7 @@ mod model_registry;
 mod notebook;
 mod object_storage;
 mod packages;
+mod pane_layout;
 mod performance;
 mod plot;
 mod privacy_diagnostics;
@@ -54,6 +55,7 @@ use notebook::{
     cell_byte_ranges, is_notebook_document, lsp_document, notebook_lsp_prefix_chars,
     prepare_runtime_code, CellKind, NotebookDocument, RichOutput,
 };
+use pane_layout::{RightPaneSplit, DATASET_DIVIDER_HEIGHT};
 use plot::{metric_line, vector_bars, PlotKind, PlotSpec};
 use project::{FileNode, Project};
 use runtime::{CellResult, RuntimeHandle, VariableMeta};
@@ -2721,18 +2723,11 @@ impl ForgeApp {
         }
 
         let available_height = ui.available_height();
-        let divider_height = 12.0;
-        let min_pane_height = 120.0;
-        let max_dataset_height =
-            (available_height - min_pane_height - divider_height).max(min_pane_height);
-        self.dataset_pane_height = self
-            .dataset_pane_height
-            .clamp(min_pane_height, max_dataset_height);
-        let inspector_height =
-            (available_height - self.dataset_pane_height - divider_height).max(min_pane_height);
+        let split = RightPaneSplit::resolve(available_height, self.dataset_pane_height);
+        self.dataset_pane_height = split.dataset_height;
 
         let (inspector_rect, _) = ui.allocate_exact_size(
-            egui::vec2(ui.available_width(), inspector_height),
+            egui::vec2(ui.available_width(), split.inspector_height),
             egui::Sense::hover(),
         );
         let mut inspector_ui = ui.new_child(
@@ -2745,16 +2740,19 @@ impl ForgeApp {
         self.inspector(&mut inspector_ui);
 
         let (divider_rect, divider) = ui.allocate_exact_size(
-            egui::vec2(ui.available_width(), divider_height),
+            egui::vec2(ui.available_width(), DATASET_DIVIDER_HEIGHT),
             egui::Sense::drag(),
         );
         if divider.hovered() || divider.dragged() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
         }
         if divider.dragged() {
-            self.dataset_pane_height = (self.dataset_pane_height
-                - ui.input(|input| input.pointer.delta().y))
-            .clamp(min_pane_height, max_dataset_height);
+            self.dataset_pane_height = RightPaneSplit::after_drag(
+                available_height,
+                self.dataset_pane_height,
+                ui.input(|input| input.pointer.delta().y),
+            )
+            .dataset_height;
             ui.ctx().request_repaint();
         }
         let divider_color = if divider.hovered() || divider.dragged() {
