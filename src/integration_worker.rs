@@ -61,6 +61,10 @@ pub enum Request {
 }
 
 pub enum ResultEvent {
+    DataImportProgress {
+        path: PathBuf,
+        rows: usize,
+    },
     DataImport {
         path: PathBuf,
         result: Result<(String, Dataset), String>,
@@ -149,10 +153,19 @@ impl IntegrationWorker {
 
 fn execute(request: Request, events: &Sender<ResultEvent>) -> ResultEvent {
     match request {
-        Request::DataImport(path) => ResultEvent::DataImport {
-            result: prepared_import(crate::data::load_table(&path)),
-            path,
-        },
+        Request::DataImport(path) => {
+            let progress_path = path.clone();
+            let result = crate::data::load_table_with_progress(&path, |rows| {
+                let _ = events.send(ResultEvent::DataImportProgress {
+                    path: progress_path.clone(),
+                    rows,
+                });
+            });
+            ResultEvent::DataImport {
+                result: prepared_import(result),
+                path,
+            }
+        }
         Request::MillwrightImport(path) => ResultEvent::DataImport {
             result: prepared_import(crate::data::load_millwright_table(&path)),
             path,
@@ -273,6 +286,16 @@ mod tests {
         std::fs::write(&path, "value,label\n42,answer\n").unwrap();
         let worker = IntegrationWorker::new();
         worker.submit(Request::DataImport(path.clone())).unwrap();
+        match worker
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap()
+        {
+            ResultEvent::DataImportProgress { path: actual, rows } => {
+                assert_eq!(actual, path);
+                assert_eq!(rows, 1);
+            }
+            _ => panic!("expected import progress"),
+        }
         match worker
             .recv_timeout(std::time::Duration::from_secs(2))
             .unwrap()

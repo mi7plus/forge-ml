@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.41.0`
+Current application version: `0.42.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -869,6 +869,22 @@ Implementation notes:
 
 - The current table viewer still retains its row-oriented compatibility representation for filtering and editing. Incremental delivery of batches into a live viewer remains follow-up work.
 - Record-batch clones passed to the worker are shallow Arrow clones, so background exports do not duplicate array buffers.
+
+## 0.42 live dataset import progress — implemented
+
+- [x] Emit row-count progress while CSV and TSV readers cross each 8,192-row batch boundary.
+- [x] Emit progress during the materialization pass for JSON Lines imports.
+- [x] Report cumulative rows after each decoded Parquet or Arrow IPC record batch.
+- [x] Emit a final row count for small and empty datasets that never cross a batch boundary.
+- [x] Deliver progress as typed, non-terminal integration events carrying the source path.
+- [x] Keep integration actions locked until the final prepared dataset or error arrives.
+- [x] Surface the active path and decoded row count in the main console without blocking repainting.
+- [x] Test boundary/final progress and the worker event ordering before typed dataset delivery.
+
+Implementation notes:
+
+- Progress measures decoded rows. Arrow construction and quality analysis still complete on the worker before the dataset becomes visible, preserving atomic workspace insertion.
+- Incremental partial-table display remains deferred because exposing incomplete quality, filters, edits, and exports would require a transactional dataset state in the UI.
 
 ## Known technical risks
 

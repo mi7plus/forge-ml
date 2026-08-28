@@ -339,13 +339,17 @@ impl DataWorkspace {
     }
 }
 
-pub fn load_table(path: &Path) -> Result<(String, TableData, String), String> {
-    load_table_with_limits(path, IMPORT_LIMITS)
+pub fn load_table_with_progress(
+    path: &Path,
+    mut progress: impl FnMut(usize),
+) -> Result<(String, TableData, String), String> {
+    load_table_with_limits(path, IMPORT_LIMITS, &mut progress)
 }
 
 fn load_table_with_limits(
     path: &Path,
     limits: ImportLimits,
+    progress: &mut dyn FnMut(usize),
 ) -> Result<(String, TableData, String), String> {
     validate_import_file(path)?;
     let ext = path
@@ -354,9 +358,9 @@ fn load_table_with_limits(
         .unwrap_or_default()
         .to_ascii_lowercase();
     let table = match ext.as_str() {
-        "csv" => delimited(path, b',', limits),
-        "tsv" => delimited(path, b'\t', limits),
-        "jsonl" | "ndjson" => json_lines(path, limits),
+        "csv" => delimited(path, b',', limits, progress),
+        "tsv" => delimited(path, b'\t', limits, progress),
+        "jsonl" | "ndjson" => json_lines(path, limits, progress),
         "parquet" => record_batches(
             ParquetRecordBatchReaderBuilder::try_new(File::open(path).map_err(|e| e.to_string())?)
                 .map_err(|e| e.to_string())?
@@ -364,11 +368,13 @@ fn load_table_with_limits(
                 .build()
                 .map_err(|e| e.to_string())?,
             limits,
+            progress,
         ),
         "arrow" | "ipc" => record_batches(
             FileReader::try_new(File::open(path).map_err(|e| e.to_string())?, None)
                 .map_err(|e| e.to_string())?,
             limits,
+            progress,
         ),
         _ => return Err("Supported formats: CSV, TSV, JSON Lines, Parquet, Arrow IPC.".into()),
     }?;
@@ -510,7 +516,12 @@ impl TableBuilder {
     }
 }
 
-fn delimited(path: &Path, delimiter: u8, limits: ImportLimits) -> Result<TableData, String> {
+fn delimited(
+    path: &Path,
+    delimiter: u8,
+    limits: ImportLimits,
+    progress: &mut dyn FnMut(usize),
+) -> Result<TableData, String> {
     let mut reader = csv::ReaderBuilder::new()
         .delimiter(delimiter)
         .from_path(path)
@@ -530,11 +541,17 @@ fn delimited(path: &Path, delimiter: u8, limits: ImportLimits) -> Result<TableDa
                 .map(str::to_owned)
                 .collect(),
         )?;
+        report_progress(table.rows.len(), progress);
     }
+    progress(table.rows.len());
     Ok(table.finish())
 }
 
-fn json_lines(path: &Path, limits: ImportLimits) -> Result<TableData, String> {
+fn json_lines(
+    path: &Path,
+    limits: ImportLimits,
+    progress: &mut dyn FnMut(usize),
+) -> Result<TableData, String> {
     let mut columns = Vec::new();
     let mut known = std::collections::HashSet::new();
     let mut row_count = 0usize;
@@ -588,15 +605,22 @@ fn json_lines(path: &Path, limits: ImportLimits) -> Result<TableData, String> {
             })
             .collect();
         table.push(row)?;
+        report_progress(table.rows.len(), progress);
     }
+    progress(table.rows.len());
     Ok(table.finish())
 }
 
-fn record_batches<I>(batches: I, limits: ImportLimits) -> Result<TableData, String>
+fn record_batches<I>(
+    batches: I,
+    limits: ImportLimits,
+    progress: &mut dyn FnMut(usize),
+) -> Result<TableData, String>
 where
     I: IntoIterator<Item = Result<RecordBatch, arrow::error::ArrowError>>,
 {
     let mut table: Option<TableBuilder> = None;
+    let mut reported_rows = None;
     for batch in batches {
         let batch = batch.map_err(|e| e.to_string())?;
         let batch_columns = batch
@@ -623,11 +647,24 @@ where
                     .collect::<Result<Vec<_>, _>>()?,
             )?;
         }
+        let rows = table.as_ref().map_or(0, |table| table.rows.len());
+        progress(rows);
+        reported_rows = Some(rows);
+    }
+    let rows = table.as_ref().map_or(0, |table| table.rows.len());
+    if reported_rows != Some(rows) {
+        progress(rows);
     }
     Ok(table.map(TableBuilder::finish).unwrap_or(TableData {
         columns: Vec::new(),
         rows: Vec::new(),
     }))
+}
+
+fn report_progress(rows: usize, progress: &mut dyn FnMut(usize)) {
+    if rows > 0 && rows.is_multiple_of(ARROW_BATCH_ROWS) {
+        progress(rows);
+    }
 }
 
 #[cfg(test)]
@@ -733,9 +770,23 @@ mod tests {
     fn json_lines_streaming_preserves_late_columns() {
         let path = std::env::temp_dir().join(format!("forge-jsonl-{}.jsonl", std::process::id()));
         std::fs::write(&path, "{\"a\":1}\n{\"b\":2}\n").unwrap();
-        let table = json_lines(&path, IMPORT_LIMITS).unwrap();
+        let table = json_lines(&path, IMPORT_LIMITS, &mut |_| {}).unwrap();
         assert_eq!(table.columns, ["a", "b"]);
         assert_eq!(table.rows, [vec!["1", ""], vec!["", "2"]]);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn delimited_import_reports_chunk_and_final_progress() {
+        let path = std::env::temp_dir().join(format!("forge-progress-{}.csv", std::process::id()));
+        let content = std::iter::once("value\n".to_owned())
+            .chain((0..ARROW_BATCH_ROWS + 1).map(|value| format!("{value}\n")))
+            .collect::<String>();
+        std::fs::write(&path, content).unwrap();
+        let mut updates = Vec::new();
+        let (_, table, _) = load_table_with_progress(&path, |rows| updates.push(rows)).unwrap();
+        assert_eq!(table.rows.len(), ARROW_BATCH_ROWS + 1);
+        assert_eq!(updates, [ARROW_BATCH_ROWS, ARROW_BATCH_ROWS + 1]);
         let _ = std::fs::remove_file(path);
     }
 }

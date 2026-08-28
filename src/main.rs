@@ -1828,10 +1828,16 @@ impl ForgeApp {
             self.job_queue.poll(root);
         }
         while let Some(event) = self.integration_worker.try_recv() {
-            if !matches!(&event, ResultEvent::RemoteInputRequested { .. }) {
+            if !matches!(
+                &event,
+                ResultEvent::RemoteInputRequested { .. } | ResultEvent::DataImportProgress { .. }
+            ) {
                 self.integration_pending = self.integration_pending.saturating_sub(1);
             }
             match event {
+                ResultEvent::DataImportProgress { path, rows } => {
+                    self.console = format!("Importing {}… {rows} rows decoded", path.display());
+                }
                 ResultEvent::DataImport { path, result } => match result {
                     Ok((dataset_name, dataset)) => {
                         let rows = dataset.rows.len();
