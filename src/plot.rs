@@ -164,7 +164,7 @@ pub fn svg(spec: &PlotSpec, width: u32, height: u32) -> Result<String, String> {
         .series
         .iter()
         .filter(|s| s.visible)
-        .flat_map(series_points)
+        .flat_map(|series| export_points(spec, series))
         .collect::<Vec<_>>();
     let (min_x, max_x, min_y, max_y) = bounds(&points);
     let map = |p: [f64; 2]| {
@@ -176,7 +176,10 @@ pub fn svg(spec: &PlotSpec, width: u32, height: u32) -> Result<String, String> {
     };
     for (index, series) in spec.series.iter().filter(|s| s.visible).enumerate() {
         let color = ["#278dcc", "#c4772c", "#2e9d60", "#d44855", "#9669d2"][index % 5];
-        let mapped = series_points(series).map(map).collect::<Vec<_>>();
+        let mapped = export_points(spec, series)
+            .into_iter()
+            .map(map)
+            .collect::<Vec<_>>();
         match spec.kind {
             PlotKind::Scatter | PlotKind::Residual => {
                 for (x, y) in mapped {
@@ -243,7 +246,7 @@ pub fn png(spec: &PlotSpec, width: u32, height: u32) -> Result<Vec<u8>, String> 
             .series
             .iter()
             .filter(|series| series.visible)
-            .flat_map(series_points)
+            .flat_map(|series| export_points(spec, series))
             .collect::<Vec<_>>();
         let (min_x, max_x, min_y, max_y) = bounds(&points);
         let map = |point: [f64; 2]| {
@@ -267,7 +270,10 @@ pub fn png(spec: &PlotSpec, width: u32, height: u32) -> Result<Vec<u8>, String> 
             .filter(|series| series.visible)
             .enumerate()
         {
-            let mapped = series_points(series).map(map).collect::<Vec<_>>();
+            let mapped = export_points(spec, series)
+                .into_iter()
+                .map(map)
+                .collect::<Vec<_>>();
             let color = COLORS[index % COLORS.len()];
             match spec.kind {
                 PlotKind::Scatter | PlotKind::Residual => {
@@ -369,7 +375,7 @@ pub fn pdf(spec: &PlotSpec, width: u32, height: u32) -> Result<Vec<u8>, String> 
             .series
             .iter()
             .filter(|series| series.visible)
-            .flat_map(series_points)
+            .flat_map(|series| export_points(spec, series))
             .collect::<Vec<_>>();
         let (min_x, max_x, min_y, max_y) = bounds(&all);
         let map = |point: [f64; 2]| {
@@ -393,7 +399,10 @@ pub fn pdf(spec: &PlotSpec, width: u32, height: u32) -> Result<Vec<u8>, String> 
             .filter(|series| series.visible)
             .enumerate()
         {
-            let mapped = series_points(series).map(map).collect::<Vec<_>>();
+            let mapped = export_points(spec, series)
+                .into_iter()
+                .map(map)
+                .collect::<Vec<_>>();
             let [red, green, blue] = COLORS[index % COLORS.len()];
             stream.push_str(&format!(
                 "{red:.3} {green:.3} {blue:.3} RG {red:.3} {green:.3} {blue:.3} rg 1.5 w\n"
@@ -492,7 +501,7 @@ canvas{max-width:100%;border:1px solid #c9ced6;background:#fff;cursor:crosshair}
 const colors=['#278dcc','#c4772c','#2e9d60','#d44855','#9669d2'];let zoom=1,panX=0,panY=0,drag=null;
 const visible=spec.series.map(s=>s.visible!==false),seriesBox=document.getElementById('series'),tip=document.getElementById('tip');
 spec.series.forEach((s,i)=>{const l=document.createElement('label'),c=document.createElement('input');c.type='checkbox';c.checked=visible[i];c.onchange=()=>{visible[i]=c.checked;draw()};l.append(c,document.createTextNode(' '+s.name));seriesBox.append(l)});
-function points(s){return s.points.length?s.points:s.values.map((v,i)=>[i,v])}function all(){return spec.series.flatMap((s,i)=>visible[i]?points(s):[])}
+function points(s){let p;if(spec.kind==='histogram'&&s.values.length){const n=24,lo=Math.min(...s.values),hi=Math.max(...s.values),w=Math.max(Number.EPSILON,(hi-lo)/n),c=Array(n).fill(0);s.values.forEach(v=>c[Math.min(n-1,Math.floor((v-lo)/w))]++);p=c.map((v,i)=>[lo+(i+.5)*w,v])}else if(spec.kind==='box'&&s.values.length){const v=[...s.values].sort((a,b)=>a-b),at=f=>v[Math.round((v.length-1)*f)];p=[[0,v[0]],[0,at(.25)],[0,at(.5)],[0,at(.75)],[0,v[v.length-1]]]}else p=s.points.length?s.points:s.values.map((v,i)=>[i,v]);return p.filter(q=>(!spec.x_log||q[0]>0)&&(!spec.y_log||q[1]>0)).map(q=>[spec.x_log?Math.log10(q[0]):q[0],spec.y_log?Math.log10(q[1]):q[1]])}function all(){return spec.series.flatMap((s,i)=>visible[i]?points(s):[])}
 function bounds(){const p=all();if(!p.length)return[0,1,0,1];return p.reduce((b,q)=>[Math.min(b[0],q[0]),Math.max(b[1],q[0]),Math.min(b[2],q[1]),Math.max(b[3],q[1])],[Infinity,-Infinity,Infinity,-Infinity])}
 function mapper(){const b=bounds(),dx=Math.max(Number.EPSILON,b[1]-b[0]),dy=Math.max(Number.EPSILON,b[3]-b[2]);return p=>[45+(p[0]-b[0])/dx*(canvas.width-65)*zoom+panX,canvas.height-35-(p[1]-b[2])/dy*(canvas.height-65)*zoom+panY]}
 function draw(){ctx.clearRect(0,0,canvas.width,canvas.height);ctx.strokeStyle='#555';ctx.beginPath();ctx.moveTo(45,30);ctx.lineTo(45,canvas.height-35);ctx.lineTo(canvas.width-20,canvas.height-35);ctx.stroke();
@@ -588,6 +597,53 @@ fn series_points(series: &PlotSeries) -> impl Iterator<Item = [f64; 2]> + '_ {
                     .map(|(index, value)| [index as f64, *value])
             }),
     )
+}
+
+fn export_points(spec: &PlotSpec, series: &PlotSeries) -> Vec<[f64; 2]> {
+    let raw = match spec.kind {
+        PlotKind::Histogram if !series.values.is_empty() => histogram_points(&series.values, 24),
+        PlotKind::Box if !series.values.is_empty() => box_points(&series.values),
+        _ => series_points(series).collect(),
+    };
+    raw.into_iter()
+        .filter_map(|[x, y]| {
+            if (spec.x_log && x <= 0.0) || (spec.y_log && y <= 0.0) {
+                return None;
+            }
+            Some([
+                if spec.x_log { x.log10() } else { x },
+                if spec.y_log { y.log10() } else { y },
+            ])
+        })
+        .collect()
+}
+
+fn histogram_points(values: &[f64], bins: usize) -> Vec<[f64; 2]> {
+    let min = values.iter().copied().reduce(f64::min).unwrap_or(0.0);
+    let max = values.iter().copied().reduce(f64::max).unwrap_or(min);
+    let width = ((max - min) / bins as f64).max(f64::EPSILON);
+    let mut counts = vec![0usize; bins];
+    for value in values {
+        counts[(((*value - min) / width) as usize).min(bins - 1)] += 1;
+    }
+    counts
+        .into_iter()
+        .enumerate()
+        .map(|(index, count)| [min + (index as f64 + 0.5) * width, count as f64])
+        .collect()
+}
+
+fn box_points(values: &[f64]) -> Vec<[f64; 2]> {
+    let mut values = values.to_vec();
+    values.sort_by(f64::total_cmp);
+    let at = |fraction: f64| values[((values.len() - 1) as f64 * fraction).round() as usize];
+    vec![
+        [0.0, values[0]],
+        [0.0, at(0.25)],
+        [0.0, at(0.5)],
+        [0.0, at(0.75)],
+        [0.0, *values.last().unwrap()],
+    ]
 }
 fn svg_document(spec: &PlotSpec, width: u32, height: u32, body: &str) -> String {
     format!("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\"><rect width=\"100%\" height=\"100%\" fill=\"white\"/><text x=\"16\" y=\"20\" font-family=\"sans-serif\" font-weight=\"bold\">{}</text><line x1=\"45\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"#555\"/><line x1=\"45\" y1=\"30\" x2=\"45\" y2=\"{}\" stroke=\"#555\"/>{body}</svg>", xml_escape(&spec.name), height - 35, width - 20, height - 35, height - 35)
@@ -691,5 +747,42 @@ mod tests {
         assert!(document.starts_with(b"%PDF-1.4"));
         assert!(String::from_utf8_lossy(&document).contains("/MediaBox [0 0 800 450]"));
         assert!(String::from_utf8_lossy(&document).contains("closing </script> & plot"));
+    }
+
+    #[test]
+    fn export_points_apply_log_filters_and_plot_semantics() {
+        let series = PlotSeries {
+            name: "values".into(),
+            points: vec![[-1.0, 10.0], [1.0, 100.0], [10.0, 1_000.0]],
+            values: Vec::new(),
+            visible: true,
+        };
+        let mut spec = PlotSpec {
+            version: PLOT_SPEC_VERSION,
+            name: "log".into(),
+            kind: PlotKind::Line,
+            x_label: String::new(),
+            y_label: String::new(),
+            series: vec![series.clone()],
+            matrix: Vec::new(),
+            x_log: true,
+            y_log: true,
+        };
+        assert_eq!(export_points(&spec, &series), vec![[0.0, 2.0], [1.0, 3.0]]);
+
+        let values = PlotSeries {
+            name: "distribution".into(),
+            points: Vec::new(),
+            values: vec![1.0, 1.0, 2.0, 3.0],
+            visible: true,
+        };
+        spec.kind = PlotKind::Histogram;
+        spec.x_log = false;
+        spec.y_log = false;
+        let histogram = export_points(&spec, &values);
+        assert_eq!(histogram.len(), 24);
+        assert_eq!(histogram.iter().map(|point| point[1]).sum::<f64>(), 4.0);
+        spec.kind = PlotKind::Box;
+        assert_eq!(export_points(&spec, &values).len(), 5);
     }
 }

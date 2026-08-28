@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.49.0`
+Current application version: `0.50.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1001,6 +1001,20 @@ Implementation notes:
 
 - Plot PDFs require no browser, Python runtime, GPU readback, print driver, or external conversion executable.
 - The compact exporter uses the standard Helvetica PDF font and replaces unsupported non-ASCII title glyphs with `?`; embedded Unicode fonts and legends remain future work.
+
+## 0.50 consistent plot export semantics — implemented
+
+- [x] Centralize export-point preparation for SVG, PNG, and PDF output.
+- [x] Apply configured base-10 X/Y transforms consistently and exclude invalid non-positive domain values.
+- [x] Convert histogram values into deterministic 24-bin count coordinates before rendering.
+- [x] Convert box-plot values into minimum, first quartile, median, third quartile, and maximum coordinates.
+- [x] Mirror the same log, histogram, and box preparation in self-contained interactive HTML.
+- [x] Test log filtering/transformation, histogram count preservation, and five-number box reduction.
+
+Implementation notes:
+
+- Exporters derive display coordinates without mutating the persisted `PlotSpec`, so JSON remains a lossless interchange format containing the original samples.
+- The native IDE viewer and every visual export now share the same 24-bin histogram policy and nearest-rank rounded quartile policy.
 
 ## Known technical risks
 
