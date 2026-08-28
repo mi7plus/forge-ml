@@ -1,3 +1,4 @@
+use crate::plot::{PlotKind, PlotSeries, PlotSpec, PLOT_SPEC_VERSION};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_MONITOR_EVENTS: usize = 10_000;
@@ -115,6 +116,98 @@ pub fn parse_snapshot(bytes: &[u8]) -> Result<MonitoringSnapshot, String> {
     Ok(snapshot)
 }
 
+pub fn monitoring_plots(
+    service_events: &[ServiceEvent],
+    drift_events: &[DriftEvent],
+) -> Vec<PlotSpec> {
+    let mut requests = std::collections::BTreeMap::<String, Vec<[f64; 2]>>::new();
+    let mut error_rates = std::collections::BTreeMap::<String, Vec<[f64; 2]>>::new();
+    let mut latency = std::collections::BTreeMap::<String, Vec<[f64; 2]>>::new();
+    for (index, event) in service_events.iter().enumerate() {
+        let name = format!("{} {}", event.model, event.version);
+        requests
+            .entry(name.clone())
+            .or_default()
+            .push([index as f64, event.requests as f64]);
+        let rate = if event.requests == 0 {
+            0.0
+        } else {
+            event.errors as f64 * 100.0 / event.requests as f64
+        };
+        error_rates
+            .entry(name.clone())
+            .or_default()
+            .push([index as f64, rate]);
+        if let Some(p95) = event.p95_ms {
+            latency.entry(name).or_default().push([index as f64, p95]);
+        }
+    }
+    let mut drift = std::collections::BTreeMap::<String, Vec<[f64; 2]>>::new();
+    let mut thresholds = std::collections::BTreeMap::<String, Vec<[f64; 2]>>::new();
+    for (index, event) in drift_events.iter().enumerate() {
+        let name = format!("{} {} · {}", event.model, event.version, event.feature);
+        drift
+            .entry(name.clone())
+            .or_default()
+            .push([index as f64, event.score]);
+        thresholds
+            .entry(format!("{name} threshold"))
+            .or_default()
+            .push([index as f64, event.threshold]);
+    }
+    let mut plots = Vec::new();
+    push_plot(
+        &mut plots,
+        "Service requests",
+        "event",
+        "requests",
+        requests,
+    );
+    push_plot(
+        &mut plots,
+        "Service error rate",
+        "event",
+        "errors (%)",
+        error_rates,
+    );
+    push_plot(&mut plots, "Service p95 latency", "event", "ms", latency);
+    drift.extend(thresholds);
+    push_plot(&mut plots, "Feature drift", "event", "score", drift);
+    plots
+}
+
+fn push_plot(
+    plots: &mut Vec<PlotSpec>,
+    name: &str,
+    x_label: &str,
+    y_label: &str,
+    series: std::collections::BTreeMap<String, Vec<[f64; 2]>>,
+) {
+    if series.is_empty() {
+        return;
+    }
+    plots.push(PlotSpec {
+        version: PLOT_SPEC_VERSION,
+        name: name.into(),
+        kind: PlotKind::Line,
+        x_label: x_label.into(),
+        y_label: y_label.into(),
+        series: series
+            .into_iter()
+            .take(128)
+            .map(|(name, points)| PlotSeries {
+                name,
+                points,
+                values: Vec::new(),
+                visible: true,
+            })
+            .collect(),
+        matrix: Vec::new(),
+        x_log: false,
+        y_log: false,
+    });
+}
+
 pub fn parse_runtime_output(output: &str) -> (Vec<ServiceEvent>, Vec<DriftEvent>) {
     let mut services = Vec::new();
     let mut drift = Vec::new();
@@ -178,5 +271,28 @@ mod tests {
         );
         assert_eq!(events.len(), MAX_MONITOR_EVENTS);
         assert!(parse_snapshot(&vec![b' '; MAX_MONITOR_JSON_BYTES + 1]).is_err());
+    }
+
+    #[test]
+    fn monitoring_events_become_valid_native_plots() {
+        let services = vec![ServiceEvent {
+            model: "iris".into(),
+            version: "1".into(),
+            requests: 100,
+            errors: 2,
+            p95_ms: Some(4.0),
+        }];
+        let drift = vec![DriftEvent {
+            model: "iris".into(),
+            version: "1".into(),
+            feature: "width".into(),
+            score: 0.3,
+            threshold: 0.2,
+        }];
+        let plots = monitoring_plots(&services, &drift);
+        assert_eq!(plots.len(), 4);
+        assert!(plots.iter().all(|plot| plot.validate().is_ok()));
+        assert_eq!(plots[1].series[0].points[0][1], 2.0);
+        assert_eq!(plots[3].series.len(), 2);
     }
 }

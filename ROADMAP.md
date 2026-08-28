@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.64.0`
+Current application version: `0.65.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1226,6 +1226,22 @@ Implementation notes:
 
 - Monitoring snapshots contain operational counters and feature names but no credentials, model binaries, request bodies, or prediction payloads.
 - Monitoring remains live memory state unless explicitly exported, matching the privacy posture used for training telemetry.
+
+## 0.65 native deployment monitoring plots — implemented
+
+- [x] Convert retained service and drift telemetry into native structured plots on demand.
+- [x] Plot cumulative request volume grouped by model and version.
+- [x] Derive and plot percentage error rate with zero-request handling.
+- [x] Plot optional p95 latency in milliseconds where telemetry provides it.
+- [x] Plot feature drift scores and their corresponding threshold series.
+- [x] Use deterministic model/version/feature ordering and cap each view at 128 series.
+- [x] Refresh same-name dashboards, preserve unrelated history, and navigate to the Plots pane.
+- [x] Test generated plot validity, error-rate calculation, plot count, and drift threshold pairing.
+
+Implementation notes:
+
+- Service and drift X coordinates use retained event sequence because protocol events contain cumulative counters but no mandatory timestamp.
+- Generated dashboards are ordinary `PlotSpec` objects and inherit persistence, series controls, log transforms, reordering, duplication, and every portable export format.
 
 ## Known technical risks
 

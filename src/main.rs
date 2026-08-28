@@ -3578,6 +3578,26 @@ impl ForgeApp {
                 }
             }
             if (!self.service_events.is_empty() || !self.drift_events.is_empty())
+                && ui.button("Open monitoring plots").clicked()
+            {
+                let plots =
+                    service_monitor::monitoring_plots(&self.service_events, &self.drift_events);
+                let count = plots.len();
+                for spec in plots {
+                    if let Some(existing) = self
+                        .structured_plots
+                        .iter_mut()
+                        .find(|existing| existing.name == spec.name)
+                    {
+                        *existing = spec;
+                    } else {
+                        self.structured_plots.push(spec);
+                    }
+                }
+                self.inspector_tab = InspectorTab::Charts;
+                self.console = format!("Opened {count} native monitoring plot(s).");
+            }
+            if (!self.service_events.is_empty() || !self.drift_events.is_empty())
                 && ui.button("Clear monitoring").clicked()
             {
                 self.service_events.clear();
