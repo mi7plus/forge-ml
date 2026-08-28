@@ -96,6 +96,10 @@ impl Dataset {
         self.quality
             .get_or_init(|| quality_report(&self.table, self.profile()))
     }
+
+    pub fn prepare_quality(&self) {
+        let _ = self.quality();
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -269,16 +273,10 @@ pub struct DataWorkspace {
 }
 
 impl DataWorkspace {
-    pub fn insert_table(
-        &mut self,
-        name: String,
-        table: TableData,
-        source: String,
-    ) -> Result<(), String> {
-        self.tables
-            .insert(name, Dataset::from_table(table, Some(source))?);
-        Ok(())
+    pub fn insert_dataset(&mut self, name: String, dataset: Dataset) {
+        self.tables.insert(name, dataset);
     }
+
     pub fn fingerprints(&self) -> HashMap<String, String> {
         self.tables
             .iter()

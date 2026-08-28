@@ -1729,22 +1729,16 @@ impl ForgeApp {
             self.integration_pending = self.integration_pending.saturating_sub(1);
             match event {
                 ResultEvent::DataImport { path, result } => match result {
-                    Ok((dataset_name, table, source)) => {
-                        let rows = table.rows.len();
-                        let columns = table.columns.len();
-                        match self.data.insert_table(dataset_name.clone(), table, source) {
-                            Ok(()) => {
-                                self.open_dataset = Some(format!("table:{dataset_name}"));
-                                self.inspector_tab = InspectorTab::Data;
-                                self.console = format!(
-                                    "Imported {} as `{dataset_name}` ({rows} rows × {columns} columns).",
-                                    path.display()
-                                );
-                            }
-                            Err(error) => {
-                                self.console = format!("Could not build imported dataset: {error}")
-                            }
-                        }
+                    Ok((dataset_name, dataset)) => {
+                        let rows = dataset.rows.len();
+                        let columns = dataset.columns.len();
+                        self.data.insert_dataset(dataset_name.clone(), dataset);
+                        self.open_dataset = Some(format!("table:{dataset_name}"));
+                        self.inspector_tab = InspectorTab::Data;
+                        self.console = format!(
+                            "Imported {} as `{dataset_name}` ({rows} rows × {columns} columns).",
+                            path.display()
+                        );
                     }
                     Err(error) => {
                         self.console = format!("Could not import {}: {error}", path.display())
@@ -1760,27 +1754,22 @@ impl ForgeApp {
                 }
                 ResultEvent::DatabaseTable {
                     dataset_name,
-                    source,
                     query,
                     result,
                 } => match result {
-                    Ok(table) => {
-                        let rows = table.rows.len();
-                        match self.data.insert_table(dataset_name.clone(), table, source) {
-                            Ok(()) => {
-                                self.open_dataset = Some(format!("table:{dataset_name}"));
-                                if let Some(query) = query {
-                                    self.sql_history.push(query);
-                                    if let Some(store) = &self.workspace_store {
-                                        let _ = store.save_query_history(&self.sql_history);
-                                    }
-                                }
-                                self.sql_output = format!(
-                                    "Loaded {rows} rows into Arrow-backed dataset `{dataset_name}`."
-                                );
+                    Ok(dataset) => {
+                        let rows = dataset.rows.len();
+                        self.data.insert_dataset(dataset_name.clone(), dataset);
+                        self.open_dataset = Some(format!("table:{dataset_name}"));
+                        if let Some(query) = query {
+                            self.sql_history.push(query);
+                            if let Some(store) = &self.workspace_store {
+                                let _ = store.save_query_history(&self.sql_history);
                             }
-                            Err(error) => self.sql_output = error,
                         }
+                        self.sql_output = format!(
+                            "Loaded {rows} rows into Arrow-backed dataset `{dataset_name}`."
+                        );
                     }
                     Err(error) => self.sql_output = error,
                 },

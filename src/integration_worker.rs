@@ -1,4 +1,5 @@
 use crate::{
+    data::Dataset,
     database::{self, ConnectionProfile, DatabaseConnector, ProfileConnector},
     object_storage::ObjectProfile,
 };
@@ -49,7 +50,7 @@ pub enum Request {
 pub enum ResultEvent {
     DataImport {
         path: PathBuf,
-        result: Result<(String, TableData, String), String>,
+        result: Result<(String, Dataset), String>,
     },
     DataExport {
         name: String,
@@ -59,9 +60,8 @@ pub enum ResultEvent {
     DatabaseMessage(Result<String, String>),
     DatabaseTable {
         dataset_name: String,
-        source: String,
         query: Option<String>,
-        result: Result<TableData, String>,
+        result: Result<Dataset, String>,
     },
     ObjectMessage(Result<String, String>),
     ObjectDownload(Result<PathBuf, String>),
@@ -107,11 +107,11 @@ impl IntegrationWorker {
 fn execute(request: Request) -> ResultEvent {
     match request {
         Request::DataImport(path) => ResultEvent::DataImport {
-            result: crate::data::load_table(&path),
+            result: prepared_import(crate::data::load_table(&path)),
             path,
         },
         Request::MillwrightImport(path) => ResultEvent::DataImport {
-            result: crate::data::load_millwright_table(&path),
+            result: prepared_import(crate::data::load_millwright_table(&path)),
             path,
         },
         Request::DataExport {
@@ -131,37 +131,59 @@ fn execute(request: Request) -> ResultEvent {
             profile,
             root,
             dataset_name,
-        } => ResultEvent::DatabaseTable {
-            dataset_name,
-            source: format!("{} schema", profile.name),
-            query: None,
-            result: ProfileConnector {
+        } => {
+            let source = format!("{} schema", profile.name);
+            let result = ProfileConnector {
                 profile: &profile,
                 project_root: &root,
             }
-            .schema(),
-        },
+            .schema()
+            .and_then(|table| prepared_dataset(table, source));
+            ResultEvent::DatabaseTable {
+                dataset_name,
+                query: None,
+                result,
+            }
+        }
         Request::DatabaseQuery {
             profile,
             root,
             dataset_name,
             sql,
-        } => ResultEvent::DatabaseTable {
-            dataset_name,
-            source: format!("{} SQL", profile.name),
-            query: Some(sql.clone()),
-            result: ProfileConnector {
+        } => {
+            let source = format!("{} SQL", profile.name);
+            let result = ProfileConnector {
                 profile: &profile,
                 project_root: &root,
             }
-            .query(&sql),
-        },
+            .query(&sql)
+            .and_then(|table| prepared_dataset(table, source));
+            ResultEvent::DatabaseTable {
+                dataset_name,
+                query: Some(sql),
+                result,
+            }
+        }
         Request::ObjectTest(profile) => ResultEvent::ObjectMessage(profile.test()),
         Request::ObjectList { profile, limit } => ResultEvent::ObjectMessage(profile.list(limit)),
         Request::ObjectDownload { profile, key, root } => {
             ResultEvent::ObjectDownload(profile.download(&key, &root))
         }
     }
+}
+
+fn prepared_import(
+    result: Result<(String, TableData, String), String>,
+) -> Result<(String, Dataset), String> {
+    result.and_then(|(name, table, source)| {
+        prepared_dataset(table, source).map(|dataset| (name, dataset))
+    })
+}
+
+fn prepared_dataset(table: TableData, source: String) -> Result<Dataset, String> {
+    let dataset = Dataset::from_table(table, Some(source))?;
+    dataset.prepare_quality();
+    Ok(dataset)
 }
 
 #[cfg(test)]
@@ -186,11 +208,12 @@ mod tests {
                 path: actual,
                 result,
             } => {
-                let (name, table, source) = result.unwrap();
+                let (name, dataset) = result.unwrap();
                 assert_eq!(actual, path);
                 assert_eq!(name, "sample");
-                assert_eq!(table.rows, [vec!["42", "answer"]]);
-                assert!(source.ends_with("sample.csv"));
+                assert_eq!(dataset.rows, [vec!["42", "answer"]]);
+                assert!(dataset.source.as_deref().unwrap().ends_with("sample.csv"));
+                assert_eq!(dataset.profile()[0].numeric_count, 1);
             }
             _ => panic!("unexpected integration result"),
         }
@@ -250,10 +273,15 @@ mod tests {
             .unwrap()
         {
             ResultEvent::DataImport { result, .. } => {
-                let (name, table, source) = result.unwrap();
+                let (name, dataset) = result.unwrap();
                 assert_eq!(name, "native");
-                assert_eq!(table.rows, [vec!["42"]]);
-                assert!(source.contains("published Millwright 2.2.1"));
+                assert_eq!(dataset.rows, [vec!["42"]]);
+                assert!(dataset
+                    .source
+                    .as_deref()
+                    .unwrap()
+                    .contains("published Millwright 2.2.1"));
+                assert_eq!(dataset.profile()[0].numeric_count, 1);
             }
             _ => panic!("unexpected integration result"),
         }
@@ -292,7 +320,9 @@ mod tests {
             .unwrap();
         match result {
             ResultEvent::DatabaseTable { result, .. } => {
-                assert_eq!(result.unwrap().rows, [vec!["42"]]);
+                let dataset = result.unwrap();
+                assert_eq!(dataset.rows, [vec!["42"]]);
+                assert_eq!(dataset.profile()[0].numeric_count, 1);
             }
             _ => panic!("unexpected integration result"),
         }

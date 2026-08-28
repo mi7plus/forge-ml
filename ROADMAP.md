@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.33.0`
+Current application version: `0.34.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -732,6 +732,21 @@ Implementation notes:
 - Profiles are evaluated lazily, keeping dataset insertion off the profiling path, then reused on subsequent UI frames and exports.
 - Dataset edits rebuild the Arrow batch with a new revision, naturally invalidating the cached profile and quality report.
 - Correlations use complete finite numeric pairs from the bounded row window; constant and mixed-type columns are excluded.
+
+## 0.34 non-blocking dataset preparation — implemented
+
+- [x] Build Arrow datasets for local file imports on the background integration worker.
+- [x] Prepare cached profiles, alerts, and bounded correlations before imported datasets reach the UI.
+- [x] Apply the same background preparation to published-Millwright CSV/Parquet imports.
+- [x] Apply the same background preparation to database schema and query results.
+- [x] Transfer ready `Dataset` values to the UI instead of rebuilding them from display tables.
+- [x] Verify standard CSV, Millwright, and SQLite worker paths return usable prepared datasets.
+
+Implementation notes:
+
+- Imported datasets now pay Arrow conversion and initial profiling costs on the sequential worker; inserting the completed result into the workspace is a map update on the UI thread.
+- Runtime telemetry and user-committed cell edits still create revisions in-process and retain lazy cached analysis, because they do not pass through the integration worker.
+- The integration worker remains sequential, bounding concurrent profiling memory while preserving deterministic result ordering.
 
 ## Known technical risks
 
