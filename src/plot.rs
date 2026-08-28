@@ -304,6 +304,53 @@ pub fn png(spec: &PlotSpec, width: u32, height: u32) -> Result<Vec<u8>, String> 
     canvas.encode()
 }
 
+/// Export a self-contained interactive plot that does not load remote scripts or styles.
+pub fn html(spec: &PlotSpec, width: u32, height: u32) -> Result<String, String> {
+    spec.validate()?;
+    let width = width.max(200);
+    let height = height.max(120);
+    if u64::from(width) * u64::from(height) > MAX_RASTER_PIXELS {
+        return Err(format!(
+            "HTML canvas dimensions exceed the {MAX_RASTER_PIXELS}-pixel safety limit"
+        ));
+    }
+    let payload = serde_json::to_string(spec)
+        .map_err(|error| error.to_string())?
+        .replace('&', "\\u0026")
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+        .replace('\u{2028}', "\\u2028")
+        .replace('\u{2029}', "\\u2029");
+    let title = xml_escape(&spec.name);
+    Ok(INTERACTIVE_HTML
+        .replace("__TITLE__", &title)
+        .replace("__WIDTH__", &width.to_string())
+        .replace("__HEIGHT__", &height.to_string())
+        .replace("__SPEC__", &payload))
+}
+
+const INTERACTIVE_HTML: &str = r#"<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'">
+<title>__TITLE__</title><style>
+:root{color-scheme:light dark;font-family:system-ui,sans-serif}body{margin:20px;background:#fff;color:#20242b}
+#toolbar{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:8px}button,label{font:inherit}
+canvas{max-width:100%;border:1px solid #c9ced6;background:#fff;cursor:crosshair}#tip{min-width:180px;color:#4b5563}
+</style></head><body><h2>__TITLE__</h2><div id="toolbar"><button id="reset">Reset view</button><span id="series"></span><span id="tip">Hover for coordinates</span></div>
+<canvas id="plot" width="__WIDTH__" height="__HEIGHT__"></canvas><script>
+'use strict';const spec=__SPEC__,canvas=document.getElementById('plot'),ctx=canvas.getContext('2d');
+const colors=['#278dcc','#c4772c','#2e9d60','#d44855','#9669d2'];let zoom=1,panX=0,panY=0,drag=null;
+const visible=spec.series.map(s=>s.visible!==false),seriesBox=document.getElementById('series'),tip=document.getElementById('tip');
+spec.series.forEach((s,i)=>{const l=document.createElement('label'),c=document.createElement('input');c.type='checkbox';c.checked=visible[i];c.onchange=()=>{visible[i]=c.checked;draw()};l.append(c,document.createTextNode(' '+s.name));seriesBox.append(l)});
+function points(s){return s.points.length?s.points:s.values.map((v,i)=>[i,v])}function all(){return spec.series.flatMap((s,i)=>visible[i]?points(s):[])}
+function bounds(){const p=all();if(!p.length)return[0,1,0,1];return p.reduce((b,q)=>[Math.min(b[0],q[0]),Math.max(b[1],q[0]),Math.min(b[2],q[1]),Math.max(b[3],q[1])],[Infinity,-Infinity,Infinity,-Infinity])}
+function mapper(){const b=bounds(),dx=Math.max(Number.EPSILON,b[1]-b[0]),dy=Math.max(Number.EPSILON,b[3]-b[2]);return p=>[45+(p[0]-b[0])/dx*(canvas.width-65)*zoom+panX,canvas.height-35-(p[1]-b[2])/dy*(canvas.height-65)*zoom+panY]}
+function draw(){ctx.clearRect(0,0,canvas.width,canvas.height);ctx.strokeStyle='#555';ctx.beginPath();ctx.moveTo(45,30);ctx.lineTo(45,canvas.height-35);ctx.lineTo(canvas.width-20,canvas.height-35);ctx.stroke();
+if(spec.kind==='heatmap'){const a=spec.matrix.flat(),lo=Math.min(...a),hi=Math.max(...a),rows=spec.matrix.length,cols=spec.matrix[0].length;spec.matrix.forEach((row,y)=>row.forEach((v,x)=>{const t=(v-lo)/Math.max(Number.EPSILON,hi-lo);ctx.fillStyle=`rgb(${30+210*t},${50+80*(1-t)},${220-180*t})`;ctx.fillRect(45+x*(canvas.width-65)/cols,30+y*(canvas.height-65)/rows,(canvas.width-65)/cols+1,(canvas.height-65)/rows+1)}));return}
+const map=mapper();spec.series.forEach((s,i)=>{if(!visible[i])return;const p=points(s).map(map);ctx.strokeStyle=ctx.fillStyle=colors[i%colors.length];if(['scatter','residual'].includes(spec.kind)){p.forEach(q=>{ctx.beginPath();ctx.arc(q[0],q[1],3,0,7);ctx.fill()})}else if(['bar','histogram','feature_importance'].includes(spec.kind)){const base=Math.min(canvas.height-35,Math.max(30,map([0,0])[1])),w=Math.max(1,Math.min(16,(canvas.width-65)/Math.max(1,p.length)/2));p.forEach(q=>ctx.fillRect(q[0]-w,Math.min(q[1],base),w*2,Math.max(1,Math.abs(base-q[1]))))}else{ctx.beginPath();p.forEach((q,j)=>j?ctx.lineTo(...q):ctx.moveTo(...q));ctx.stroke()}})}
+canvas.onwheel=e=>{e.preventDefault();zoom=Math.min(20,Math.max(.25,zoom*(e.deltaY<0?1.1:.9)));draw()};canvas.onmousedown=e=>drag=[e.offsetX-panX,e.offsetY-panY];canvas.onmouseup=canvas.onmouseleave=()=>drag=null;canvas.onmousemove=e=>{if(drag){panX=e.offsetX-drag[0];panY=e.offsetY-drag[1];draw()}tip.textContent=`pixel ${e.offsetX.toFixed(0)}, ${e.offsetY.toFixed(0)}`};document.getElementById('reset').onclick=()=>{zoom=1;panX=panY=0;draw()};draw();
+</script></body></html>"#;
+
 struct Raster {
     width: u32,
     height: u32,
@@ -465,5 +512,30 @@ mod tests {
             y_log: false,
         };
         assert!(spec.validate().is_err());
+    }
+
+    #[test]
+    fn interactive_html_is_self_contained_and_script_safe() {
+        let spec = PlotSpec {
+            version: PLOT_SPEC_VERSION,
+            name: "closing </script> & plot".into(),
+            kind: PlotKind::Line,
+            x_label: "x".into(),
+            y_label: "y".into(),
+            series: vec![PlotSeries {
+                name: "sample </script>".into(),
+                points: vec![[0.0, 1.0], [1.0, 2.0]],
+                values: Vec::new(),
+                visible: true,
+            }],
+            matrix: Vec::new(),
+            x_log: false,
+            y_log: false,
+        };
+        let output = html(&spec, 800, 450).unwrap();
+        assert!(output.contains("<canvas id=\"plot\" width=\"800\" height=\"450\""));
+        assert!(output.contains("\\u003c/script\\u003e"));
+        assert!(!output.contains("http://"));
+        assert!(!output.contains("https://"));
     }
 }

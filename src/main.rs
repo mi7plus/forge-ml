@@ -5795,6 +5795,21 @@ impl ForgeApp {
                                 );
                             }
                         }
+                        if ui.button("Export HTML").clicked() {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .set_file_name(format!("{}.html", safe_file_stem(&spec.name)))
+                                .save_file()
+                            {
+                                status = Some(
+                                    plot::html(spec, 960, 540)
+                                        .and_then(|html| {
+                                            std::fs::write(&path, html).map_err(|e| e.to_string())
+                                        })
+                                        .map(|()| format!("Exported {}", path.display()))
+                                        .unwrap_or_else(|e| e),
+                                );
+                            }
+                        }
                         if ui.button("Delete").clicked() {
                             delete = Some(index);
                         }

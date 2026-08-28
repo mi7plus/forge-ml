@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.47.0`
+Current application version: `0.48.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -81,6 +81,7 @@ tables, plots, and metrics still enter through a compatibility stdout adapter.
 - [x] Object-storage connections.
 - [x] General MIME and structured plot output.
 - [x] Portable native PNG export for structured plots.
+- [x] Self-contained interactive HTML export for structured plots.
 
 ### Experiments and ML
 
@@ -969,6 +970,21 @@ Implementation notes:
 
 - PNG export intentionally uses a compact software renderer and does not require Python, a browser, GPU readback, or an external plotting executable.
 - The raster currently prioritizes portable visual output over SVG-level text and legends; richer typography and multi-panel composition remain future work.
+
+## 0.48 interactive HTML plot export — implemented
+
+- [x] Export each structured plot as a self-contained canvas-based HTML document.
+- [x] Add interactive series visibility controls, wheel zoom, drag pan, hover coordinates, and view reset.
+- [x] Render line-like, scatter/residual, bar-like, and heatmap plot families without external JavaScript.
+- [x] Apply a restrictive document content-security policy and load no remote resources.
+- [x] Encode HTML-sensitive JSON characters before embedding the plot specification in script context.
+- [x] Enforce the same 16-megapixel canvas safety limit used by native PNG export.
+- [x] Test standalone dimensions, absence of remote URLs, and script-terminator escaping.
+
+Implementation notes:
+
+- Interactive HTML is an exported artifact opened in the user's browser; Forge continues to treat imported remote HTML and SVG as inert source inside the IDE.
+- Hover currently reports canvas coordinates. Data-space tooltips, legends, and semantic histogram/box rendering remain future visualization refinements.
 
 ## Known technical risks
 
