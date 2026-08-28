@@ -16,7 +16,7 @@ pub enum Request {
     MillwrightImport(PathBuf),
     DataExport {
         name: String,
-        batch: RecordBatch,
+        batches: Vec<RecordBatch>,
         path: PathBuf,
         format: crate::export::DataFormat,
     },
@@ -159,11 +159,11 @@ fn execute(request: Request, events: &Sender<ResultEvent>) -> ResultEvent {
         },
         Request::DataExport {
             name,
-            batch,
+            batches,
             path,
             format,
         } => ResultEvent::DataExport {
-            result: crate::export::dataset_batch(&batch, &path, format),
+            result: crate::export::dataset_batches(&batches, &path, format),
             name,
             path,
         },
@@ -312,7 +312,7 @@ mod tests {
         worker
             .submit(Request::DataExport {
                 name: "result".into(),
-                batch: dataset.batch,
+                batches: dataset.batches,
                 path: path.clone(),
                 format: crate::export::DataFormat::Csv,
             })

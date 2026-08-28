@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.40.0`
+Current application version: `0.41.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -73,7 +73,7 @@ tables, plots, and metrics still enter through a compatibility stdout adapter.
 - [x] Dataset and plot deletion.
 - [x] CSV telemetry export.
 - [~] Table rendering is suitable for prototypes, not million-row datasets.
-- [~] Arrow-backed datasets and streamed record batches (Arrow-backed storage landed; streaming ingestion remains).
+- [~] Arrow-backed datasets and streamed record batches (bounded chunked storage and streaming exports landed; incremental UI ingestion remains).
 - [x] Virtualized rows and columns.
 - [x] Sorting, column controls, selection, editing, and linked plots.
 - [x] CSV/Parquet/Arrow/JSON file browser and importer UI.
@@ -852,6 +852,23 @@ Implementation notes:
 
 - This completes the planned remote-kernel MVP. Binary Jupyter buffers and comm/widget protocols remain outside the MVP and can be added when a concrete data interchange or widget requirement needs them.
 - Remote input exists only in memory for the duration of the request; password values use the same bounded channel but are never displayed after submission.
+
+## 0.41 chunked Arrow datasets and exports — implemented
+
+- [x] Replace the single monolithic Arrow batch in each dataset with ordered, schema-compatible record batches.
+- [x] Bound generated Arrow chunks to 8,192 rows, including datasets originating from runtime, SQL, files, and Millwright.
+- [x] Preserve an explicit empty schema batch for zero-row datasets.
+- [x] Expose aggregate Arrow row counts without requiring concatenation.
+- [x] Transfer shallow-cloned batch vectors to the background export worker.
+- [x] Stream CSV, TSV, JSON Lines, Parquet, and Arrow IPC output across every batch.
+- [x] Validate batch schemas before creating an export destination.
+- [x] Preserve crash-safe temporary-file publication and replacement behavior for multi-batch exports.
+- [x] Test batch-size boundaries and verify that multi-batch CSV writes one header with all rows.
+
+Implementation notes:
+
+- The current table viewer still retains its row-oriented compatibility representation for filtering and editing. Incremental delivery of batches into a live viewer remains follow-up work.
+- Record-batch clones passed to the worker are shallow Arrow clones, so background exports do not duplicate array buffers.
 
 ## Known technical risks
 

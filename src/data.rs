@@ -23,6 +23,7 @@ const MAX_DECODED_BYTES: usize = 512 * 1024 * 1024;
 const MAX_CELL_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CORRELATION_COLUMNS: usize = 24;
 const MAX_CORRELATION_ROWS: usize = 10_000;
+const ARROW_BATCH_ROWS: usize = 8_192;
 
 #[derive(Clone, Copy)]
 struct ImportLimits {
@@ -44,7 +45,7 @@ static NEXT_DATASET_REVISION: AtomicU64 = AtomicU64::new(1);
 #[derive(Clone)]
 pub struct Dataset {
     pub table: TableData,
-    pub batch: RecordBatch,
+    pub batches: Vec<RecordBatch>,
     pub source: Option<String>,
     pub revision: u64,
     profile: OnceLock<Vec<ColumnProfile>>,
@@ -65,22 +66,30 @@ impl Dataset {
             .iter()
             .map(|name| Field::new(name, DataType::Utf8, true))
             .collect::<Vec<_>>();
-        let arrays = (0..table.columns.len())
-            .map(|column| {
-                Arc::new(StringArray::from(
-                    table
-                        .rows
-                        .iter()
-                        .map(|row| row.get(column).map(String::as_str))
-                        .collect::<Vec<_>>(),
-                )) as ArrayRef
+        let schema = Arc::new(Schema::new(fields));
+        let chunks = if table.rows.is_empty() {
+            vec![table.rows.as_slice()]
+        } else {
+            table.rows.chunks(ARROW_BATCH_ROWS).collect::<Vec<_>>()
+        };
+        let batches = chunks
+            .into_iter()
+            .map(|rows| {
+                let arrays = (0..table.columns.len())
+                    .map(|column| {
+                        Arc::new(StringArray::from(
+                            rows.iter()
+                                .map(|row| row.get(column).map(String::as_str))
+                                .collect::<Vec<_>>(),
+                        )) as ArrayRef
+                    })
+                    .collect::<Vec<_>>();
+                RecordBatch::try_new(schema.clone(), arrays).map_err(|e| e.to_string())
             })
-            .collect::<Vec<_>>();
-        let batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)
-            .map_err(|e| e.to_string())?;
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
             table,
-            batch,
+            batches,
             source,
             revision: NEXT_DATASET_REVISION.fetch_add(1, Ordering::Relaxed),
             profile: OnceLock::new(),
@@ -99,6 +108,10 @@ impl Dataset {
 
     pub fn prepare_quality(&self) {
         let _ = self.quality();
+    }
+
+    pub fn arrow_rows(&self) -> usize {
+        self.batches.iter().map(RecordBatch::num_rows).sum()
     }
 }
 
@@ -630,11 +643,31 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(dataset.batch.num_rows(), 3);
+        assert_eq!(dataset.arrow_rows(), 3);
+        assert_eq!(dataset.batches.len(), 1);
         assert_eq!(dataset.profile()[0].mean, Some(2.0));
         assert_eq!(dataset.profile()[0].missing_percent, 100.0 / 3.0);
         assert_eq!(dataset.profile()[0].numeric_count, 2);
         assert_eq!(dataset.profile()[0].std_dev, Some(1.0));
+    }
+
+    #[test]
+    fn creates_bounded_arrow_record_batches() {
+        let rows = (0..ARROW_BATCH_ROWS + 1)
+            .map(|value| vec![value.to_string()])
+            .collect();
+        let dataset = Dataset::from_table(
+            TableData {
+                columns: vec!["value".into()],
+                rows,
+            },
+            None,
+        )
+        .unwrap();
+        assert_eq!(dataset.batches.len(), 2);
+        assert_eq!(dataset.batches[0].num_rows(), ARROW_BATCH_ROWS);
+        assert_eq!(dataset.batches[1].num_rows(), 1);
+        assert_eq!(dataset.arrow_rows(), ARROW_BATCH_ROWS + 1);
     }
 
     #[test]

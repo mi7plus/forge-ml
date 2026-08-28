@@ -44,6 +44,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - Regression-tested right-pane dataset docking, divider clamping, and persisted layout defaults
 - Cached dataset-quality profiles with missingness, type coverage, standard deviation, bounded correlations, and alerts
 - Background Arrow construction and quality preparation for file, SQL, and native Millwright imports
+- Bounded 8,192-row Arrow batch storage with streaming multi-batch data exports
 - Validated remote Jupyter profiles with credential-safe, bounded background kernelspec probes
 - Authenticated background start/stop lifecycle for Forge-managed remote Jupyter kernels
 - Bounded authenticated Jupyter WebSocket execution with rich MIME, responsive interrupts, direct notebook-cell routing, and secure stdin prompts

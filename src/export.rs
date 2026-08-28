@@ -30,10 +30,20 @@ pub enum DataFormat {
 }
 
 pub fn dataset(dataset: &Dataset, path: &Path, format: DataFormat) -> Result<(), String> {
-    dataset_batch(&dataset.batch, path, format)
+    dataset_batches(&dataset.batches, path, format)
 }
 
-pub fn dataset_batch(batch: &RecordBatch, path: &Path, format: DataFormat) -> Result<(), String> {
+pub fn dataset_batches(
+    batches: &[RecordBatch],
+    path: &Path,
+    format: DataFormat,
+) -> Result<(), String> {
+    let first = batches
+        .first()
+        .ok_or("Dataset has no Arrow record batches")?;
+    if batches.iter().any(|batch| batch.schema() != first.schema()) {
+        return Err("Dataset Arrow batches contain incompatible schemas.".into());
+    }
     let parent = path.parent().ok_or("Export path has no parent")?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let file_name = path
@@ -45,7 +55,7 @@ pub fn dataset_batch(batch: &RecordBatch, path: &Path, format: DataFormat) -> Re
         std::process::id(),
         NEXT_EXPORT_TEMP.fetch_add(1, Ordering::Relaxed)
     ));
-    let result = write_dataset(batch, &temporary, format).and_then(|()| {
+    let result = write_dataset(batches, &temporary, format).and_then(|()| {
         fs::OpenOptions::new()
             .write(true)
             .open(&temporary)
@@ -59,7 +69,8 @@ pub fn dataset_batch(batch: &RecordBatch, path: &Path, format: DataFormat) -> Re
     result
 }
 
-fn write_dataset(batch: &RecordBatch, path: &Path, format: DataFormat) -> Result<(), String> {
+fn write_dataset(batches: &[RecordBatch], path: &Path, format: DataFormat) -> Result<(), String> {
+    let schema = batches[0].schema();
     match format {
         DataFormat::Csv | DataFormat::Tsv => {
             let file = File::create(path).map_err(|e| e.to_string())?;
@@ -71,43 +82,51 @@ fn write_dataset(batch: &RecordBatch, path: &Path, format: DataFormat) -> Result
                     b'\t'
                 })
                 .build(file);
-            writer.write(batch).map_err(|e| e.to_string())?;
+            for batch in batches {
+                writer.write(batch).map_err(|e| e.to_string())?;
+            }
         }
         DataFormat::JsonLines => {
             let mut file = File::create(path).map_err(|e| e.to_string())?;
-            for row in 0..batch.num_rows() {
-                let object = batch
-                    .schema()
-                    .fields()
-                    .iter()
-                    .enumerate()
-                    .map(|(index, field)| {
-                        array_value_to_string(batch.column(index).as_ref(), row)
-                            .map(|value| (field.name().clone(), serde_json::Value::String(value)))
-                            .map_err(|error| error.to_string())
-                    })
-                    .collect::<Result<serde_json::Map<_, _>, _>>()?;
-                writeln!(file, "{}", serde_json::Value::Object(object))
-                    .map_err(|e| e.to_string())?;
+            for batch in batches {
+                for row in 0..batch.num_rows() {
+                    let object = batch
+                        .schema()
+                        .fields()
+                        .iter()
+                        .enumerate()
+                        .map(|(index, field)| {
+                            array_value_to_string(batch.column(index).as_ref(), row)
+                                .map(|value| {
+                                    (field.name().clone(), serde_json::Value::String(value))
+                                })
+                                .map_err(|error| error.to_string())
+                        })
+                        .collect::<Result<serde_json::Map<_, _>, _>>()?;
+                    writeln!(file, "{}", serde_json::Value::Object(object))
+                        .map_err(|e| e.to_string())?;
+                }
             }
         }
         DataFormat::Parquet => {
             let mut writer = ArrowWriter::try_new(
                 File::create(path).map_err(|e| e.to_string())?,
-                batch.schema(),
+                schema.clone(),
                 None,
             )
             .map_err(|e| e.to_string())?;
-            writer.write(batch).map_err(|e| e.to_string())?;
+            for batch in batches {
+                writer.write(batch).map_err(|e| e.to_string())?;
+            }
             writer.close().map_err(|e| e.to_string())?;
         }
         DataFormat::Arrow => {
-            let mut writer = FileWriter::try_new(
-                File::create(path).map_err(|e| e.to_string())?,
-                &batch.schema(),
-            )
-            .map_err(|e| e.to_string())?;
-            writer.write(batch).map_err(|e| e.to_string())?;
+            let mut writer =
+                FileWriter::try_new(File::create(path).map_err(|e| e.to_string())?, &schema)
+                    .map_err(|e| e.to_string())?;
+            for batch in batches {
+                writer.write(batch).map_err(|e| e.to_string())?;
+            }
             writer.finish().map_err(|e| e.to_string())?;
         }
     }
@@ -447,6 +466,31 @@ mod tests {
             dataset(&data, &root.join(name), format).unwrap();
         }
         assert!(root.join("x.parquet").metadata().unwrap().len() > 0);
+        let _ = fs::remove_dir_all(root);
+    }
+    #[test]
+    fn streams_multiple_batches_with_one_csv_header() {
+        let root = std::env::temp_dir().join(format!("forge-batch-export-{}", std::process::id()));
+        let first = Dataset::from_table(
+            TableData {
+                columns: vec!["value".into()],
+                rows: vec![vec!["1".into()]],
+            },
+            None,
+        )
+        .unwrap();
+        let second = Dataset::from_table(
+            TableData {
+                columns: vec!["value".into()],
+                rows: vec![vec!["2".into()]],
+            },
+            None,
+        )
+        .unwrap();
+        let batches = vec![first.batches[0].clone(), second.batches[0].clone()];
+        let path = root.join("stream.csv");
+        dataset_batches(&batches, &path, DataFormat::Csv).unwrap();
+        assert_eq!(fs::read_to_string(path).unwrap(), "value\n1\n2\n");
         let _ = fs::remove_dir_all(root);
     }
     #[test]

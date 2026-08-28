@@ -4866,8 +4866,9 @@ impl ForgeApp {
                     if let Some(source) = &data.source {
                         ui.label(
                             RichText::new(format!(
-                                "Source: {source} · Arrow batch: {} rows",
-                                data.batch.num_rows()
+                                "Source: {source} · {} Arrow batch(es) · {} rows",
+                                data.batches.len(),
+                                data.arrow_rows()
                             ))
                             .size(9.0)
                             .color(MUTED),
@@ -5084,7 +5085,7 @@ impl ForgeApp {
                         self.integration_worker
                             .submit(IntegrationRequest::DataExport {
                                 name: name.clone(),
-                                batch: dataset.batch.clone(),
+                                batches: dataset.batches.clone(),
                                 path: path.clone(),
                                 format,
                             })
