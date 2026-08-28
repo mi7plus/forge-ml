@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.53.0`
+Current application version: `0.54.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1059,6 +1059,21 @@ Implementation notes:
 
 - Reordering and duplication update normal session state and therefore survive restart without creating separate project files.
 - Bulk JSON remains the explicit portable/history backup format; individual SVG, PNG, PDF, HTML, and JSON actions remain available per plot.
+
+## 0.54 bounded SQL query history — implemented
+
+- [x] Normalize project query history on load and after each successful database result.
+- [x] Retain the 100 most recent unique statements within a 4 MiB aggregate budget.
+- [x] Trim surrounding whitespace and move repeated statements to the newest position.
+- [x] Continue recording only successful queries, excluding failed or unsubmitted editor text.
+- [x] Add one-click recall, portable pretty-printed JSON export, and explicit clearing controls.
+- [x] Persist clearing through the workspace store's atomic replacement path.
+- [x] Test recent-entry retention, deduplication, count limits, and byte-budget rejection.
+
+Implementation notes:
+
+- Query history contains SQL text only; connection credentials, profile secrets, result rows, and dataset contents are never written with it.
+- History remains project-scoped under `.forge`, allowing different data workspaces to retain independent query context.
 
 ## Known technical risks
 

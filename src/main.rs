@@ -540,10 +540,12 @@ impl ForgeApp {
             .as_ref()
             .and_then(|store| store.load_connections().ok())
             .unwrap_or_default();
-        let sql_history = workspace_store
-            .as_ref()
-            .and_then(|store| store.load_query_history().ok())
-            .unwrap_or_default();
+        let sql_history = database::bounded_query_history(
+            workspace_store
+                .as_ref()
+                .and_then(|store| store.load_query_history().ok())
+                .unwrap_or_default(),
+        );
         let remote_profiles = workspace_store
             .as_ref()
             .and_then(|store| store.load_remote_profiles().ok())
@@ -935,7 +937,9 @@ impl ForgeApp {
                 privacy_diagnostics::configure(self.diagnostics_opt_in, Some(&root));
                 if let Some(store) = &self.workspace_store {
                     self.database_profiles = store.load_connections().unwrap_or_default();
-                    self.sql_history = store.load_query_history().unwrap_or_default();
+                    self.sql_history = database::bounded_query_history(
+                        store.load_query_history().unwrap_or_default(),
+                    );
                     self.remote_profiles = store.load_remote_profiles().unwrap_or_default();
                     self.object_profiles = store.load_object_profiles().unwrap_or_default();
                     self.database_selected = 0;
@@ -1954,7 +1958,7 @@ impl ForgeApp {
                         self.data.insert_dataset(dataset_name.clone(), dataset);
                         self.open_dataset = Some(format!("table:{dataset_name}"));
                         if let Some(query) = query {
-                            self.sql_history.push(query);
+                            database::record_query(&mut self.sql_history, query);
                             if let Some(store) = &self.workspace_store {
                                 let _ = store.save_query_history(&self.sql_history);
                             }
@@ -4162,7 +4166,34 @@ impl ForgeApp {
             }
         }
         ui.label(&self.sql_output);
-        ui.collapsing("Query history", |ui| {
+        ui.horizontal(|ui| {
+            ui.strong(format!("Query history ({})", self.sql_history.len()));
+            if !self.sql_history.is_empty() && ui.button("Export JSON").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_file_name("forge-query-history.json")
+                    .save_file()
+                {
+                    self.sql_output = serde_json::to_vec_pretty(&self.sql_history)
+                        .map_err(|error| error.to_string())
+                        .and_then(|bytes| {
+                            std::fs::write(&path, bytes).map_err(|error| error.to_string())
+                        })
+                        .map(|()| format!("Exported query history to {}", path.display()))
+                        .unwrap_or_else(|error| format!("Query history export failed: {error}"));
+                }
+            }
+            if !self.sql_history.is_empty() && ui.button("Clear").clicked() {
+                self.sql_history.clear();
+                self.sql_output = self
+                    .workspace_store
+                    .as_ref()
+                    .map(|store| store.save_query_history(&self.sql_history))
+                    .transpose()
+                    .map(|_| "Cleared project query history.".to_owned())
+                    .unwrap_or_else(|error| format!("Could not clear query history: {error}"));
+            }
+        });
+        ui.collapsing("Recall successful queries", |ui| {
             for query in self.sql_history.iter().rev() {
                 if ui
                     .button(RichText::new(query).monospace().size(9.0))

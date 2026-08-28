@@ -5,6 +5,34 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+const MAX_QUERY_HISTORY: usize = 100;
+const MAX_QUERY_HISTORY_BYTES: usize = 4 * 1024 * 1024;
+
+pub fn bounded_query_history(history: Vec<String>) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut bytes = 0usize;
+    for query in history.into_iter().rev() {
+        let query = query.trim().to_owned();
+        if query.is_empty() || result.iter().any(|existing| existing == &query) {
+            continue;
+        }
+        if result.len() == MAX_QUERY_HISTORY
+            || bytes.saturating_add(query.len()) > MAX_QUERY_HISTORY_BYTES
+        {
+            break;
+        }
+        bytes += query.len();
+        result.push(query);
+    }
+    result.reverse();
+    result
+}
+
+pub fn record_query(history: &mut Vec<String>, query: String) {
+    history.push(query);
+    *history = bounded_query_history(std::mem::take(history));
+}
+
 const MAX_PREVIEW_ROWS: usize = 10_000;
 const MAX_CLI_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
 const CLI_TIMEOUT: Duration = Duration::from_secs(30);
@@ -424,6 +452,23 @@ pub fn adbc_marker() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn query_history_is_recent_bounded_and_deduplicated() {
+        let mut history = (0..110).map(|index| format!("SELECT {index}")).collect();
+        record_query(&mut history, "  SELECT 109  ".into());
+        assert_eq!(history.len(), 100);
+        assert_eq!(history.last().unwrap(), "SELECT 109");
+        assert_eq!(
+            history
+                .iter()
+                .filter(|query| *query == "SELECT 109")
+                .count(),
+            1
+        );
+        let oversized = vec!["x".repeat(MAX_QUERY_HISTORY_BYTES + 1)];
+        assert!(bounded_query_history(oversized).is_empty());
+    }
     #[test]
     fn queries_sqlite_to_table() {
         let path = std::env::temp_dir().join("forge-db-test.sqlite");
