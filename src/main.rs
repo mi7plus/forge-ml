@@ -4392,6 +4392,22 @@ impl ForgeApp {
                     }
                 }
             }
+            if ui.button("Import JSON").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Forge training JSON", &["json"])
+                    .pick_file()
+                {
+                    self.console = std::fs::read(&path)
+                        .map_err(|error| error.to_string())
+                        .and_then(|bytes| millwright_studio::parse_training_json(&bytes))
+                        .map(|events| {
+                            let count = events.len();
+                            self.training_events = events;
+                            format!("Imported {count} training event(s) from {}", path.display())
+                        })
+                        .unwrap_or_else(|error| format!("Training import failed: {error}"));
+                }
+            }
             if !self.training_events.is_empty() && ui.button("Open metric plots").clicked() {
                 let plots = millwright_studio::training_plots(&self.training_events);
                 let count = plots.len();

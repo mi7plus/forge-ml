@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.58.0`
+Current application version: `0.59.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1135,6 +1135,21 @@ Implementation notes:
 
 - Batch series use the retained event sequence as their X coordinate because batch counters can restart at every epoch; epoch and trial series use their explicit protocol counters.
 - Generated views are ordinary `PlotSpec` objects, so they inherit visibility, log transforms, persistence, reordering, duplication, and all portable export formats.
+
+## 0.59 validated training telemetry import — implemented
+
+- [x] Import previously exported typed training-event JSON into the live training overview.
+- [x] Enforce a 16 MiB input limit and the existing 10,000-event retention boundary.
+- [x] Revalidate every score, loss, metric, throughput value, and bounded text field.
+- [x] Reject the entire artifact before changing live telemetry when any event is invalid.
+- [x] Replace current events after successful import so archived runs can be inspected deterministically.
+- [x] Cap JSON and CSV export artifacts at 64 MiB before writing them.
+- [x] Test JSON round trips, oversized input rejection, and invalid event-text rejection.
+
+Implementation notes:
+
+- Imported events remain memory-only and can immediately regenerate native training plots without being silently added to project or session persistence.
+- CSV remains an export format; typed JSON is the lossless re-import format because it preserves the `TrainingEvent` variant schema.
 
 ## Known technical risks
 

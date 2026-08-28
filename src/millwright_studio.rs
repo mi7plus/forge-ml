@@ -4,6 +4,8 @@ use std::sync::{Arc, Mutex};
 
 pub const MAX_TRAINING_EVENTS: usize = 10_000;
 const MAX_TRAINING_TEXT_BYTES: usize = 64 * 1024;
+const MAX_TRAINING_IMPORT_BYTES: usize = 16 * 1024 * 1024;
+const MAX_TRAINING_EXPORT_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TrainingEvent {
@@ -89,7 +91,11 @@ pub fn record_training_event(events: &mut Vec<TrainingEvent>, event: TrainingEve
 }
 
 pub fn training_json(events: &[TrainingEvent]) -> Result<Vec<u8>, String> {
-    serde_json::to_vec_pretty(events).map_err(|error| error.to_string())
+    let output = serde_json::to_vec_pretty(events).map_err(|error| error.to_string())?;
+    if output.len() > MAX_TRAINING_EXPORT_BYTES {
+        return Err("Training JSON exceeds the 64 MiB export limit".into());
+    }
+    Ok(output)
 }
 
 pub fn training_csv(events: &[TrainingEvent]) -> Result<Vec<u8>, String> {
@@ -105,7 +111,34 @@ pub fn training_csv(events: &[TrainingEvent]) -> Result<Vec<u8>, String> {
             ])
             .map_err(|error| error.to_string())?;
     }
-    writer.into_inner().map_err(|error| error.to_string())
+    let output = writer.into_inner().map_err(|error| error.to_string())?;
+    if output.len() > MAX_TRAINING_EXPORT_BYTES {
+        return Err("Training CSV exceeds the 64 MiB export limit".into());
+    }
+    Ok(output)
+}
+
+pub fn parse_training_json(bytes: &[u8]) -> Result<Vec<TrainingEvent>, String> {
+    if bytes.len() > MAX_TRAINING_IMPORT_BYTES {
+        return Err("Training JSON exceeds the 16 MiB import limit".into());
+    }
+    let events: Vec<TrainingEvent> =
+        serde_json::from_slice(bytes).map_err(|error| format!("Invalid training JSON: {error}"))?;
+    if events.len() > MAX_TRAINING_EVENTS {
+        return Err(format!(
+            "Training JSON exceeds the {MAX_TRAINING_EVENTS}-event limit"
+        ));
+    }
+    if let Some(index) = events
+        .iter()
+        .position(|event| !validate_training_event(event))
+    {
+        return Err(format!(
+            "Training event {} is invalid or oversized",
+            index + 1
+        ));
+    }
+    Ok(events)
 }
 
 pub fn training_plots(events: &[TrainingEvent]) -> Vec<PlotSpec> {
@@ -413,6 +446,14 @@ mod tests {
             .contains("TrialCompleted"));
         let csv = String::from_utf8(training_csv(&events[..2]).unwrap()).unwrap();
         assert!(csv.starts_with("index,event"));
+        let encoded = training_json(&events[..2]).unwrap();
+        assert_eq!(parse_training_json(&encoded).unwrap(), events[..2]);
+        assert!(parse_training_json(&vec![b' '; MAX_TRAINING_IMPORT_BYTES + 1]).is_err());
+        let invalid = serde_json::to_vec(&vec![TrainingEvent::Failed {
+            message: "x".repeat(MAX_TRAINING_TEXT_BYTES + 1),
+        }])
+        .unwrap();
+        assert!(parse_training_json(&invalid).is_err());
     }
 
     #[test]
