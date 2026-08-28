@@ -6,6 +6,8 @@ use std::io::Cursor;
 pub const PLOT_SPEC_VERSION: u16 = 1;
 const MAX_POINTS: usize = 1_000_000;
 const MAX_RASTER_PIXELS: u64 = 16_777_216;
+const MAX_PLOT_JSON_BYTES: usize = 16 * 1024 * 1024;
+const MAX_IMPORTED_PLOTS: usize = 128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -132,6 +134,35 @@ pub fn parse_output(output: &str) -> Vec<PlotSpec> {
         .filter_map(|json| serde_json::from_str::<PlotSpec>(json.trim()).ok())
         .filter(|spec| spec.validate().is_ok())
         .collect()
+}
+
+/// Parse one plot or a bounded array of plots from the portable JSON format.
+pub fn parse_json(bytes: &[u8]) -> Result<Vec<PlotSpec>, String> {
+    if bytes.len() > MAX_PLOT_JSON_BYTES {
+        return Err(format!(
+            "Plot JSON exceeds the {} MiB safety limit",
+            MAX_PLOT_JSON_BYTES / 1024 / 1024
+        ));
+    }
+    let value: serde_json::Value =
+        serde_json::from_slice(bytes).map_err(|error| format!("Invalid plot JSON: {error}"))?;
+    let plots = if value.is_array() {
+        serde_json::from_value::<Vec<PlotSpec>>(value)
+            .map_err(|error| format!("Invalid plot collection: {error}"))?
+    } else {
+        vec![serde_json::from_value::<PlotSpec>(value)
+            .map_err(|error| format!("Invalid plot specification: {error}"))?]
+    };
+    if plots.is_empty() || plots.len() > MAX_IMPORTED_PLOTS {
+        return Err(format!(
+            "Plot imports require 1–{MAX_IMPORTED_PLOTS} specifications"
+        ));
+    }
+    for plot in &plots {
+        plot.validate()
+            .map_err(|error| format!("Plot `{}` is invalid: {error}", plot.name))?;
+    }
+    Ok(plots)
 }
 
 pub fn svg(spec: &PlotSpec, width: u32, height: u32) -> Result<String, String> {
@@ -703,6 +734,20 @@ mod tests {
         assert_eq!(&raster[..8], b"\x89PNG\r\n\x1a\n");
         assert_eq!(u32::from_be_bytes(raster[16..20].try_into().unwrap()), 640);
         assert_eq!(u32::from_be_bytes(raster[20..24].try_into().unwrap()), 360);
+    }
+
+    #[test]
+    fn imports_single_and_multiple_plot_json() {
+        let single = br#"{"version":1,"name":"loss","kind":"line","series":[{"name":"train","values":[1.0,0.5]}]}"#;
+        assert_eq!(parse_json(single).unwrap().len(), 1);
+        let multiple = format!(
+            "[{},{}]",
+            String::from_utf8_lossy(single),
+            String::from_utf8_lossy(single)
+        );
+        assert_eq!(parse_json(multiple.as_bytes()).unwrap().len(), 2);
+        assert!(parse_json(b"[]").is_err());
+        assert!(parse_json(&vec![b' '; MAX_PLOT_JSON_BYTES + 1]).is_err());
     }
     #[test]
     fn rejects_non_finite_and_ragged_heatmaps() {

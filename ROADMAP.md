@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.50.0`
+Current application version: `0.51.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1015,6 +1015,21 @@ Implementation notes:
 
 - Exporters derive display coordinates without mutating the persisted `PlotSpec`, so JSON remains a lossless interchange format containing the original samples.
 - The native IDE viewer and every visual export now share the same 24-bin histogram policy and nearest-rank rounded quartile policy.
+
+## 0.51 validated plot JSON import — implemented
+
+- [x] Add an **Import plot JSON** action to the Plots pane even when no structured plots exist yet.
+- [x] Accept either one portable `PlotSpec` object or an array of specifications.
+- [x] Validate the complete import before mutating live plot state.
+- [x] Enforce a 16 MiB input limit and a maximum of 128 plots per import.
+- [x] Reuse plot-version, series, point-count, finite-value, and heatmap-shape validation.
+- [x] Replace same-name plots while appending new names for predictable repeated imports.
+- [x] Test single, collection, empty-collection, and oversized JSON inputs.
+
+Implementation notes:
+
+- Import is deliberately local and explicit; Forge does not fetch plot definitions from URLs or execute HTML/SVG embedded in JSON.
+- Name-based replacement matches live `forge_plot:` telemetry behavior and makes exported plot files practical as repeatable analysis artifacts.
 
 ## Known technical risks
 

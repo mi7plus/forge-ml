@@ -5646,6 +5646,34 @@ impl ForgeApp {
             if ui.button("Export").clicked() {
                 self.export_telemetry_csv();
             }
+            if ui.button("Import plot JSON").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Forge plot JSON", &["json"])
+                    .pick_file()
+                {
+                    self.console = match std::fs::read(&path)
+                        .map_err(|error| error.to_string())
+                        .and_then(|bytes| plot::parse_json(&bytes))
+                    {
+                        Ok(plots) => {
+                            let count = plots.len();
+                            for spec in plots {
+                                if let Some(existing) = self
+                                    .structured_plots
+                                    .iter_mut()
+                                    .find(|existing| existing.name == spec.name)
+                                {
+                                    *existing = spec;
+                                } else {
+                                    self.structured_plots.push(spec);
+                                }
+                            }
+                            format!("Imported {count} plot(s) from {}", path.display())
+                        }
+                        Err(error) => format!("Plot import failed: {error}"),
+                    };
+                }
+            }
             if (self.data.has_telemetry() || !self.structured_plots.is_empty())
                 && ui
                     .button("Clear current")
