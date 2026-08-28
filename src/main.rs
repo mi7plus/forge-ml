@@ -4421,6 +4421,17 @@ impl ForgeApp {
                         .unwrap_or_else(|error| format!("Training report failed: {error}"));
                 }
             }
+            if !self.training_events.is_empty() && ui.button("PDF report").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_file_name("forge-training-report.pdf")
+                    .save_file()
+                {
+                    self.console = millwright_studio::training_pdf_lines(&self.training_events)
+                        .and_then(|lines| export::write_text_pdf(&path, &lines))
+                        .map(|()| format!("Exported training PDF to {}", path.display()))
+                        .unwrap_or_else(|error| format!("Training PDF failed: {error}"));
+                }
+            }
             if !self.training_events.is_empty() && ui.button("Open metric plots").clicked() {
                 let plots = millwright_studio::training_plots(&self.training_events);
                 let count = plots.len();

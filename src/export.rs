@@ -510,7 +510,7 @@ pub fn experiment_pdf(runs: &[ExperimentRun], metric: &str, path: &Path) -> Resu
     write_text_pdf(path, &lines)
 }
 
-fn write_text_pdf(path: &Path, lines: &[String]) -> Result<(), String> {
+pub(crate) fn write_text_pdf(path: &Path, lines: &[String]) -> Result<(), String> {
     let wrapped = lines
         .iter()
         .flat_map(|line| wrap_pdf_line(line, 92))

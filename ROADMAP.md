@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.60.0`
+Current application version: `0.61.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1165,6 +1165,21 @@ Implementation notes:
 
 - Reports summarize current live or explicitly imported telemetry; they do not mutate training events, generated plots, experiments, or project state.
 - The report favors reviewable operational evidence over interactive charts. Native training plots can be exported separately or incorporated into a broader experiment report later.
+
+## 0.61 native PDF training reports — implemented
+
+- [x] Add a native paginated **PDF report** action to the training overview.
+- [x] Summarize retained events, epoch/batch/trial/failure counts, latest loss/metric, and best score.
+- [x] Include a print-oriented newest-500-event audit with 512 characters per event.
+- [x] Reuse Forge's PDF line wrapping, pagination, escaping, cross-reference generation, and standard font handling.
+- [x] Publish through synchronized sibling temporary files with rollback-safe destination replacement.
+- [x] Keep PDF generation independent of Python, browsers, office runtimes, and print drivers.
+- [x] Test generated summary lines for failure counts and best-score selection.
+
+Implementation notes:
+
+- The PDF audit is intentionally tighter than HTML to keep printed reports readable; typed JSON remains the complete re-importable event artifact.
+- Non-ASCII glyphs follow the native PDF writer's existing replacement policy until embedded Unicode fonts are implemented.
 
 ## Known technical risks
 

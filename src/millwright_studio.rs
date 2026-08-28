@@ -8,6 +8,8 @@ const MAX_TRAINING_IMPORT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_TRAINING_EXPORT_BYTES: usize = 64 * 1024 * 1024;
 const MAX_REPORT_EVENTS: usize = 1_000;
 const MAX_REPORT_EVENT_CHARS: usize = 8_192;
+const MAX_PDF_REPORT_EVENTS: usize = 500;
+const MAX_PDF_EVENT_CHARS: usize = 512;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TrainingEvent {
@@ -203,6 +205,88 @@ pub fn training_report(events: &[TrainingEvent]) -> Result<String, String> {
         report_number(latest_metric),
         report_number(best_score),
     ))
+}
+
+pub fn training_pdf_lines(events: &[TrainingEvent]) -> Result<Vec<String>, String> {
+    if events.is_empty() {
+        return Err("No training events are available for a report".into());
+    }
+    let epochs = events
+        .iter()
+        .filter(|event| matches!(event, TrainingEvent::Epoch { .. }))
+        .count();
+    let batches = events
+        .iter()
+        .filter(|event| matches!(event, TrainingEvent::Batch { .. }))
+        .count();
+    let trials = events
+        .iter()
+        .filter(|event| matches!(event, TrainingEvent::TrialCompleted { .. }))
+        .count();
+    let failures = events
+        .iter()
+        .filter(|event| matches!(event, TrainingEvent::Failed { .. }))
+        .count();
+    let latest_loss = events.iter().rev().find_map(|event| match event {
+        TrainingEvent::Epoch { loss, .. } | TrainingEvent::Batch { loss, .. } => Some(*loss),
+        _ => None,
+    });
+    let latest_metric = events.iter().rev().find_map(|event| match event {
+        TrainingEvent::Epoch {
+            metric: Some(metric),
+            ..
+        } => Some(*metric),
+        _ => None,
+    });
+    let best_score = events
+        .iter()
+        .rev()
+        .find_map(|event| match event {
+            TrainingEvent::Completed { best_score } => Some(*best_score),
+            _ => None,
+        })
+        .or_else(|| {
+            events
+                .iter()
+                .filter_map(|event| match event {
+                    TrainingEvent::TrialCompleted { score, .. } => Some(*score),
+                    _ => None,
+                })
+                .reduce(f64::max)
+        });
+    let mut lines = vec![
+        "Forge ML training report".into(),
+        format!("Retained events: {}", events.len()),
+        format!("Epoch events: {epochs}"),
+        format!("Batch events: {batches}"),
+        format!("Completed trials: {trials}"),
+        format!("Failures: {failures}"),
+        format!("Latest loss: {}", report_number(latest_loss)),
+        format!("Latest metric: {}", report_number(latest_metric)),
+        format!("Best score: {}", report_number(best_score)),
+        String::new(),
+        format!(
+            "Recent event audit (newest {} of {})",
+            events.len().min(MAX_PDF_REPORT_EVENTS),
+            events.len()
+        ),
+    ];
+    lines.extend(
+        events
+            .iter()
+            .enumerate()
+            .rev()
+            .take(MAX_PDF_REPORT_EVENTS)
+            .map(|(index, event)| {
+                let detail = serde_json::to_string(event)
+                    .unwrap_or_default()
+                    .chars()
+                    .take(MAX_PDF_EVENT_CHARS)
+                    .collect::<String>();
+                format!("{} | {} | {detail}", index + 1, event_kind(event))
+            }),
+    );
+    Ok(lines)
 }
 
 fn report_number(value: Option<f64>) -> String {
@@ -597,5 +681,8 @@ mod tests {
         assert!(report.contains("&lt;script&gt;"));
         assert!(!report.contains("<script>"));
         assert!(!report.contains("https://"));
+        let lines = training_pdf_lines(&events).unwrap();
+        assert!(lines.iter().any(|line| line == "Failures: 1"));
+        assert!(lines.iter().any(|line| line == "Best score: 0.910000"));
     }
 }
