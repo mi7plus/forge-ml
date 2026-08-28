@@ -45,6 +45,7 @@ pub enum Request {
         key: String,
         root: PathBuf,
     },
+    RemoteTest(crate::remote::RemoteProfile),
 }
 
 pub enum ResultEvent {
@@ -65,6 +66,7 @@ pub enum ResultEvent {
     },
     ObjectMessage(Result<String, String>),
     ObjectDownload(Result<PathBuf, String>),
+    RemoteMessage(Result<String, String>),
 }
 
 pub struct IntegrationWorker {
@@ -168,6 +170,9 @@ fn execute(request: Request) -> ResultEvent {
         Request::ObjectList { profile, limit } => ResultEvent::ObjectMessage(profile.list(limit)),
         Request::ObjectDownload { profile, key, root } => {
             ResultEvent::ObjectDownload(profile.download(&key, &root))
+        }
+        Request::RemoteTest(profile) => {
+            ResultEvent::RemoteMessage(crate::remote::test_jupyter(&profile))
         }
     }
 }

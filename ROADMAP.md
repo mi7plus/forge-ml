@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.34.0`
+Current application version: `0.35.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -48,7 +48,7 @@ tables, plots, and metrics still enter through a compatibility stdout adapter.
 - [x] Markdown cells.
 - [x] Standard `.ipynb` import/export.
 - [~] Jupyter kernel protocol support (kernelspec integration is available; native Evcxr remains the default).
-- [ ] Remote kernels.
+- [~] Remote kernels (secured profile validation and kernelspec probing landed; session/WebSocket execution remains).
 
 ### Rust language intelligence
 
@@ -747,6 +747,24 @@ Implementation notes:
 - Imported datasets now pay Arrow conversion and initial profiling costs on the sequential worker; inserting the completed result into the workspace is a map update on the UI thread.
 - Runtime telemetry and user-committed cell edits still create revisions in-process and retain lazy cached analysis, because they do not pass through the integration worker.
 - The integration worker remains sequential, bounding concurrent profiling memory while preserving deterministic result ordering.
+
+## 0.35 secure remote Jupyter discovery — implemented
+
+- [x] Validate remote profile names, credential keys, and Jupyter base URLs before persistence.
+- [x] Require HTTPS except for explicit localhost development endpoints.
+- [x] Reject usernames, passwords, query credentials, and fragments in persisted URLs.
+- [x] Preserve JupyterHub user-prefix paths when resolving the kernelspec API.
+- [x] Load bearer tokens only from the OS credential manager.
+- [x] Keep tokens out of child-process arguments by supplying the authorization header over stdin.
+- [x] Probe kernelspecs on the background integration worker with a 10-second timeout and 1 MiB response cap.
+- [x] Report sorted remote kernelspec names in the Deep Learning pane.
+- [x] Redact credential values from command errors and test the security boundaries.
+
+Implementation notes:
+
+- Forge currently uses the installed curl executable for the small Jupyter REST probe, avoiding another embedded HTTP/TLS stack while keeping output and time bounded.
+- Remote session creation, Jupyter messaging authentication, WebSocket channels, interrupts, and shutdown remain necessary before remote kernels can execute notebook cells.
+- Python support remains runtime-only: discovering a remote Python kernelspec does not install or distribute Python or its packages.
 
 ## Known technical risks
 

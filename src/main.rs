@@ -1781,6 +1781,9 @@ impl ForgeApp {
                         .map(|path| format!("Downloaded {}", path.display()))
                         .unwrap_or_else(|error| error);
                 }
+                ResultEvent::RemoteMessage(result) => {
+                    self.sql_output = result.unwrap_or_else(|error| error);
+                }
             }
         }
         if let Some(kernel) = &self.python_kernel {
@@ -3498,13 +3501,31 @@ impl ForgeApp {
                         agent_command: self.remote_command.clone(),
                         credential_key: format!("remote:{}:{}", root.display(), self.remote_name),
                     };
-                    if !self.remote_token.is_empty() {
-                        let _ = remote::store_token(&profile, &self.remote_token);
-                        self.remote_token.clear();
-                    }
-                    self.remote_profiles.push(profile);
-                    if let Some(store) = &self.workspace_store {
-                        let _ = store.save_remote_profiles(&self.remote_profiles);
+                    match remote::validate_profile(&profile) {
+                        Ok(()) => {
+                            let token_result = if self.remote_token.is_empty() {
+                                Ok(())
+                            } else {
+                                remote::store_token(&profile, &self.remote_token)
+                            };
+                            match token_result {
+                                Ok(()) => {
+                                    self.remote_token.clear();
+                                    self.remote_profiles
+                                        .retain(|existing| existing.name != profile.name);
+                                    self.remote_profiles.push(profile);
+                                    if let Some(store) = &self.workspace_store {
+                                        let _ = store.save_remote_profiles(&self.remote_profiles);
+                                    }
+                                    self.sql_output = "Saved validated remote profile.".into();
+                                }
+                                Err(error) => {
+                                    self.sql_output =
+                                        format!("Could not store remote credential: {error}");
+                                }
+                            }
+                        }
+                        Err(error) => self.sql_output = error,
                     }
                 }
             }
@@ -3535,11 +3556,31 @@ impl ForgeApp {
                     .unwrap_or_else(|| "Open a project first.".into());
             }
         });
-        for profile in &self.remote_profiles {
-            ui.label(format!(
-                "{} · {} · {}",
-                profile.name, profile.jupyter_url, profile.agent_command
-            ));
+        for profile in self.remote_profiles.clone() {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(format!(
+                    "{} · {} · {}",
+                    profile.name, profile.jupyter_url, profile.agent_command
+                ));
+                if ui
+                    .add_enabled(
+                        self.integration_pending == 0,
+                        egui::Button::new("Test Jupyter"),
+                    )
+                    .clicked()
+                {
+                    match self
+                        .integration_worker
+                        .submit(IntegrationRequest::RemoteTest(profile.clone()))
+                    {
+                        Ok(()) => {
+                            self.integration_pending += 1;
+                            self.sql_output = format!("Testing remote `{}`…", profile.name);
+                        }
+                        Err(error) => self.sql_output = error,
+                    }
+                }
+            });
         }
     }
 
