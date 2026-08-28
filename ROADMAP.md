@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.55.0`
+Current application version: `0.56.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1089,6 +1089,22 @@ Implementation notes:
 
 - SQL lexical validation is defense in depth rather than an authorization boundary. Users should configure database-enforced read-only roles because vendor functions or extensions may have side effects even within a `SELECT`.
 - Schema discovery and connection tests continue through the same connector limits; their internal queries are read-only forms accepted by the validator.
+
+## 0.56 connection-profile lifecycle cleanup — implemented
+
+- [x] Add a **Remove profile** action to the SQL workbench profile selector.
+- [x] Disable removal while an integration operation is active or no profile exists.
+- [x] Keep the selected profile index valid after removing the first, middle, last, or only entry.
+- [x] Persist the reduced project profile collection before touching credentials.
+- [x] Roll back the in-memory profile removal if project persistence fails.
+- [x] Delete the associated `forge-ml` OS keyring credential after successful persistence.
+- [x] Treat an absent credential as successful cleanup and report other credential-store failures.
+- [x] Test profile removal and selection clamping without requiring access to the host credential store.
+
+Implementation notes:
+
+- Removing a profile does not delete database files, schemas, tables, cached datasets, or query history; it removes only Forge's connection metadata and matching OS credential.
+- Credential cleanup happens after durable profile removal so a storage failure cannot leave an apparently configured profile with its required secret already deleted.
 
 ## Known technical risks
 

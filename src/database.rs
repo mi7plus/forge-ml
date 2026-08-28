@@ -33,6 +33,18 @@ pub fn record_query(history: &mut Vec<String>, query: String) {
     *history = bounded_query_history(std::mem::take(history));
 }
 
+pub fn remove_profile(
+    profiles: &mut Vec<ConnectionProfile>,
+    selected: &mut usize,
+) -> Option<ConnectionProfile> {
+    if *selected >= profiles.len() {
+        return None;
+    }
+    let removed = profiles.remove(*selected);
+    *selected = (*selected).min(profiles.len().saturating_sub(1));
+    Some(removed)
+}
+
 const MAX_PREVIEW_ROWS: usize = 10_000;
 const MAX_CLI_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
 const CLI_TIMEOUT: Duration = Duration::from_secs(30);
@@ -562,6 +574,13 @@ pub fn load_secret(key: &str) -> Result<String, String> {
         .get_password()
         .map_err(|e| e.to_string())
 }
+pub fn delete_secret(key: &str) -> Result<(), String> {
+    let entry = keyring::Entry::new("forge-ml", key).map_err(|e| e.to_string())?;
+    match entry.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
 #[cfg(feature = "adbc")]
 pub fn adbc_marker() -> &'static str {
     std::any::type_name::<adbc_core::error::Error>()
@@ -606,6 +625,28 @@ mod tests {
         ] {
             assert!(validate_query(query).is_err(), "accepted {query}");
         }
+    }
+
+    #[test]
+    fn profile_removal_keeps_selection_in_bounds() {
+        let profile = |name: &str| ConnectionProfile {
+            name: name.into(),
+            kind: ConnectionKind::SQLite,
+            location: format!("{name}.db"),
+            username: String::new(),
+            credential_key: format!("key-{name}"),
+        };
+        let mut profiles = vec![profile("one"), profile("two")];
+        let mut selected = 1;
+        assert_eq!(
+            remove_profile(&mut profiles, &mut selected).unwrap().name,
+            "two"
+        );
+        assert_eq!(selected, 0);
+        assert_eq!(profiles.len(), 1);
+        assert!(remove_profile(&mut profiles, &mut selected).is_some());
+        assert_eq!(selected, 0);
+        assert!(remove_profile(&mut profiles, &mut selected).is_none());
     }
     #[test]
     fn queries_sqlite_to_table() {

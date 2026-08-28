@@ -55,6 +55,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - Hardened SQLite, DuckDB, PostgreSQL, and verified-TLS MySQL profiles with test probes, command timeouts, output caps, and credential-safe errors
 - Project-scoped successful SQL history with bounded deduplication, recall, JSON export, and explicit clearing
 - Defense-in-depth read-only SQL workbench validation with single-statement enforcement
+- Connection-profile removal with persisted rollback and OS credential cleanup
 - Non-blocking database and object-storage operations with typed background result delivery
 - Non-blocking CSV, TSV, JSON Lines, Parquet, and Arrow IPC imports with a 512 MiB interactive safety limit
 - Bounded dataset materialization with row, column, decoded-text, cell, and Parquet batch limits

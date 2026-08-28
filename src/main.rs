@@ -4072,6 +4072,7 @@ impl ForgeApp {
                 }
             }
         });
+        let mut remove_profile = false;
         ui.horizontal(|ui| {
             let available = self.integration_pending == 0;
             egui::ComboBox::from_id_salt("database_profile")
@@ -4131,8 +4132,46 @@ impl ForgeApp {
                         };
                 }
             }
+            if ui
+                .add_enabled(
+                    available && !self.database_profiles.is_empty(),
+                    egui::Button::new("Remove profile"),
+                )
+                .on_hover_text("Remove this project profile and its stored OS credential")
+                .clicked()
+            {
+                remove_profile = true;
+            }
             ui.label(format!("ADBC core: {}", database::adbc_marker()));
         });
+        if remove_profile {
+            if let Some(profile) =
+                database::remove_profile(&mut self.database_profiles, &mut self.database_selected)
+            {
+                self.sql_output = match self
+                    .workspace_store
+                    .as_ref()
+                    .ok_or_else(|| "Workspace storage unavailable".to_owned())
+                    .and_then(|store| store.save_connections(&self.database_profiles))
+                {
+                    Ok(()) => match database::delete_secret(&profile.credential_key) {
+                        Ok(()) => format!(
+                            "Removed connection profile `{}` and its stored credential.",
+                            profile.name
+                        ),
+                        Err(error) => format!(
+                            "Removed profile `{}`, but OS credential cleanup failed: {error}",
+                            profile.name
+                        ),
+                    },
+                    Err(error) => {
+                        self.database_profiles.push(profile);
+                        self.database_selected = self.database_profiles.len() - 1;
+                        format!("Could not remove connection profile: {error}")
+                    }
+                };
+            }
+        }
         ui.add(
             egui::TextEdit::multiline(&mut self.sql_editor)
                 .font(egui::TextStyle::Monospace)
