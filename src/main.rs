@@ -65,6 +65,7 @@ use std::collections::{HashMap, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::{
+    atomic::{AtomicU64, Ordering as AtomicOrdering},
     mpsc::{self, Receiver, Sender},
     Arc,
 };
@@ -232,29 +233,36 @@ struct RowIndexCache {
 struct RowIndexRequest {
     key: RowIndexKey,
     data: Arc<TableData>,
+    generation: u64,
 }
 
 struct RowIndexWorker {
     sender: Sender<RowIndexRequest>,
     receiver: Receiver<RowIndexCache>,
+    generation: Arc<AtomicU64>,
 }
 
 impl Default for RowIndexWorker {
     fn default() -> Self {
         let (request_tx, request_rx) = mpsc::channel::<RowIndexRequest>();
         let (result_tx, result_rx) = mpsc::channel();
+        let generation = Arc::new(AtomicU64::new(0));
+        let worker_generation = generation.clone();
         std::thread::spawn(move || {
             while let Ok(mut request) = request_rx.recv() {
                 while let Ok(newer) = request_rx.try_recv() {
                     request = newer;
                 }
                 let key = request.key;
-                let rows = build_row_index(
+                let Some(rows) = build_row_index_cancellable(
                     &request.data,
                     &key.filter,
                     key.sort_column,
                     key.sort_descending,
-                );
+                    || worker_generation.load(AtomicOrdering::Relaxed) != request.generation,
+                ) else {
+                    continue;
+                };
                 if result_tx
                     .send(RowIndexCache {
                         revision: key.revision,
@@ -272,7 +280,21 @@ impl Default for RowIndexWorker {
         Self {
             sender: request_tx,
             receiver: result_rx,
+            generation,
         }
+    }
+}
+
+impl RowIndexWorker {
+    fn submit(&self, key: RowIndexKey, data: Arc<TableData>) -> Result<(), String> {
+        let generation = self.generation.fetch_add(1, AtomicOrdering::Relaxed) + 1;
+        self.sender
+            .send(RowIndexRequest {
+                key,
+                data,
+                generation,
+            })
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -6798,13 +6820,7 @@ fn draw_dataset_table(
         });
         if !cache_matches
             && row_index_pending.as_ref() != Some(&key)
-            && row_index_worker
-                .sender
-                .send(RowIndexRequest {
-                    key: key.clone(),
-                    data: immutable_data,
-                })
-                .is_ok()
+            && row_index_worker.submit(key.clone(), immutable_data).is_ok()
         {
             *row_index_pending = Some(key);
         }
@@ -6961,41 +6977,90 @@ fn build_row_index(
     sort_column: Option<usize>,
     sort_descending: bool,
 ) -> Vec<usize> {
+    build_row_index_cancellable(data, filter, sort_column, sort_descending, || false)
+        .expect("non-cancellable row indexing")
+}
+
+fn build_row_index_cancellable(
+    data: &TableData,
+    filter: &str,
+    sort_column: Option<usize>,
+    sort_descending: bool,
+    cancelled: impl Fn() -> bool,
+) -> Option<Vec<usize>> {
     let needle = filter.to_lowercase();
-    let mut rows = data
-        .rows
-        .iter()
-        .enumerate()
-        .filter(|(_, row)| {
-            needle.is_empty()
-                || row
-                    .iter()
-                    .any(|value| value.to_lowercase().contains(&needle))
-        })
-        .map(|(index, _)| index)
-        .collect::<Vec<_>>();
-    if let Some(column) = sort_column {
-        rows.sort_by(|left_index, right_index| {
-            let left = data.rows[*left_index]
-                .get(column)
-                .map(String::as_str)
-                .unwrap_or_default();
-            let right = data.rows[*right_index]
-                .get(column)
-                .map(String::as_str)
-                .unwrap_or_default();
-            let ordering = match (left.parse::<f64>(), right.parse::<f64>()) {
-                (Ok(left), Ok(right)) => left.total_cmp(&right),
-                _ => left.to_lowercase().cmp(&right.to_lowercase()),
-            };
-            if sort_descending {
-                ordering.reverse()
-            } else {
-                ordering
-            }
-        });
+    let mut rows = Vec::with_capacity(data.rows.len());
+    for (index, row) in data.rows.iter().enumerate() {
+        if index.is_multiple_of(1_024) && cancelled() {
+            return None;
+        }
+        if needle.is_empty()
+            || row
+                .iter()
+                .any(|value| value.to_lowercase().contains(&needle))
+        {
+            rows.push(index);
+        }
     }
-    rows
+    if let Some(column) = sort_column {
+        if cancelled() {
+            return None;
+        }
+        let mut numeric = Vec::with_capacity(rows.len());
+        let mut all_numeric = true;
+        for (position, index) in rows.iter().enumerate() {
+            if position.is_multiple_of(1_024) && cancelled() {
+                return None;
+            }
+            match data.rows[*index]
+                .get(column)
+                .map(String::as_str)
+                .unwrap_or_default()
+                .parse::<f64>()
+            {
+                Ok(value) => numeric.push((*index, value)),
+                Err(_) => {
+                    all_numeric = false;
+                    break;
+                }
+            }
+        }
+        rows = if all_numeric {
+            let mut keyed = numeric;
+            keyed.sort_by(|left, right| {
+                let ordering = left.1.total_cmp(&right.1);
+                if sort_descending {
+                    ordering.reverse()
+                } else {
+                    ordering
+                }
+            });
+            keyed.into_iter().map(|(index, _)| index).collect()
+        } else {
+            let mut keyed = Vec::with_capacity(rows.len());
+            for (position, index) in rows.into_iter().enumerate() {
+                if position.is_multiple_of(1_024) && cancelled() {
+                    return None;
+                }
+                let key = data.rows[index]
+                    .get(column)
+                    .map(String::as_str)
+                    .unwrap_or_default()
+                    .to_lowercase();
+                keyed.push((index, key));
+            }
+            keyed.sort_by(|left, right| {
+                let ordering = left.1.cmp(&right.1);
+                if sort_descending {
+                    ordering.reverse()
+                } else {
+                    ordering
+                }
+            });
+            keyed.into_iter().map(|(index, _)| index).collect()
+        };
+    }
+    (!cancelled()).then_some(rows)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -7807,15 +7872,14 @@ mod editor_tests {
     fn row_index_worker_returns_revision_keyed_results() {
         let worker = RowIndexWorker::default();
         worker
-            .sender
-            .send(RowIndexRequest {
-                key: RowIndexKey {
+            .submit(
+                RowIndexKey {
                     revision: 7,
                     filter: "alpha".into(),
                     sort_column: Some(1),
                     sort_descending: true,
                 },
-                data: Arc::new(TableData {
+                Arc::new(TableData {
                     columns: vec!["name".into(), "score".into()],
                     rows: vec![
                         vec!["alpha".into(), "2".into()],
@@ -7823,7 +7887,7 @@ mod editor_tests {
                         vec!["beta".into(), "10".into()],
                     ],
                 }),
-            })
+            )
             .unwrap();
         let result = worker
             .receiver
@@ -7832,5 +7896,25 @@ mod editor_tests {
         assert_eq!(result.revision, 7);
         assert_eq!(result.filter, "alpha");
         assert_eq!(result.rows, [1, 0]);
+    }
+
+    #[test]
+    fn row_index_scan_can_cancel_and_mixed_columns_sort_as_text() {
+        let large = TableData {
+            columns: vec!["value".into()],
+            rows: (0..2_048).map(|value| vec![value.to_string()]).collect(),
+        };
+        let probes = std::cell::Cell::new(0);
+        assert!(build_row_index_cancellable(&large, "", None, false, || {
+            probes.set(probes.get() + 1);
+            probes.get() >= 2
+        })
+        .is_none());
+
+        let mixed = TableData {
+            columns: vec!["value".into()],
+            rows: vec![vec!["x".into()], vec!["2".into()], vec!["10".into()]],
+        };
+        assert_eq!(build_row_index(&mixed, "", Some(0), false), [2, 1, 0]);
     }
 }

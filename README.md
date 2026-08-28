@@ -66,6 +66,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - Two-axis virtualized data grids with selection, hidden/pinned/resizable columns, explicit draft editing, selection export, and linked plots
 - Revision-aware filter/sort indexes and zero-copy steady-state table viewing
 - Coalescing background filter/sort indexing with revision-safe result delivery
+- Generation-cancelled indexing with precomputed numeric or text sort keys
 - Reproducible project bundles plus standalone EDA and experiment-comparison HTML reports
 
 ## Notebook controls

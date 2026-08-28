@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.43.0`
+Current application version: `0.44.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -902,6 +902,23 @@ Implementation notes:
 
 - Each dataset view owns one lightweight index worker, created lazily with its view state and stopped automatically when the state is dropped.
 - The table is blank while its first index is built rather than rendering a stale revision. Later cached views remain valid only for an exact query key.
+
+## 0.44 cancellable and typed data-view indexing — implemented
+
+- [x] Assign a monotonically increasing generation to every background index request.
+- [x] Cancel stale filtering and sort-key preparation at bounded 1,024-row checkpoints.
+- [x] Suppress cancelled results before they enter the UI event channel.
+- [x] Retain queue coalescing so only the newest waiting request starts after an active scan exits.
+- [x] Parse numeric sort keys once per matching row instead of inside every comparator call.
+- [x] Lowercase text sort keys once per matching row instead of allocating during `O(n log n)` comparisons.
+- [x] Select one sort mode for the whole visible column, giving mixed numeric/text columns deterministic text ordering.
+- [x] Preserve stable ordering for equal keys in ascending and descending views.
+- [x] Test bounded cancellation and deterministic mixed-column sorting.
+
+Implementation notes:
+
+- Sorting itself uses the standard stable slice sort and cannot be interrupted mid-sort. Cancellation is checked immediately before key preparation, throughout both key-building paths, and after sorting before publication.
+- Numeric mode is used only when every matching value parses as `f64`; otherwise the complete matching set is sorted case-insensitively as text.
 
 ## Known technical risks
 
