@@ -42,6 +42,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - Non-blocking native Millwright 2.2.1 CSV/Parquet imports normalized through Forge's bounded data pipeline
 - Always-embedded Millwright 2.2.1 plus Burn 0.22 training, metrics, Flex CPU, and WGPU runtimes
 - Bounded framework-neutral training event monitoring with validated JSON/CSV export
+- One-click native loss, metric, trial-score, and throughput plots from training telemetry
 - Regression-tested right-pane dataset docking, divider clamping, and persisted layout defaults
 - Cached dataset-quality profiles with missingness, type coverage, standard deviation, bounded correlations, and alerts
 - Background Arrow construction and quality preparation for file, SQL, and native Millwright imports

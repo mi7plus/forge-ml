@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.57.0`
+Current application version: `0.58.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1120,6 +1120,21 @@ Implementation notes:
 
 - Training telemetry stays memory-only unless the user explicitly exports it or references it from an experiment artifact, avoiding automatic retention of potentially sensitive job details.
 - CSV stores each typed event as escaped JSON beside its sequence index, preserving variant-specific fields without a sparse, unstable column schema.
+
+## 0.58 native training metric plots — implemented
+
+- [x] Convert validated training telemetry into native structured plots on demand.
+- [x] Plot epoch and batch loss as independently toggleable series.
+- [x] Plot optional epoch metrics, completed AutoML trial scores, and batch throughput.
+- [x] Label axes for epoch, trial, event step, loss, score, metric, and samples per second.
+- [x] Replace same-name training plots on refresh while preserving unrelated plot history.
+- [x] Switch directly from the training overview to the Plots pane after successful conversion.
+- [x] Test plot-family validity, expected plot count, and combined loss series generation.
+
+Implementation notes:
+
+- Batch series use the retained event sequence as their X coordinate because batch counters can restart at every epoch; epoch and trial series use their explicit protocol counters.
+- Generated views are ordinary `PlotSpec` objects, so they inherit visibility, log transforms, persistence, reordering, duplication, and all portable export formats.
 
 ## Known technical risks
 

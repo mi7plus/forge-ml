@@ -1,3 +1,4 @@
+use crate::plot::{PlotKind, PlotSeries, PlotSpec, PLOT_SPEC_VERSION};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
@@ -105,6 +106,109 @@ pub fn training_csv(events: &[TrainingEvent]) -> Result<Vec<u8>, String> {
             .map_err(|error| error.to_string())?;
     }
     writer.into_inner().map_err(|error| error.to_string())
+}
+
+pub fn training_plots(events: &[TrainingEvent]) -> Vec<PlotSpec> {
+    let mut epoch_loss = Vec::new();
+    let mut epoch_metric = Vec::new();
+    let mut batch_loss = Vec::new();
+    let mut throughput = Vec::new();
+    let mut trial_scores = Vec::new();
+    for (index, event) in events.iter().enumerate() {
+        match event {
+            TrainingEvent::Epoch {
+                epoch,
+                loss,
+                metric,
+                ..
+            } => {
+                epoch_loss.push([*epoch as f64, *loss]);
+                if let Some(metric) = metric {
+                    epoch_metric.push([*epoch as f64, *metric]);
+                }
+            }
+            TrainingEvent::Batch {
+                loss,
+                samples_per_second,
+                ..
+            } => {
+                batch_loss.push([index as f64, *loss]);
+                throughput.push([index as f64, *samples_per_second]);
+            }
+            TrainingEvent::TrialCompleted { trial, score } => {
+                trial_scores.push([*trial as f64, *score]);
+            }
+            _ => {}
+        }
+    }
+    let mut plots = Vec::new();
+    let loss_series = [("epoch loss", epoch_loss), ("batch loss", batch_loss)]
+        .into_iter()
+        .filter(|(_, points)| !points.is_empty())
+        .map(|(name, points)| PlotSeries {
+            name: name.into(),
+            points,
+            values: Vec::new(),
+            visible: true,
+        })
+        .collect::<Vec<_>>();
+    if !loss_series.is_empty() {
+        plots.push(training_plot("Training loss", "step", "loss", loss_series));
+    }
+    if !epoch_metric.is_empty() {
+        plots.push(training_plot(
+            "Training metric",
+            "epoch",
+            "metric",
+            vec![PlotSeries {
+                name: "metric".into(),
+                points: epoch_metric,
+                values: Vec::new(),
+                visible: true,
+            }],
+        ));
+    }
+    if !trial_scores.is_empty() {
+        plots.push(training_plot(
+            "Trial scores",
+            "trial",
+            "score",
+            vec![PlotSeries {
+                name: "score".into(),
+                points: trial_scores,
+                values: Vec::new(),
+                visible: true,
+            }],
+        ));
+    }
+    if !throughput.is_empty() {
+        plots.push(training_plot(
+            "Training throughput",
+            "batch event",
+            "samples/s",
+            vec![PlotSeries {
+                name: "throughput".into(),
+                points: throughput,
+                values: Vec::new(),
+                visible: true,
+            }],
+        ));
+    }
+    plots
+}
+
+fn training_plot(name: &str, x_label: &str, y_label: &str, series: Vec<PlotSeries>) -> PlotSpec {
+    PlotSpec {
+        version: PLOT_SPEC_VERSION,
+        name: name.into(),
+        kind: PlotKind::Line,
+        x_label: x_label.into(),
+        y_label: y_label.into(),
+        series,
+        matrix: Vec::new(),
+        x_log: false,
+        y_log: false,
+    }
 }
 
 pub trait TrainingObserver: Send + Sync {
@@ -309,5 +413,32 @@ mod tests {
             .contains("TrialCompleted"));
         let csv = String::from_utf8(training_csv(&events[..2]).unwrap()).unwrap();
         assert!(csv.starts_with("index,event"));
+    }
+
+    #[test]
+    fn training_events_become_valid_native_plots() {
+        let events = vec![
+            TrainingEvent::Epoch {
+                epoch: 1,
+                total: 2,
+                loss: 0.8,
+                metric: Some(0.7),
+            },
+            TrainingEvent::Batch {
+                epoch: 1,
+                batch: 1,
+                total: 4,
+                loss: 0.75,
+                samples_per_second: 120.0,
+            },
+            TrainingEvent::TrialCompleted {
+                trial: 3,
+                score: 0.91,
+            },
+        ];
+        let plots = training_plots(&events);
+        assert_eq!(plots.len(), 4);
+        assert!(plots.iter().all(|plot| plot.validate().is_ok()));
+        assert_eq!(plots[0].series.len(), 2);
     }
 }

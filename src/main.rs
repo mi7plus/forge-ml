@@ -4392,6 +4392,27 @@ impl ForgeApp {
                     }
                 }
             }
+            if !self.training_events.is_empty() && ui.button("Open metric plots").clicked() {
+                let plots = millwright_studio::training_plots(&self.training_events);
+                let count = plots.len();
+                for spec in plots {
+                    if let Some(existing) = self
+                        .structured_plots
+                        .iter_mut()
+                        .find(|existing| existing.name == spec.name)
+                    {
+                        *existing = spec;
+                    } else {
+                        self.structured_plots.push(spec);
+                    }
+                }
+                if count > 0 {
+                    self.inspector_tab = InspectorTab::Charts;
+                    self.console = format!("Opened {count} native training metric plot(s).");
+                } else {
+                    self.console = "No plottable training metrics have arrived yet.".into();
+                }
+            }
             if !self.training_events.is_empty() && ui.button("Clear events").clicked() {
                 self.training_events.clear();
                 self.console = "Cleared live training events.".into();
