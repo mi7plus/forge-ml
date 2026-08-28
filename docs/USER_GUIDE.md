@@ -37,7 +37,7 @@ Forge reads an open table directly instead of cloning it for every frame. Filter
 
 Inside the full data viewer, select individual or all filtered rows, hide or pin columns, and adjust each visible width. **Edit cells** creates a draft; **Save edits** replaces the in-memory table and rebuilds its Arrow batch, while **Cancel edits** discards every draft change. Selection export includes selected rows and visible columns. Choose numeric X/Y columns to create a linked scatter plot from the current selection.
 
-Each table can produce a self-contained EDA HTML report with column profiles and a bounded preview. Runs can produce an offline comparison report containing final metrics, step counts, tags, Git commits, and escaped run manifests.
+Each table can produce a self-contained EDA HTML report or an offline PDF with dimensions, quality alerts, up to 500 column profiles, the strongest 20 correlations, and a 50-row by 20-column preview. Runs can produce HTML or PDF comparison reports containing final metrics, step counts, execution counts, tags, and Git commits. PDF creation is native and atomic: it needs no browser or Python runtime, synchronizes a sibling temporary file, and replaces an existing destination only after success. The compact built-in font supports printable ASCII; unsupported glyphs are shown as `?`.
 
 New experiment runs use SHA-256 fingerprints for dataset contents, hashed source identities, the Cargo lockfile, and selected runtime package metadata. The experiment pane shows the algorithm and captured dataset count. Historical runs remain readable and are labeled as using legacy fingerprints; Forge does not silently rewrite their provenance.
 

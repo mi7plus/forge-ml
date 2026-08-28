@@ -4898,6 +4898,7 @@ impl ForgeApp {
         let mut dataset_to_delete: Option<(bool, String)> = None;
         let mut export_request: Option<(String, export::DataFormat, &'static str)> = None;
         let mut report_request: Option<String> = None;
+        let mut pdf_report_request: Option<String> = None;
         egui::ScrollArea::vertical()
             .id_salt("data_inspector_vectors")
             .show(ui, |ui| {
@@ -4938,6 +4939,10 @@ impl ForgeApp {
                                 }
                                 if ui.button("EDA HTML report").clicked() {
                                     report_request = Some(name.clone());
+                                    ui.close();
+                                }
+                                if ui.button("EDA PDF report").clicked() {
+                                    pdf_report_request = Some(name.clone());
                                     ui.close();
                                 }
                             });
@@ -5203,6 +5208,21 @@ impl ForgeApp {
                     .unwrap_or_else(|e| format!("EDA report failed: {e}"));
             }
         }
+        if let Some(name) = pdf_report_request {
+            if let Some(path) = rfd::FileDialog::new()
+                .set_file_name(format!("{}-eda.pdf", safe_file_stem(&name)))
+                .save_file()
+            {
+                self.console = self
+                    .data
+                    .tables
+                    .get(&name)
+                    .ok_or_else(|| "Dataset no longer exists".to_owned())
+                    .and_then(|dataset| export::dataset_pdf(&name, dataset, &path))
+                    .map(|()| format!("Exported EDA PDF to {}", path.display()))
+                    .unwrap_or_else(|error| format!("EDA PDF failed: {error}"));
+            }
+        }
     }
 
     fn selected_dataset_info(&self) -> Option<(String, bool)> {
@@ -5441,6 +5461,17 @@ impl ForgeApp {
                     )
                     .map(|()| format!("Exported experiment report to {}", path.display()))
                     .unwrap_or_else(|e| format!("Experiment report failed: {e}"));
+                }
+            }
+            if ui.button("PDF report").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_file_name("experiment-comparison.pdf")
+                    .save_file()
+                {
+                    self.console =
+                        export::experiment_pdf(&self.saved_runs, &self.comparison_metric, &path)
+                            .map(|()| format!("Exported experiment PDF to {}", path.display()))
+                            .unwrap_or_else(|error| format!("Experiment PDF failed: {error}"));
                 }
             }
         });

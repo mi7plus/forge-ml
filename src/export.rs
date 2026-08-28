@@ -425,6 +425,214 @@ pub fn experiment_report(runs: &[ExperimentRun], metric: &str) -> String {
         .collect::<String>();
     html(&format!("Experiment comparison — {}",escape(metric)), &format!("<h1>Experiment comparison</h1><p>Metric: <strong>{}</strong></p><table><tr><th>Run</th><th>Final</th><th>Steps</th><th>Tags</th><th>Git commit</th></tr>{rows}</table><h2>Run manifests</h2><pre>{}</pre>",escape(metric),escape(&serde_json::to_string_pretty(runs).unwrap_or_default())))
 }
+
+pub fn dataset_pdf(name: &str, dataset: &Dataset, path: &Path) -> Result<(), String> {
+    let quality = dataset.quality();
+    let mut lines = vec![
+        format!("Dataset report - {name}"),
+        format!(
+            "{} rows x {} columns",
+            dataset.rows.len(),
+            dataset.columns.len()
+        ),
+        String::new(),
+        "Quality alerts".into(),
+    ];
+    if quality.alerts.is_empty() {
+        lines.push("No missingness, constant-column, or mixed-type alerts.".into());
+    } else {
+        lines.extend(
+            quality
+                .alerts
+                .iter()
+                .take(100)
+                .map(|alert| format!("- {alert}")),
+        );
+    }
+    lines.extend([String::new(), "Column profile (first 500 columns)".into()]);
+    lines.extend(dataset.profile().iter().take(500).map(|profile| {
+        format!(
+            "{} | missing {} ({:.1}%) | numeric {} | unique {} | min {} | max {} | mean {} | sd {}",
+            profile.name,
+            profile.missing,
+            profile.missing_percent,
+            profile.numeric_count,
+            profile.unique,
+            number(profile.min),
+            number(profile.max),
+            number(profile.mean),
+            number(profile.std_dev)
+        )
+    }));
+    lines.extend([String::new(), "Strongest numeric correlations".into()]);
+    lines.extend(quality.correlations.iter().take(20).map(|value| {
+        format!(
+            "{} / {} | r={:.4}",
+            value.left, value.right, value.coefficient
+        )
+    }));
+    lines.extend([String::new(), "Preview (50 rows x 20 columns)".into()]);
+    let shown_columns = dataset.columns.len().min(20);
+    lines.push(dataset.columns[..shown_columns].join(" | "));
+    lines.extend(dataset.rows.iter().take(50).map(|row| {
+        row.iter()
+            .take(shown_columns)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" | ")
+    }));
+    write_text_pdf(path, &lines)
+}
+
+pub fn experiment_pdf(runs: &[ExperimentRun], metric: &str, path: &Path) -> Result<(), String> {
+    let mut lines = vec![
+        "Experiment comparison".into(),
+        format!("Metric: {metric}"),
+        String::new(),
+        "Run | Final | Steps | Executions | Tags | Git commit".into(),
+    ];
+    lines.extend(runs.iter().take(1_000).map(|run| {
+        let values = run.metrics.get(metric);
+        let final_value = values
+            .and_then(|values| values.last())
+            .map(|point| format!("{:.6}", point[1]))
+            .unwrap_or_else(|| "-".into());
+        format!(
+            "{} | {} | {} | {} | {} | {}",
+            run.name,
+            final_value,
+            values.map_or(0, Vec::len),
+            run.execution_count,
+            run.tags.join(", "),
+            run.provenance.git_commit
+        )
+    }));
+    write_text_pdf(path, &lines)
+}
+
+fn write_text_pdf(path: &Path, lines: &[String]) -> Result<(), String> {
+    let wrapped = lines
+        .iter()
+        .flat_map(|line| wrap_pdf_line(line, 92))
+        .collect::<Vec<_>>();
+    let pages = wrapped.chunks(52).collect::<Vec<_>>();
+    let page_count = pages.len().max(1);
+    let mut objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        format!(
+            "<< /Type /Pages /Count {} /Kids [{}] >>",
+            page_count,
+            (0..page_count)
+                .map(|index| format!("{} 0 R", 4 + index * 2))
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
+        .into_bytes(),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec(),
+    ];
+    for index in 0..page_count {
+        let page_id = 4 + index * 2;
+        let content_id = page_id + 1;
+        objects.push(
+            format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents {content_id} 0 R >>")
+                .into_bytes(),
+        );
+        let page_lines = pages.get(index).copied().unwrap_or_default();
+        let mut stream = "BT /F1 10 Tf 50 750 Td 14 TL".to_owned();
+        for line in page_lines {
+            stream.push_str(&format!("\n({}) Tj T*", pdf_escape(line)));
+        }
+        stream.push_str("\nET");
+        objects.push(
+            format!(
+                "<< /Length {} >>\nstream\n{}\nendstream",
+                stream.len(),
+                stream
+            )
+            .into_bytes(),
+        );
+    }
+    let mut pdf = b"%PDF-1.4\n%ForgeML\n".to_vec();
+    let mut offsets = Vec::with_capacity(objects.len());
+    for (index, object) in objects.iter().enumerate() {
+        offsets.push(pdf.len());
+        pdf.extend_from_slice(format!("{} 0 obj\n", index + 1).as_bytes());
+        pdf.extend_from_slice(object);
+        pdf.extend_from_slice(b"\nendobj\n");
+    }
+    let xref = pdf.len();
+    pdf.extend_from_slice(
+        format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes(),
+    );
+    for offset in offsets {
+        pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    pdf.extend_from_slice(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+            objects.len() + 1
+        )
+        .as_bytes(),
+    );
+    atomic_bytes(path, &pdf)
+}
+
+fn wrap_pdf_line(line: &str, width: usize) -> Vec<String> {
+    if line.is_empty() {
+        return vec![String::new()];
+    }
+    let chars = line.chars().collect::<Vec<_>>();
+    chars
+        .chunks(width)
+        .map(|chunk| chunk.iter().collect())
+        .collect()
+}
+
+fn pdf_escape(line: &str) -> String {
+    line.chars()
+        .map(|character| {
+            let character = if character.is_ascii_graphic() || character == ' ' {
+                character
+            } else {
+                '?'
+            };
+            match character {
+                '(' => "\\(".into(),
+                ')' => "\\)".into(),
+                '\\' => "\\\\".into(),
+                value => value.to_string(),
+            }
+        })
+        .collect()
+}
+
+fn atomic_bytes(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let parent = path.parent().ok_or("Export path has no parent")?;
+    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or("Export path requires a valid file name")?;
+    let temporary = parent.join(format!(
+        ".{file_name}.forge-{}-{}.tmp",
+        std::process::id(),
+        NEXT_EXPORT_TEMP.fetch_add(1, Ordering::Relaxed)
+    ));
+    let result = fs::write(&temporary, bytes)
+        .map_err(|error| error.to_string())
+        .and_then(|()| {
+            fs::OpenOptions::new()
+                .write(true)
+                .open(&temporary)
+                .and_then(|file| file.sync_all())
+                .map_err(|error| error.to_string())?;
+            publish_export(&temporary, path)
+        });
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
 fn number(value: Option<f64>) -> String {
     value
         .map(|v| format!("{v:.6}"))
@@ -527,5 +735,25 @@ mod tests {
         let report = dataset_report("unsafe", &data);
         assert!(!report.contains("<script>"));
         assert!(report.contains("&lt;script&gt;"));
+    }
+    #[test]
+    fn native_pdf_writer_paginates_escapes_and_replaces_atomically() {
+        let root = std::env::temp_dir().join(format!("forge-pdf-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("report.pdf");
+        fs::write(&path, "old").unwrap();
+        let lines = (0..60)
+            .map(|index| format!("line ({index}) \\ value"))
+            .collect::<Vec<_>>();
+        write_text_pdf(&path, &lines).unwrap();
+        let pdf = fs::read(&path).unwrap();
+        assert!(pdf.starts_with(b"%PDF-1.4"));
+        assert!(pdf.ends_with(b"%%EOF\n"));
+        let text = String::from_utf8(pdf).unwrap();
+        assert!(text.contains("/Count 2"));
+        assert!(text.contains(r"line \(0\) \\ value"));
+        assert!(text.contains("xref\n0 8"));
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        let _ = fs::remove_dir_all(root);
     }
 }

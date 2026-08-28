@@ -68,6 +68,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - Coalescing background filter/sort indexing with revision-safe result delivery
 - Generation-cancelled indexing with precomputed numeric or text sort keys
 - Reproducible project bundles plus standalone EDA and experiment-comparison HTML reports
+- Atomic offline PDF reports for bounded dataset EDA and experiment comparisons
 
 ## Notebook controls
 

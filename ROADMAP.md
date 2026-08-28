@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.45.0`
+Current application version: `0.46.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -300,7 +300,7 @@ Implementation notes:
 
 ## 1.0 production readiness
 
-- [~] Complete data, notebook, experiment, and model exports (portable data, notebooks, run/project bundles, EDA, and comparison reports landed; PDF and direct model conversion remain).
+- [~] Complete data, notebook, experiment, and model exports (portable data, notebooks, run/project bundles, HTML/PDF EDA and comparison reports landed; direct model conversion remains).
 - [x] Add Millwright ONNX, registry, rollback, and service generation UI.
 - [~] Add database and object-storage connector hardening (bounded SQLite, DuckDB, PostgreSQL, and MySQL paths plus secured CLI-backed object profiles landed; broader driver validation remains).
 - [x] Add private Cargo/Python registries and GitHub Enterprise validation.
@@ -937,6 +937,23 @@ Implementation notes:
 
 - Forge does not bundle a MySQL client library; the official `mysql` executable remains user-managed, matching the existing DuckDB/PostgreSQL footprint strategy.
 - Client-side CA and certificate configuration comes from the user's MySQL option files. Forge requires identity verification and does not expose a UI switch that silently weakens TLS.
+
+## 0.46 native PDF reports — implemented
+
+- [x] Add dependency-free native PDF generation without requiring Python, a browser, or an office runtime.
+- [x] Export dataset EDA summaries with dimensions, alerts, bounded profiles, correlations, and a bounded preview.
+- [x] Export experiment comparisons with metric, final value, steps, execution count, tags, and Git commit.
+- [x] Paginate wrapped report text into bounded 52-line pages using a standard embedded PDF font reference.
+- [x] Escape PDF string delimiters and replace unsupported/control glyphs rather than emitting malformed content streams.
+- [x] Generate correct page trees, object offsets, cross-reference tables, trailers, and EOF markers.
+- [x] Publish PDFs through synchronized sibling temporary files with rollback-safe destination replacement.
+- [x] Add **EDA PDF report** and **PDF report** actions beside the existing HTML exports.
+- [x] Test pagination, PDF escaping, cross-reference sizing, atomic replacement, and temporary-file cleanup.
+
+Implementation notes:
+
+- The compact writer intentionally targets text-first offline reports and the built-in Helvetica font. Non-ASCII glyphs are replaced with `?`; richer Unicode/font embedding and vector chart pages remain future enhancements.
+- Dataset PDF content is bounded to 100 alerts, 500 column profiles, 20 correlations, and a 50-row by 20-column preview so report generation cannot accidentally mirror a full dataset.
 
 ## Known technical risks
 
