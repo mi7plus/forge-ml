@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.44.0`
+Current application version: `0.45.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -302,7 +302,7 @@ Implementation notes:
 
 - [~] Complete data, notebook, experiment, and model exports (portable data, notebooks, run/project bundles, EDA, and comparison reports landed; PDF and direct model conversion remain).
 - [x] Add Millwright ONNX, registry, rollback, and service generation UI.
-- [~] Add database and object-storage connector hardening (bounded database previews and secured CLI-backed object profiles landed; broader driver validation remains).
+- [~] Add database and object-storage connector hardening (bounded SQLite, DuckDB, PostgreSQL, and MySQL paths plus secured CLI-backed object profiles landed; broader driver validation remains).
 - [x] Add private Cargo/Python registries and GitHub Enterprise validation.
 - [~] Add signed releases, update channels, provenance, and attestations (artifact and channel-manifest attestations landed; OS code-signing identities remain release-environment work).
 - [~] Complete accessibility and keyboard navigation review (keyboard shell, contrast, motion, and guidance landed; formal assistive-technology testing remains).
@@ -919,6 +919,24 @@ Implementation notes:
 
 - Sorting itself uses the standard stable slice sort and cannot be interrupted mid-sort. Cancellation is checked immediately before key preparation, throughout both key-building paths, and after sorting before publication.
 - Numeric mode is used only when every matching value parses as `f64`; otherwise the complete matching set is sorted case-insensitively as text.
+
+## 0.45 hardened MySQL connections — implemented
+
+- [x] Add MySQL as a first-class SQL inspector profile kind.
+- [x] Require strict `mysql://host[:port]/database` targets with exactly one database segment.
+- [x] Reject URL userinfo, passwords, query parameters, fragments, missing hosts, and missing Forge usernames.
+- [x] Invoke the official `mysql` client with batch output and `VERIFY_IDENTITY` TLS enforcement.
+- [x] Keep passwords in the OS credential manager and pass them only through the child process environment.
+- [x] Parse escaped MySQL batch TSV into bounded 10,000-row typed table delivery.
+- [x] Add MySQL version probes and current-database `information_schema` discovery.
+- [x] Reuse the 30-second timeout, 64 MiB stdout cap, 1 MiB stderr cap, background worker, and dataset preparation path.
+- [x] Extend error scrubbing to redact `MYSQL_PWD` assignments.
+- [x] Test safe target parsing, unsafe credential rejection, TSV result shape, and MySQL-specific error redaction.
+
+Implementation notes:
+
+- Forge does not bundle a MySQL client library; the official `mysql` executable remains user-managed, matching the existing DuckDB/PostgreSQL footprint strategy.
+- Client-side CA and certificate configuration comes from the user's MySQL option files. Forge requires identity verification and does not expose a UI switch that silently weakens TLS.
 
 ## Known technical risks
 

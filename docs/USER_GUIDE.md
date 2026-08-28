@@ -47,15 +47,15 @@ The Plots pane accepts legacy metrics/vectors and versioned `forge_plot:` JSON. 
 
 ## External tools and credentials
 
-Forge invokes Cargo, Git, `gh`, Jupyter, Python, AWS CLI, rclone, DuckDB, or PostgreSQL only for the feature that needs them. Those tools own their credentials. Forge project JSON contains profile metadata and opaque credential keys, never tokens or passwords.
+Forge invokes Cargo, Git, `gh`, Jupyter, Python, AWS CLI, rclone, DuckDB, PostgreSQL, or MySQL only for the feature that needs them. Those tools own their credentials. Forge project JSON contains profile metadata and opaque credential keys, never tokens or passwords.
 
 ## Database connections
 
-The SQL inspector supports embedded SQLite plus the official DuckDB and PostgreSQL command-line clients. Save a project-scoped profile, then use **Test** before schema discovery or running a query. External database commands stop after 30 seconds, previews are limited to 10,000 rows and 64 MiB of CSV output, and stderr is scrubbed of the connection location and stored password before display.
+The SQL inspector supports embedded SQLite plus the official DuckDB, PostgreSQL, and MySQL command-line clients. Save a project-scoped profile, then use **Test** before schema discovery or running a query. MySQL locations use `mysql://host[:port]/database`, with the username in its dedicated field; Forge rejects credentials and options embedded in that URL and requires the client to verify the server TLS identity. External database commands stop after 30 seconds, previews are limited to 10,000 rows and 64 MiB of delimited output, and stderr is scrubbed of the connection location and stored password before display.
 
 Connection tests, schema discovery, and queries run on a background integration worker. Forge remains responsive while a request is active, temporarily disables conflicting integration actions, and opens successful schema/query results in the data viewer when the typed result returns. Query history is updated only after successful execution.
 
-Enter PostgreSQL passwords only in Forge's password field. Forge rejects passwords embedded in PostgreSQL URLs or keyword connection strings, stores accepted credentials through the operating-system credential manager, and never writes them to project profile JSON. The optional ADBC integration exposes the common API boundary, while concrete ADBC driver-manager installation remains user-controlled.
+Enter PostgreSQL and MySQL passwords only in Forge's password field. Forge rejects passwords embedded in PostgreSQL URLs/keyword strings or MySQL URLs, stores accepted credentials through the operating-system credential manager, and never writes them to project profile JSON or command arguments. PostgreSQL uses `PGPASSWORD` and MySQL uses `MYSQL_PWD` only in the spawned client's environment. The optional ADBC integration exposes the common API boundary, while concrete ADBC driver-manager installation remains user-controlled.
 
 ## Object storage
 

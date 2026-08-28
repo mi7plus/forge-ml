@@ -14,6 +14,7 @@ pub enum ConnectionKind {
     SQLite,
     DuckDb,
     PostgreSql,
+    MySql,
     Adbc,
 }
 impl ConnectionKind {
@@ -22,6 +23,7 @@ impl ConnectionKind {
             Self::SQLite => "SQLite",
             Self::DuckDb => "DuckDB",
             Self::PostgreSql => "PostgreSQL",
+            Self::MySql => "MySQL",
             Self::Adbc => "ADBC driver",
         }
     }
@@ -70,6 +72,7 @@ impl DatabaseConnector for ProfileConnector<'_> {
                     &self.profile.location,
                 )
             }
+            ConnectionKind::MySql => mysql(self.profile, sql),
             ConnectionKind::Adbc => Err(format!(
                 "Install/configure an ADBC driver manager for {}. Core API: {}",
                 self.profile.location,
@@ -78,7 +81,7 @@ impl DatabaseConnector for ProfileConnector<'_> {
         }
     }
     fn schema(&self) -> Result<TableData, String> {
-        let sql = match self.profile.kind { ConnectionKind::SQLite | ConnectionKind::DuckDb => "SELECT table_name, table_type FROM information_schema.tables ORDER BY table_name", ConnectionKind::PostgreSql => "SELECT table_schema, table_name, table_type FROM information_schema.tables ORDER BY table_schema, table_name", ConnectionKind::Adbc => return Err("ADBC schema discovery requires a configured driver.".into()) };
+        let sql = match self.profile.kind { ConnectionKind::SQLite | ConnectionKind::DuckDb => "SELECT table_name, table_type FROM information_schema.tables ORDER BY table_name", ConnectionKind::PostgreSql => "SELECT table_schema, table_name, table_type FROM information_schema.tables ORDER BY table_schema, table_name", ConnectionKind::MySql => "SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_schema = DATABASE() ORDER BY table_name", ConnectionKind::Adbc => return Err("ADBC schema discovery requires a configured driver.".into()) };
         self.query(sql).or_else(|_| if self.profile.kind == ConnectionKind::SQLite { self.query("SELECT name, type FROM sqlite_master WHERE type IN ('table','view') ORDER BY name") } else { Err("Schema discovery failed.".into()) })
     }
 }
@@ -93,6 +96,7 @@ pub fn test_connection(profile: &ConnectionProfile, project_root: &Path) -> Resu
         ConnectionKind::SQLite => "SELECT sqlite_version() AS version",
         ConnectionKind::DuckDb => "SELECT version() AS version",
         ConnectionKind::PostgreSql => "SELECT version() AS version",
+        ConnectionKind::MySql => "SELECT VERSION() AS version",
         ConnectionKind::Adbc => {
             return Err(format!(
                 "ADBC core is available as `{}`; install a concrete driver manager to test this profile.",
@@ -165,6 +169,46 @@ fn cli_csv(
     if let Some(username) = username {
         command.env("PGUSER", username);
     }
+    cli_delimited(command, program, b',', sensitive_location, password)
+}
+
+fn mysql(profile: &ConnectionProfile, sql: &str) -> Result<TableData, String> {
+    let (host, port, database) = mysql_target(&profile.location)?;
+    let port = port.to_string();
+    let password = load_secret(&profile.credential_key).ok();
+    let mut command = Command::new("mysql");
+    command.args([
+        "--batch",
+        "--ssl-mode=VERIFY_IDENTITY",
+        "--host",
+        &host,
+        "--port",
+        &port,
+        "--user",
+        &profile.username,
+        "--execute",
+        sql,
+        &database,
+    ]);
+    if let Some(password) = &password {
+        command.env("MYSQL_PWD", password);
+    }
+    cli_delimited(
+        command,
+        "mysql",
+        b'\t',
+        &profile.location,
+        password.as_deref(),
+    )
+}
+
+fn cli_delimited(
+    command: Command,
+    program: &str,
+    delimiter: u8,
+    sensitive_location: &str,
+    password: Option<&str>,
+) -> Result<TableData, String> {
     let output = command_output(command, program)?;
     if !output.status.success() {
         return Err(redact_error(
@@ -179,7 +223,13 @@ fn cli_csv(
             MAX_CLI_OUTPUT_BYTES / (1024 * 1024)
         ));
     }
-    let mut reader = csv::Reader::from_reader(output.stdout.as_slice());
+    parse_delimited_output(&output.stdout, delimiter)
+}
+
+fn parse_delimited_output(output: &[u8], delimiter: u8) -> Result<TableData, String> {
+    let mut reader = csv::ReaderBuilder::new()
+        .delimiter(delimiter)
+        .from_reader(output);
     let columns = reader
         .headers()
         .map_err(|e| e.to_string())?
@@ -195,6 +245,28 @@ fn cli_csv(
         .take(MAX_PREVIEW_ROWS)
         .collect::<Result<_, _>>()?;
     Ok(TableData { columns, rows })
+}
+
+fn mysql_target(location: &str) -> Result<(String, u16, String), String> {
+    let url = url::Url::parse(location)
+        .map_err(|error| format!("MySQL location must be a mysql:// URL: {error}"))?;
+    if url.scheme() != "mysql"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("Use mysql://host[:port]/database without credentials, query, or fragment; store the username and password in Forge's dedicated fields.".into());
+    }
+    let host = url
+        .host_str()
+        .ok_or("MySQL URL requires a host")?
+        .to_owned();
+    let database = url.path().trim_start_matches('/');
+    if database.is_empty() || database.contains('/') {
+        return Err("MySQL URL requires exactly one database path segment.".into());
+    }
+    Ok((host, url.port().unwrap_or(3306), database.to_owned()))
 }
 
 fn command_output(mut command: Command, program: &str) -> Result<std::process::Output, String> {
@@ -281,6 +353,12 @@ pub fn validate_profile(profile: &ConnectionProfile) -> Result<(), String> {
             );
         }
     }
+    if profile.kind == ConnectionKind::MySql {
+        mysql_target(&profile.location)?;
+        if profile.username.trim().is_empty() {
+            return Err("MySQL profiles require a username in Forge's username field.".into());
+        }
+    }
     Ok(())
 }
 
@@ -293,7 +371,7 @@ fn redact_error(message: &str, location: &str, password: Option<&str>) -> String
     if let Some(password) = password.filter(|value| !value.is_empty()) {
         safe = safe.replace(password, "<redacted>");
     }
-    for marker in ["password=", "pwd="] {
+    for marker in ["password=", "pwd=", "mysql_pwd="] {
         let mut search_from = 0;
         while let Some(relative) = safe[search_from..].to_ascii_lowercase().find(marker) {
             let start = search_from + relative;
@@ -382,15 +460,37 @@ mod tests {
     }
 
     #[test]
+    fn validates_credential_free_mysql_targets() {
+        let profile = ConnectionProfile {
+            name: "warehouse".into(),
+            kind: ConnectionKind::MySql,
+            location: "mysql://db.example:3307/analytics".into(),
+            username: "forge".into(),
+            credential_key: "mysql-test".into(),
+        };
+        validate_profile(&profile).unwrap();
+        assert_eq!(
+            mysql_target(&profile.location).unwrap(),
+            ("db.example".into(), 3307, "analytics".into())
+        );
+        let mut unsafe_profile = profile.clone();
+        unsafe_profile.location = "mysql://forge:secret@db.example/analytics".into();
+        assert!(validate_profile(&unsafe_profile).is_err());
+        unsafe_profile.location = "mysql://db.example/analytics?ssl=false".into();
+        assert!(validate_profile(&unsafe_profile).is_err());
+    }
+
+    #[test]
     fn database_errors_redact_locations_and_secrets() {
         let safe = redact_error(
-            "could not open postgresql://db password=secret pwd=second",
+            "could not open postgresql://db password=secret pwd=second MYSQL_PWD=third",
             "postgresql://db",
             Some("secret"),
         );
         assert!(!safe.contains("postgresql://db"));
         assert!(!safe.contains("secret"));
         assert!(!safe.contains("second"));
+        assert!(!safe.contains("third"));
         assert!(safe.contains("<connection>"));
         assert!(safe.contains("<redacted>"));
     }
@@ -400,6 +500,13 @@ mod tests {
         let mut source = std::io::Cursor::new(vec![7_u8; 100]);
         assert_eq!(read_bounded(&mut source, 10).unwrap().len(), 10);
         assert_eq!(source.position(), 100);
+    }
+
+    #[test]
+    fn parses_mysql_batch_tsv_with_preview_shape() {
+        let table = parse_delimited_output(b"name\tvalue\nalpha\t42\nbeta\t7\n", b'\t').unwrap();
+        assert_eq!(table.columns, ["name", "value"]);
+        assert_eq!(table.rows, [vec!["alpha", "42"], vec!["beta", "7"]]);
     }
 
     #[test]

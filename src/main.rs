@@ -4013,6 +4013,7 @@ impl ForgeApp {
                         ConnectionKind::SQLite,
                         ConnectionKind::DuckDb,
                         ConnectionKind::PostgreSql,
+                        ConnectionKind::MySql,
                         ConnectionKind::Adbc,
                     ] {
                         ui.selectable_value(&mut self.database_kind, kind, kind.label());
