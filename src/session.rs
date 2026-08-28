@@ -1,4 +1,5 @@
 use crate::experiment::ExperimentRun;
+use crate::plot::PlotSpec;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -24,6 +25,28 @@ fn default_experiment_name() -> String {
 
 fn default_comparison_metric() -> String {
     "loss".to_owned()
+}
+
+const MAX_SESSION_PLOTS: usize = 128;
+const MAX_SESSION_PLOT_BYTES: usize = 16 * 1024 * 1024;
+
+pub fn bounded_plots(plots: &[PlotSpec]) -> Vec<PlotSpec> {
+    let mut result = Vec::new();
+    let mut bytes = 0usize;
+    for plot in plots.iter().take(MAX_SESSION_PLOTS) {
+        if plot.validate().is_err() {
+            continue;
+        }
+        let Ok(size) = serde_json::to_vec(plot).map(|value| value.len()) else {
+            continue;
+        };
+        if bytes.saturating_add(size) > MAX_SESSION_PLOT_BYTES {
+            break;
+        }
+        bytes += size;
+        result.push(plot.clone());
+    }
+    result
 }
 
 #[derive(Serialize, Deserialize)]
@@ -63,6 +86,8 @@ pub struct SessionState {
     pub selected_jupyter_kernel: String,
     #[serde(default)]
     pub python_environment_fingerprint: String,
+    #[serde(default)]
+    pub structured_plots: Vec<PlotSpec>,
 }
 
 impl Default for SessionState {
@@ -87,6 +112,7 @@ impl Default for SessionState {
             selected_python: None,
             selected_jupyter_kernel: String::new(),
             python_environment_fingerprint: String::new(),
+            structured_plots: Vec::new(),
         }
     }
 }
@@ -121,5 +147,34 @@ mod tests {
             serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
         assert!(!restored.dataset_viewer_docked);
         assert_eq!(restored.dataset_pane_height, 412.0);
+    }
+
+    #[test]
+    fn persisted_plots_are_valid_and_bounded() {
+        let plot = PlotSpec {
+            version: crate::plot::PLOT_SPEC_VERSION,
+            name: "loss".into(),
+            kind: crate::plot::PlotKind::Line,
+            x_label: String::new(),
+            y_label: String::new(),
+            series: Vec::new(),
+            matrix: Vec::new(),
+            x_log: false,
+            y_log: false,
+        };
+        let plots = vec![plot; MAX_SESSION_PLOTS + 10];
+        assert_eq!(bounded_plots(&plots).len(), MAX_SESSION_PLOTS);
+        let restored: SessionState = serde_json::from_str(
+            &serde_json::to_string(&SessionState {
+                structured_plots: bounded_plots(&plots),
+                ..SessionState::default()
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            bounded_plots(&restored.structured_plots).len(),
+            MAX_SESSION_PLOTS
+        );
     }
 }

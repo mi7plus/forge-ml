@@ -599,7 +599,7 @@ impl ForgeApp {
             runtime_restart_attempts: 0,
             variables: Vec::new(),
             data: DataWorkspace::default(),
-            structured_plots: Vec::new(),
+            structured_plots: session::bounded_plots(&session.structured_plots),
             open_dataset: None,
             dataset_views: HashMap::new(),
             dataset_viewer_docked,
@@ -6712,6 +6712,7 @@ impl eframe::App for ForgeApp {
             selected_python: self.selected_python.clone(),
             selected_jupyter_kernel: self.selected_jupyter_kernel.clone(),
             python_environment_fingerprint: self.python_environment_fingerprint.clone(),
+            structured_plots: session::bounded_plots(&self.structured_plots),
         };
         eframe::set_value(storage, STORAGE_KEY, &state);
     }

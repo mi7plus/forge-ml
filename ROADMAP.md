@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.51.0`
+Current application version: `0.52.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1030,6 +1030,21 @@ Implementation notes:
 
 - Import is deliberately local and explicit; Forge does not fetch plot definitions from URLs or execute HTML/SVG embedded in JSON.
 - Name-based replacement matches live `forge_plot:` telemetry behavior and makes exported plot files practical as repeatable analysis artifacts.
+
+## 0.52 durable structured plot history — implemented
+
+- [x] Persist structured plots and their current series visibility/log settings in Forge session state.
+- [x] Restore valid plot history automatically on the next application launch.
+- [x] Keep legacy sessions compatible through an empty default plot collection.
+- [x] Revalidate plots before both persistence and restoration.
+- [x] Limit history to 128 plots and 16 MiB of serialized plot definitions.
+- [x] Stop adding history at the size boundary rather than writing an oversized partial session.
+- [x] Test bounded plot persistence and JSON session round trips.
+
+Implementation notes:
+
+- Plot history is application-session state rather than project data; users can export JSON when a plot should be a portable, version-controlled project artifact.
+- Legacy metrics and vectors remain runtime telemetry and are not persisted, avoiding accidental retention of potentially large training streams.
 
 ## Known technical risks
 
