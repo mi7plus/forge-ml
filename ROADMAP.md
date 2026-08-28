@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.48.0`
+Current application version: `0.49.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -82,6 +82,7 @@ tables, plots, and metrics still enter through a compatibility stdout adapter.
 - [x] General MIME and structured plot output.
 - [x] Portable native PNG export for structured plots.
 - [x] Self-contained interactive HTML export for structured plots.
+- [x] Standalone vector PDF export for structured plots.
 
 ### Experiments and ML
 
@@ -985,6 +986,21 @@ Implementation notes:
 
 - Interactive HTML is an exported artifact opened in the user's browser; Forge continues to treat imported remote HTML and SVG as inert source inside the IDE.
 - Hover currently reports canvas coordinates. Data-space tooltips, legends, and semantic histogram/box rendering remain future visualization refinements.
+
+## 0.49 vector PDF plot export — implemented
+
+- [x] Export structured plots as standalone, single-page vector PDF documents.
+- [x] Draw axes, line-like series, scatter/residual marks, bar-like series, and heatmap cells as native PDF primitives.
+- [x] Preserve validated finite values and per-series visibility in exported output.
+- [x] Use deterministic colors and bounded 200–4096 point document dimensions.
+- [x] Escape PDF title strings and replace unsupported glyphs without corrupting content streams.
+- [x] Generate a valid catalog, page tree, resource dictionary, cross-reference table, trailer, and EOF marker in process.
+- [x] Verify the PDF header, media box dimensions, and escaped title content in tests.
+
+Implementation notes:
+
+- Plot PDFs require no browser, Python runtime, GPU readback, print driver, or external conversion executable.
+- The compact exporter uses the standard Helvetica PDF font and replaces unsupported non-ASCII title glyphs with `?`; embedded Unicode fonts and legends remain future work.
 
 ## Known technical risks
 

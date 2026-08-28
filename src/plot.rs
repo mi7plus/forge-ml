@@ -329,6 +329,156 @@ pub fn html(spec: &PlotSpec, width: u32, height: u32) -> Result<String, String> 
         .replace("__SPEC__", &payload))
 }
 
+/// Render a structured plot as a single-page vector PDF.
+pub fn pdf(spec: &PlotSpec, width: u32, height: u32) -> Result<Vec<u8>, String> {
+    spec.validate()?;
+    let width = width.clamp(200, 4096);
+    let height = height.clamp(120, 4096);
+    let mut stream = format!(
+        "1 1 1 rg 0 0 {width} {height} re f\n0.33 0.33 0.33 RG 1 w 45 35 m 45 {} l {} 35 l S\nBT /F1 14 Tf 16 {} Td ({}) Tj ET\n",
+        height - 30,
+        width - 20,
+        height - 20,
+        pdf_text(&spec.name)
+    );
+    if spec.kind == PlotKind::Heatmap {
+        let values = spec.matrix.iter().flatten().copied().collect::<Vec<_>>();
+        let min = values.iter().copied().reduce(f64::min).unwrap_or(0.0);
+        let max = values.iter().copied().reduce(f64::max).unwrap_or(min);
+        let rows = spec.matrix.len();
+        let columns = spec.matrix[0].len();
+        let cell_width = (width as f64 - 65.0) / columns as f64;
+        let cell_height = (height as f64 - 65.0) / rows as f64;
+        for (row, values) in spec.matrix.iter().enumerate() {
+            for (column, value) in values.iter().enumerate() {
+                let t = ((*value - min) / (max - min).max(f64::EPSILON)).clamp(0.0, 1.0);
+                stream.push_str(&format!(
+                    "{:.3} {:.3} {:.3} rg {:.2} {:.2} {:.2} {:.2} re f\n",
+                    (30.0 + 210.0 * t) / 255.0,
+                    (50.0 + 80.0 * (1.0 - t)) / 255.0,
+                    (220.0 - 180.0 * t) / 255.0,
+                    45.0 + column as f64 * cell_width,
+                    35.0 + (rows - row - 1) as f64 * cell_height,
+                    cell_width + 0.2,
+                    cell_height + 0.2
+                ));
+            }
+        }
+    } else {
+        let all = spec
+            .series
+            .iter()
+            .filter(|series| series.visible)
+            .flat_map(series_points)
+            .collect::<Vec<_>>();
+        let (min_x, max_x, min_y, max_y) = bounds(&all);
+        let map = |point: [f64; 2]| {
+            (
+                45.0 + (point[0] - min_x) / (max_x - min_x).max(f64::EPSILON)
+                    * (width as f64 - 65.0),
+                35.0 + (point[1] - min_y) / (max_y - min_y).max(f64::EPSILON)
+                    * (height as f64 - 65.0),
+            )
+        };
+        const COLORS: [[f64; 3]; 5] = [
+            [0.153, 0.553, 0.800],
+            [0.769, 0.467, 0.173],
+            [0.180, 0.616, 0.376],
+            [0.831, 0.282, 0.333],
+            [0.588, 0.412, 0.824],
+        ];
+        for (index, series) in spec
+            .series
+            .iter()
+            .filter(|series| series.visible)
+            .enumerate()
+        {
+            let mapped = series_points(series).map(map).collect::<Vec<_>>();
+            let [red, green, blue] = COLORS[index % COLORS.len()];
+            stream.push_str(&format!(
+                "{red:.3} {green:.3} {blue:.3} RG {red:.3} {green:.3} {blue:.3} rg 1.5 w\n"
+            ));
+            match spec.kind {
+                PlotKind::Scatter | PlotKind::Residual => {
+                    for (x, y) in mapped {
+                        stream.push_str(&format!("{:.2} {:.2} 5 5 re f\n", x - 2.5, y - 2.5));
+                    }
+                }
+                PlotKind::Bar | PlotKind::Histogram | PlotKind::FeatureImportance => {
+                    let baseline = map([0.0, 0.0]).1.clamp(35.0, height as f64 - 30.0);
+                    let half =
+                        ((width - 65) as f64 / mapped.len().max(1) as f64 / 2.0).clamp(1.0, 16.0);
+                    for (x, y) in mapped {
+                        stream.push_str(&format!(
+                            "{:.2} {:.2} {:.2} {:.2} re f\n",
+                            x - half,
+                            y.min(baseline),
+                            half * 2.0,
+                            (y - baseline).abs().max(0.5)
+                        ));
+                    }
+                }
+                _ => {
+                    if let Some((first, rest)) = mapped.split_first() {
+                        stream.push_str(&format!("{:.2} {:.2} m ", first.0, first.1));
+                        for (x, y) in rest {
+                            stream.push_str(&format!("{x:.2} {y:.2} l "));
+                        }
+                        stream.push_str("S\n");
+                    }
+                }
+            }
+        }
+    }
+    Ok(single_page_pdf(width, height, stream.as_bytes()))
+}
+
+fn pdf_text(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| match character {
+            '(' => "\\(".to_owned(),
+            ')' => "\\)".to_owned(),
+            '\\' => "\\\\".to_owned(),
+            ' '..='~' => character.to_string(),
+            _ => "?".to_owned(),
+        })
+        .collect()
+}
+
+fn single_page_pdf(width: u32, height: u32, stream: &[u8]) -> Vec<u8> {
+    let objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>").into_bytes(),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec(),
+        [format!("<< /Length {} >>\nstream\n", stream.len()).as_bytes(), stream, b"\nendstream"].concat(),
+    ];
+    let mut output = b"%PDF-1.4\n%ForgeML\n".to_vec();
+    let mut offsets = Vec::new();
+    for (index, object) in objects.iter().enumerate() {
+        offsets.push(output.len());
+        output.extend_from_slice(format!("{} 0 obj\n", index + 1).as_bytes());
+        output.extend_from_slice(object);
+        output.extend_from_slice(b"\nendobj\n");
+    }
+    let xref = output.len();
+    output.extend_from_slice(
+        format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes(),
+    );
+    for offset in offsets {
+        output.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    output.extend_from_slice(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+            objects.len() + 1
+        )
+        .as_bytes(),
+    );
+    output
+}
+
 const INTERACTIVE_HTML: &str = r#"<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'">
@@ -537,5 +687,9 @@ mod tests {
         assert!(output.contains("\\u003c/script\\u003e"));
         assert!(!output.contains("http://"));
         assert!(!output.contains("https://"));
+        let document = pdf(&spec, 800, 450).unwrap();
+        assert!(document.starts_with(b"%PDF-1.4"));
+        assert!(String::from_utf8_lossy(&document).contains("/MediaBox [0 0 800 450]"));
+        assert!(String::from_utf8_lossy(&document).contains("closing </script> & plot"));
     }
 }
