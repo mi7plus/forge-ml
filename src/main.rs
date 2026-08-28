@@ -2136,7 +2136,7 @@ impl ForgeApp {
                                 parameters: String::new(),
                             });
                         }
-                        self.training_events.push(event);
+                        millwright_studio::record_training_event(&mut self.training_events, event);
                     }
                     if let Some(report) = reports.into_iter().last() {
                         self.evaluation_report = report;
@@ -4366,6 +4366,37 @@ impl ForgeApp {
         if self.training_events.is_empty() {
             ui.label("Emit `forge_training:<json>` from a Rust cell to stream trials, folds, epochs, and scores.");
         }
+        ui.horizontal(|ui| {
+            ui.label(format!(
+                "Training events: {}/{}",
+                self.training_events.len(),
+                millwright_studio::MAX_TRAINING_EVENTS
+            ));
+            for (label, extension) in [("Export JSON", "json"), ("Export CSV", "csv")] {
+                if !self.training_events.is_empty() && ui.button(label).clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .set_file_name(format!("forge-training-events.{extension}"))
+                        .save_file()
+                    {
+                        let output = if extension == "json" {
+                            millwright_studio::training_json(&self.training_events)
+                        } else {
+                            millwright_studio::training_csv(&self.training_events)
+                        };
+                        self.console = output
+                            .and_then(|bytes| {
+                                std::fs::write(&path, bytes).map_err(|error| error.to_string())
+                            })
+                            .map(|()| format!("Exported training events to {}", path.display()))
+                            .unwrap_or_else(|error| format!("Training export failed: {error}"));
+                    }
+                }
+            }
+            if !self.training_events.is_empty() && ui.button("Clear events").clicked() {
+                self.training_events.clear();
+                self.console = "Cleared live training events.".into();
+            }
+        });
         egui::ScrollArea::vertical()
             .max_height(130.0)
             .show(ui, |ui| {

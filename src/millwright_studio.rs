@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
+pub const MAX_TRAINING_EVENTS: usize = 10_000;
+const MAX_TRAINING_TEXT_BYTES: usize = 64 * 1024;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TrainingEvent {
     Started {
@@ -51,6 +54,59 @@ pub enum TrainingEvent {
     },
 }
 
+pub fn validate_training_event(event: &TrainingEvent) -> bool {
+    let text_ok = |value: &str| value.len() <= MAX_TRAINING_TEXT_BYTES && !value.contains('\0');
+    match event {
+        TrainingEvent::Started { job, .. } => text_ok(job),
+        TrainingEvent::TrialStarted { parameters, .. } => text_ok(parameters),
+        TrainingEvent::FoldCompleted { score, .. }
+        | TrainingEvent::TrialCompleted { score, .. }
+        | TrainingEvent::Completed { best_score: score } => score.is_finite(),
+        TrainingEvent::Epoch { loss, metric, .. } => {
+            loss.is_finite() && metric.is_none_or(f64::is_finite)
+        }
+        TrainingEvent::Batch {
+            loss,
+            samples_per_second,
+            ..
+        } => loss.is_finite() && samples_per_second.is_finite() && *samples_per_second >= 0.0,
+        TrainingEvent::Checkpoint { path, .. } => text_ok(path),
+        TrainingEvent::EarlyStopping { best_score, .. } => best_score.is_finite(),
+        TrainingEvent::Failed { message } => text_ok(message),
+    }
+}
+
+pub fn record_training_event(events: &mut Vec<TrainingEvent>, event: TrainingEvent) {
+    if !validate_training_event(&event) {
+        return;
+    }
+    if events.len() >= MAX_TRAINING_EVENTS {
+        let remove = events.len() - MAX_TRAINING_EVENTS + 1;
+        events.drain(..remove);
+    }
+    events.push(event);
+}
+
+pub fn training_json(events: &[TrainingEvent]) -> Result<Vec<u8>, String> {
+    serde_json::to_vec_pretty(events).map_err(|error| error.to_string())
+}
+
+pub fn training_csv(events: &[TrainingEvent]) -> Result<Vec<u8>, String> {
+    let mut writer = csv::Writer::from_writer(Vec::new());
+    writer
+        .write_record(["index", "event"])
+        .map_err(|error| error.to_string())?;
+    for (index, event) in events.iter().enumerate() {
+        writer
+            .write_record([
+                index.to_string(),
+                serde_json::to_string(event).map_err(|error| error.to_string())?,
+            ])
+            .map_err(|error| error.to_string())?;
+    }
+    writer.into_inner().map_err(|error| error.to_string())
+}
+
 pub trait TrainingObserver: Send + Sync {
     fn observe(&self, event: TrainingEvent);
 }
@@ -60,7 +116,7 @@ pub struct ChannelObserver(Arc<Mutex<Vec<TrainingEvent>>>);
 impl TrainingObserver for ChannelObserver {
     fn observe(&self, event: TrainingEvent) {
         if let Ok(mut events) = self.0.lock() {
-            events.push(event);
+            record_training_event(&mut events, event);
         }
     }
 }
@@ -171,7 +227,7 @@ pub fn parse_runtime_output(output: &str) -> (Vec<TrainingEvent>, Vec<Evaluation
     for line in output.lines() {
         if let Some(json) = line.strip_prefix("forge_training:") {
             if let Ok(event) = serde_json::from_str(json.trim()) {
-                events.push(event);
+                record_training_event(&mut events, event);
             }
         }
         if let Some(json) = line.strip_prefix("forge_evaluation:") {
@@ -223,5 +279,35 @@ mod tests {
         let (events, _) =
             parse_runtime_output("forge_training:{\"Completed\":{\"best_score\":0.9}}");
         assert_eq!(events.len(), 1);
+    }
+
+    #[test]
+    fn training_stream_is_bounded_valid_and_exportable() {
+        let mut events = Vec::new();
+        for trial in 0..=MAX_TRAINING_EVENTS {
+            record_training_event(
+                &mut events,
+                TrainingEvent::TrialCompleted {
+                    trial,
+                    score: trial as f64,
+                },
+            );
+        }
+        record_training_event(
+            &mut events,
+            TrainingEvent::Completed {
+                best_score: f64::NAN,
+            },
+        );
+        assert_eq!(events.len(), MAX_TRAINING_EVENTS);
+        assert!(matches!(
+            events.first(),
+            Some(TrainingEvent::TrialCompleted { trial: 1, .. })
+        ));
+        assert!(String::from_utf8(training_json(&events[..2]).unwrap())
+            .unwrap()
+            .contains("TrialCompleted"));
+        let csv = String::from_utf8(training_csv(&events[..2]).unwrap()).unwrap();
+        assert!(csv.starts_with("index,event"));
     }
 }

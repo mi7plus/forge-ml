@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.56.0`
+Current application version: `0.57.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1105,6 +1105,21 @@ Implementation notes:
 
 - Removing a profile does not delete database files, schemas, tables, cached datasets, or query history; it removes only Forge's connection metadata and matching OS credential.
 - Credential cleanup happens after durable profile removal so a storage failure cannot leave an apparently configured profile with its required secret already deleted.
+
+## 0.57 bounded training telemetry export — implemented
+
+- [x] Validate framework-neutral training events before they enter observer or UI state.
+- [x] Require finite scores, losses, optional metrics, and non-negative finite throughput.
+- [x] Limit job names, parameter descriptions, checkpoint paths, and failure messages to 64 KiB without NUL bytes.
+- [x] Retain the newest 10,000 events across classical ML, AutoML, and deep-learning telemetry.
+- [x] Add typed pretty-printed JSON and escaped CSV exports to the training overview.
+- [x] Add an explicit live-event clearing action and visible retention count.
+- [x] Test invalid-event rejection, oldest-event eviction, JSON serialization, and CSV generation.
+
+Implementation notes:
+
+- Training telemetry stays memory-only unless the user explicitly exports it or references it from an experiment artifact, avoiding automatic retention of potentially sensitive job details.
+- CSV stores each typed event as escaped JSON beside its sequence index, preserving variant-specific fields without a sparse, unstable column schema.
 
 ## Known technical risks
 
