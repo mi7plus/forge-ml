@@ -165,6 +165,26 @@ pub fn parse_json(bytes: &[u8]) -> Result<Vec<PlotSpec>, String> {
     Ok(plots)
 }
 
+pub fn collection_json(plots: &[PlotSpec]) -> Result<Vec<u8>, String> {
+    if plots.is_empty() || plots.len() > MAX_IMPORTED_PLOTS {
+        return Err(format!(
+            "Plot collections require 1–{MAX_IMPORTED_PLOTS} specifications"
+        ));
+    }
+    for plot in plots {
+        plot.validate()
+            .map_err(|error| format!("Plot `{}` is invalid: {error}", plot.name))?;
+    }
+    let output = serde_json::to_vec_pretty(plots).map_err(|error| error.to_string())?;
+    if output.len() > MAX_PLOT_JSON_BYTES {
+        return Err(format!(
+            "Plot collection exceeds the {} MiB safety limit",
+            MAX_PLOT_JSON_BYTES / 1024 / 1024
+        ));
+    }
+    Ok(output)
+}
+
 pub fn svg(spec: &PlotSpec, width: u32, height: u32) -> Result<String, String> {
     spec.validate()?;
     let width = width.max(200);
@@ -748,6 +768,14 @@ mod tests {
         assert_eq!(parse_json(multiple.as_bytes()).unwrap().len(), 2);
         assert!(parse_json(b"[]").is_err());
         assert!(parse_json(&vec![b' '; MAX_PLOT_JSON_BYTES + 1]).is_err());
+        let decoded = parse_json(single).unwrap();
+        assert_eq!(
+            parse_json(&collection_json(&decoded).unwrap())
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(collection_json(&[]).is_err());
     }
     #[test]
     fn rejects_non_finite_and_ragged_heatmaps() {

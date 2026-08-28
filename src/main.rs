@@ -5674,6 +5674,17 @@ impl ForgeApp {
                     };
                 }
             }
+            if !self.structured_plots.is_empty() && ui.button("Export plot history").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_file_name("forge-plot-history.json")
+                    .save_file()
+                {
+                    self.console = plot::collection_json(&self.structured_plots)
+                        .and_then(|bytes| std::fs::write(&path, bytes).map_err(|e| e.to_string()))
+                        .map(|()| format!("Exported plot history to {}", path.display()))
+                        .unwrap_or_else(|error| format!("Plot history export failed: {error}"));
+                }
+            }
             if (self.data.has_telemetry() || !self.structured_plots.is_empty())
                 && ui
                     .button("Clear current")
@@ -5770,7 +5781,11 @@ impl ForgeApp {
         ui.separator();
         ui.heading("Structured plots");
         let mut delete = None;
+        let mut move_up = None;
+        let mut move_down = None;
+        let mut duplicate = None;
         let mut status = None;
+        let plot_count = self.structured_plots.len();
         for (index, spec) in self.structured_plots.iter_mut().enumerate() {
             egui::CollapsingHeader::new(format!("{} · {}", spec.name, spec.kind.label()))
                 .default_open(true)
@@ -5778,6 +5793,23 @@ impl ForgeApp {
                     ui.horizontal_wrapped(|ui| {
                         ui.checkbox(&mut spec.x_log, "log X");
                         ui.checkbox(&mut spec.y_log, "log Y");
+                        if ui
+                            .add_enabled(index > 0, egui::Button::new("↑"))
+                            .on_hover_text("Move plot earlier")
+                            .clicked()
+                        {
+                            move_up = Some(index);
+                        }
+                        if ui
+                            .add_enabled(index + 1 < plot_count, egui::Button::new("↓"))
+                            .on_hover_text("Move plot later")
+                            .clicked()
+                        {
+                            move_down = Some(index);
+                        }
+                        if ui.button("Duplicate").clicked() {
+                            duplicate = Some(spec.clone());
+                        }
                         if ui.button("Export JSON").clicked() {
                             if let Some(path) = rfd::FileDialog::new()
                                 .set_file_name(format!("{}.plot.json", safe_file_stem(&spec.name)))
@@ -5936,6 +5968,25 @@ impl ForgeApp {
         }
         if let Some(index) = delete {
             self.structured_plots.remove(index);
+        }
+        if let Some(index) = move_up {
+            self.structured_plots.swap(index, index - 1);
+        } else if let Some(index) = move_down {
+            self.structured_plots.swap(index, index + 1);
+        }
+        if let Some(mut spec) = duplicate {
+            let base = format!("{} copy", spec.name);
+            spec.name = base.clone();
+            let mut suffix = 2;
+            while self
+                .structured_plots
+                .iter()
+                .any(|existing| existing.name == spec.name)
+            {
+                spec.name = format!("{base} {suffix}");
+                suffix += 1;
+            }
+            self.structured_plots.push(spec);
         }
         if let Some(message) = status {
             self.console = message;

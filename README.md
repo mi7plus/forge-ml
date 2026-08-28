@@ -62,7 +62,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - Packaging preflight and executable notebook/table/plot performance budgets
 - Searchable keyboard command palette, inspector-pane cycling, high contrast, and reduced motion
 - Off-by-default local diagnostics and reviewable crash-report ZIP export with no automatic upload
-- Durable framework-neutral plot history with validated JSON import, 11 plot families, consistent log transforms and histogram/box semantics, series visibility, and JSON/SVG/PNG/PDF/interactive HTML export
+- Durable, reorderable framework-neutral plot history with duplication, bulk JSON interchange, 11 plot families, consistent plot semantics, and SVG/PNG/PDF/interactive HTML export
 - Two-axis virtualized data grids with selection, hidden/pinned/resizable columns, explicit draft editing, selection export, and linked plots
 - Revision-aware filter/sort indexes and zero-copy steady-state table viewing
 - Coalescing background filter/sort indexing with revision-safe result delivery
