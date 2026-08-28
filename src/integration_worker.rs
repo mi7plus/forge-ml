@@ -51,6 +51,10 @@ pub enum Request {
         kernel_name: String,
     },
     RemoteKernelStop(crate::remote::RemoteKernelSession),
+    RemoteExecute {
+        session: crate::remote::RemoteKernelSession,
+        code: String,
+    },
 }
 
 pub enum ResultEvent {
@@ -74,6 +78,7 @@ pub enum ResultEvent {
     RemoteMessage(Result<String, String>),
     RemoteKernelStarted(Result<crate::remote::RemoteKernelSession, String>),
     RemoteKernelStopped(Result<String, String>),
+    RemoteExecuted(Result<crate::remote::RemoteExecution, String>),
 }
 
 pub struct IntegrationWorker {
@@ -187,6 +192,9 @@ fn execute(request: Request) -> ResultEvent {
         } => ResultEvent::RemoteKernelStarted(crate::remote::start_kernel(&profile, &kernel_name)),
         Request::RemoteKernelStop(session) => {
             ResultEvent::RemoteKernelStopped(crate::remote::stop_kernel(&session))
+        }
+        Request::RemoteExecute { session, code } => {
+            ResultEvent::RemoteExecuted(crate::remote::execute(&session, &code))
         }
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "forge_ide"
-version = "0.36.0"
+version = "0.37.0"
 edition = "2021"
 
 [workspace]
@@ -19,6 +19,9 @@ rfd = "0.17.2"
 serde_json = "1.0"
 sha2 = "0.10"
 url = "2.5"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+uuid = { version = "1", features = ["v4"] }
+tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"] }
 forge-protocol = { path = "crates/forge-protocol" }
 forge-storage = { path = "crates/forge-storage" }
 arrow = { version = "56", features = ["csv", "json", "ipc"] }
@@ -37,3 +40,11 @@ default = []
 # Compatibility alias: Millwright is always compiled into Forge ML as of 0.31.
 millwright = []
 adbc = ["dep:adbc_core"]
+
+[profile.dev]
+debug = 0
+incremental = false
+
+[profile.test]
+debug = 0
+incremental = false

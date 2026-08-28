@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.36.0`
+Current application version: `0.37.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -48,7 +48,7 @@ tables, plots, and metrics still enter through a compatibility stdout adapter.
 - [x] Markdown cells.
 - [x] Standard `.ipynb` import/export.
 - [~] Jupyter kernel protocol support (kernelspec integration is available; native Evcxr remains the default).
-- [~] Remote kernels (secured discovery and start/stop lifecycle landed; WebSocket execution remains).
+- [~] Remote kernels (secured discovery, lifecycle, and bounded text execution landed; rich output, interrupts, and direct notebook routing remain).
 
 ### Rust language intelligence
 
@@ -781,7 +781,27 @@ Implementation notes:
 
 - The active session is deliberately not persisted: restarting Forge cannot safely assume a server-side kernel remains live or owned by the same client.
 - Kernelspec names and server IDs are limited to 128 ASCII letters, numbers, dots, underscores, or hyphens before use in API routes.
-- Remote cell execution still requires authenticated Jupyter WebSocket channels and message signing; lifecycle support alone is not marked as complete remote-kernel execution.
+- At the end of 0.36, lifecycle support alone was not marked as remote execution; 0.37 added authenticated WebSocket channels and correlated text execution.
+
+## 0.37 remote Jupyter WebSocket execution — implemented
+
+- [x] Open authenticated `ws`/`wss` Jupyter kernel channels while preserving JupyterHub base paths.
+- [x] Use native-root rustls for cross-platform TLS certificate validation.
+- [x] Generate Jupyter 5.3 `execute_request` messages with unique client session and message IDs.
+- [x] Correlate incoming messages through the request's parent message ID.
+- [x] Collect stream text, plain-text display data/results, and remote tracebacks.
+- [x] Wait for both `execute_reply` and idle status before completing a run.
+- [x] Enforce 1 MiB code, 2 MiB message/output, and 30-second read limits.
+- [x] Execute the blocking channel workflow on the background integration worker.
+- [x] Add a Deep Learning pane editor and **Run on remote kernel** action.
+- [x] Test request envelopes, WebSocket endpoint construction, output handling, reply metadata, and idle completion.
+- [x] Disable debug symbols and incremental caches in development/test profiles after the embedded stack's cache reached 99 GiB.
+
+Implementation notes:
+
+- The server handles Jupyter connection-file signing behind its WebSocket gateway; Forge authenticates the HTTPS/WSS transport with the token from the OS credential store.
+- Forge currently consumes legacy JSON text frames. Rich MIME bundles, binary buffers, stdin prompts, interrupts, and direct routing from notebook cells remain explicit follow-up work.
+- The reduced Cargo development/test profiles reclaimed 103.8 GiB of generated artifacts on the Windows verification host; release optimization and shipping symbols are configured independently.
 
 ## Known technical risks
 

@@ -360,6 +360,7 @@ struct ForgeApp {
     remote_token: String,
     remote_kernel_name: String,
     remote_kernel_session: Option<remote::RemoteKernelSession>,
+    remote_code: String,
     registry_model: String,
     registry_version: String,
     registry_format: String,
@@ -623,6 +624,7 @@ impl ForgeApp {
             remote_token: String::new(),
             remote_kernel_name: "python3".into(),
             remote_kernel_session: None,
+            remote_code: "print(\"hello from Forge ML\")".into(),
             registry_model: "model".into(),
             registry_version: "0.1.0".into(),
             registry_format: "onnx".into(),
@@ -1802,6 +1804,20 @@ impl ForgeApp {
                     Ok(message) => {
                         self.remote_kernel_session = None;
                         self.sql_output = message;
+                    }
+                    Err(error) => self.sql_output = error,
+                },
+                ResultEvent::RemoteExecuted(result) => match result {
+                    Ok(execution) => {
+                        self.sql_output = format!(
+                            "Remote execution {}{}\n{}",
+                            execution.status,
+                            execution
+                                .execution_count
+                                .map(|count| format!(" · In [{count}]"))
+                                .unwrap_or_default(),
+                            execution.output
+                        );
                     }
                     Err(error) => self.sql_output = error,
                 },
@@ -3608,6 +3624,33 @@ impl ForgeApp {
                 }
             }
         });
+        ui.add(
+            egui::TextEdit::multiline(&mut self.remote_code)
+                .desired_rows(4)
+                .hint_text("Code for the active remote kernel"),
+        );
+        if ui
+            .add_enabled(
+                self.integration_pending == 0 && self.remote_kernel_session.is_some(),
+                egui::Button::new("Run on remote kernel"),
+            )
+            .clicked()
+        {
+            if let Some(session) = self.remote_kernel_session.clone() {
+                match self
+                    .integration_worker
+                    .submit(IntegrationRequest::RemoteExecute {
+                        session,
+                        code: self.remote_code.clone(),
+                    }) {
+                    Ok(()) => {
+                        self.integration_pending += 1;
+                        self.sql_output = "Running code on remote kernel…".into();
+                    }
+                    Err(error) => self.sql_output = error,
+                }
+            }
+        }
         for profile in self.remote_profiles.clone() {
             ui.horizontal_wrapped(|ui| {
                 ui.label(format!(

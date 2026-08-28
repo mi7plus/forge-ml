@@ -3,7 +3,11 @@ use std::{
     io::Write,
     path::Path,
     process::{Command, Stdio},
+    time::Duration,
 };
+
+const MAX_REMOTE_CODE_BYTES: usize = 1024 * 1024;
+const MAX_REMOTE_OUTPUT_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RemoteProfile {
@@ -19,6 +23,13 @@ pub struct RemoteKernelSession {
     pub name: String,
     #[serde(skip)]
     pub profile: RemoteProfile,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoteExecution {
+    pub output: String,
+    pub execution_count: Option<u64>,
+    pub status: String,
 }
 
 pub fn store_token(profile: &RemoteProfile, token: &str) -> Result<(), String> {
@@ -129,6 +140,183 @@ pub fn stop_kernel(session: &RemoteKernelSession) -> Result<String, String> {
         "Stopped remote kernel `{}` ({}) on `{}`.",
         session.name, session.id, session.profile.name
     ))
+}
+
+pub fn execute(session: &RemoteKernelSession, code: &str) -> Result<RemoteExecution, String> {
+    validate_profile(&session.profile)?;
+    validate_identifier(&session.id, "Kernel session ID")?;
+    if code.trim().is_empty() {
+        return Err("Remote execution requires non-empty code.".into());
+    }
+    if code.len() > MAX_REMOTE_CODE_BYTES {
+        return Err("Remote code is limited to 1 MiB.".into());
+    }
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let msg_id = uuid::Uuid::new_v4().to_string();
+    let endpoint = websocket_endpoint(&session.profile.jupyter_url, &session.id, &session_id)?;
+    let token = crate::database::load_secret(&session.profile.credential_key).unwrap_or_default();
+    let mut request =
+        tungstenite::client::IntoClientRequest::into_client_request(endpoint.as_str())
+            .map_err(|e| e.to_string())?;
+    if !token.is_empty() {
+        let value = tungstenite::http::HeaderValue::from_str(&format!("token {token}"))
+            .map_err(|e| e.to_string())?;
+        request
+            .headers_mut()
+            .insert(tungstenite::http::header::AUTHORIZATION, value);
+    }
+    let config = tungstenite::protocol::WebSocketConfig::default()
+        .max_message_size(Some(MAX_REMOTE_OUTPUT_BYTES));
+    let (mut socket, _) = tungstenite::client::connect_with_config(request, Some(config), 0)
+        .map_err(|e| redact(&e.to_string(), &token))?;
+    set_socket_timeout(socket.get_mut(), Duration::from_secs(30))?;
+    let message = execute_request(&session_id, &msg_id, code);
+    socket
+        .send(tungstenite::Message::text(message.to_string()))
+        .map_err(|e| redact(&e.to_string(), &token))?;
+
+    let mut execution = RemoteExecution {
+        output: String::new(),
+        execution_count: None,
+        status: "running".into(),
+    };
+    let mut idle = false;
+    let mut replied = false;
+    while !(idle && replied) {
+        let frame = socket
+            .read()
+            .map_err(|e| redact(&format!("Remote kernel channel failed: {e}"), &token))?;
+        let text = match frame {
+            tungstenite::Message::Text(text) => text.to_string(),
+            tungstenite::Message::Close(_) => {
+                return Err("Remote kernel channel closed before execution completed.".into())
+            }
+            _ => continue,
+        };
+        let value: serde_json::Value =
+            serde_json::from_str(&text).map_err(|e| format!("Invalid Jupyter message: {e}"))?;
+        if value["parent_header"]["msg_id"].as_str() != Some(msg_id.as_str()) {
+            continue;
+        }
+        let state = apply_execution_message(&mut execution, &value)?;
+        idle |= state.0;
+        replied |= state.1;
+    }
+    let _ = socket.close(None);
+    Ok(execution)
+}
+
+fn apply_execution_message(
+    execution: &mut RemoteExecution,
+    value: &serde_json::Value,
+) -> Result<(bool, bool), String> {
+    let msg_type = value["msg_type"]
+        .as_str()
+        .or_else(|| value["header"]["msg_type"].as_str())
+        .unwrap_or_default();
+    let mut idle = false;
+    let mut replied = false;
+    match msg_type {
+        "stream" => append_bounded(
+            &mut execution.output,
+            value["content"]["text"].as_str().unwrap_or_default(),
+        )?,
+        "execute_result" | "display_data" => append_bounded(
+            &mut execution.output,
+            value["content"]["data"]["text/plain"]
+                .as_str()
+                .unwrap_or_default(),
+        )?,
+        "error" => {
+            let traceback = value["content"]["traceback"]
+                .as_array()
+                .map(|lines| {
+                    lines
+                        .iter()
+                        .filter_map(|line| line.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
+                .unwrap_or_else(|| "Remote kernel error".into());
+            append_bounded(&mut execution.output, &traceback)?;
+            execution.status = "error".into();
+        }
+        "execute_reply" => {
+            replied = true;
+            execution.execution_count = value["content"]["execution_count"].as_u64();
+            execution.status = value["content"]["status"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_owned();
+        }
+        "status" if value["content"]["execution_state"].as_str() == Some("idle") => {
+            idle = true;
+        }
+        _ => {}
+    }
+    Ok((idle, replied))
+}
+
+fn execute_request(session_id: &str, msg_id: &str, code: &str) -> serde_json::Value {
+    serde_json::json!({
+        "header": {
+            "msg_id": msg_id,
+            "username": "forge-ml",
+            "session": session_id,
+            "date": chrono::Utc::now().to_rfc3339(),
+            "msg_type": "execute_request",
+            "version": "5.3"
+        },
+        "parent_header": {},
+        "metadata": {},
+        "content": {
+            "code": code,
+            "silent": false,
+            "store_history": true,
+            "user_expressions": {},
+            "allow_stdin": false,
+            "stop_on_error": true
+        },
+        "channel": "shell",
+        "buffers": []
+    })
+}
+
+fn append_bounded(output: &mut String, value: &str) -> Result<(), String> {
+    let additional = value.len() + usize::from(!value.ends_with('\n'));
+    if output.len().saturating_add(additional) > MAX_REMOTE_OUTPUT_BYTES {
+        return Err("Remote output exceeded the 2 MiB limit.".into());
+    }
+    output.push_str(value);
+    if !value.ends_with('\n') {
+        output.push('\n');
+    }
+    Ok(())
+}
+
+fn websocket_endpoint(base: &str, kernel_id: &str, session_id: &str) -> Result<url::Url, String> {
+    let mut url = api_endpoint(base, &format!("api/kernels/{kernel_id}/channels"))?;
+    url.set_scheme(if url.scheme() == "https" { "wss" } else { "ws" })
+        .map_err(|_| "Could not construct Jupyter WebSocket URL.".to_owned())?;
+    url.query_pairs_mut().append_pair("session_id", session_id);
+    Ok(url)
+}
+
+fn set_socket_timeout(
+    stream: &mut tungstenite::stream::MaybeTlsStream<std::net::TcpStream>,
+    timeout: Duration,
+) -> Result<(), String> {
+    match stream {
+        tungstenite::stream::MaybeTlsStream::Plain(stream) => stream
+            .set_read_timeout(Some(timeout))
+            .map_err(|e| e.to_string())?,
+        tungstenite::stream::MaybeTlsStream::Rustls(stream) => stream
+            .sock
+            .set_read_timeout(Some(timeout))
+            .map_err(|e| e.to_string())?,
+        _ => return Err("Unsupported remote TLS stream.".into()),
+    }
+    Ok(())
 }
 
 fn curl_request(
@@ -277,5 +465,54 @@ mod tests {
             serde_json::from_str(r#"{"id":"abc-123","name":"python3"}"#).unwrap();
         assert_eq!(session.id, "abc-123");
         assert_eq!(session.name, "python3");
+    }
+
+    #[test]
+    fn builds_correlated_jupyter_execute_messages_and_bounded_websocket_urls() {
+        let message = execute_request("session-1", "message-1", "1 + 1");
+        assert_eq!(message["header"]["msg_type"], "execute_request");
+        assert_eq!(message["content"]["code"], "1 + 1");
+        let endpoint =
+            websocket_endpoint("https://example.test/user/forge", "kernel-1", "session-1").unwrap();
+        assert_eq!(endpoint.scheme(), "wss");
+        assert_eq!(endpoint.path(), "/user/forge/api/kernels/kernel-1/channels");
+        assert_eq!(endpoint.query(), Some("session_id=session-1"));
+
+        let mut output = String::new();
+        append_bounded(&mut output, "two").unwrap();
+        assert_eq!(output, "two\n");
+
+        let mut execution = RemoteExecution {
+            output: String::new(),
+            execution_count: None,
+            status: "running".into(),
+        };
+        assert_eq!(
+            apply_execution_message(
+                &mut execution,
+                &serde_json::json!({"msg_type":"stream","content":{"text":"hello"}})
+            )
+            .unwrap(),
+            (false, false)
+        );
+        assert_eq!(execution.output, "hello\n");
+        assert_eq!(
+            apply_execution_message(
+                &mut execution,
+                &serde_json::json!({"msg_type":"execute_reply","content":{"status":"ok","execution_count":7}})
+            )
+            .unwrap(),
+            (false, true)
+        );
+        assert_eq!(execution.execution_count, Some(7));
+        assert_eq!(execution.status, "ok");
+        assert_eq!(
+            apply_execution_message(
+                &mut execution,
+                &serde_json::json!({"msg_type":"status","content":{"execution_state":"idle"}})
+            )
+            .unwrap(),
+            (true, false)
+        );
     }
 }
