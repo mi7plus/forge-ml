@@ -28,6 +28,7 @@ pub struct RemoteKernelSession {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RemoteExecution {
     pub output: String,
+    pub mime: Vec<crate::notebook::RichOutput>,
     pub execution_count: Option<u64>,
     pub status: String,
 }
@@ -142,6 +143,20 @@ pub fn stop_kernel(session: &RemoteKernelSession) -> Result<String, String> {
     ))
 }
 
+pub fn interrupt_kernel(session: &RemoteKernelSession) -> Result<String, String> {
+    validate_profile(&session.profile)?;
+    validate_identifier(&session.id, "Kernel session ID")?;
+    let endpoint = api_endpoint(
+        &session.profile.jupyter_url,
+        &format!("api/kernels/{}/interrupt", session.id),
+    )?;
+    curl_request(&session.profile, "POST", &endpoint, None)?;
+    Ok(format!(
+        "Interrupted remote kernel `{}` ({}) on `{}`.",
+        session.name, session.id, session.profile.name
+    ))
+}
+
 pub fn execute(session: &RemoteKernelSession, code: &str) -> Result<RemoteExecution, String> {
     validate_profile(&session.profile)?;
     validate_identifier(&session.id, "Kernel session ID")?;
@@ -177,6 +192,7 @@ pub fn execute(session: &RemoteKernelSession, code: &str) -> Result<RemoteExecut
 
     let mut execution = RemoteExecution {
         output: String::new(),
+        mime: Vec::new(),
         execution_count: None,
         status: "running".into(),
     };
@@ -217,16 +233,13 @@ fn apply_execution_message(
     let mut idle = false;
     let mut replied = false;
     match msg_type {
-        "stream" => append_bounded(
-            &mut execution.output,
+        "stream" => append_execution_text(
+            execution,
             value["content"]["text"].as_str().unwrap_or_default(),
         )?,
-        "execute_result" | "display_data" => append_bounded(
-            &mut execution.output,
-            value["content"]["data"]["text/plain"]
-                .as_str()
-                .unwrap_or_default(),
-        )?,
+        "execute_result" | "display_data" => {
+            append_mime_bundle(execution, &value["content"]["data"])?
+        }
         "error" => {
             let traceback = value["content"]["traceback"]
                 .as_array()
@@ -238,7 +251,7 @@ fn apply_execution_message(
                         .join("\n")
                 })
                 .unwrap_or_else(|| "Remote kernel error".into());
-            append_bounded(&mut execution.output, &traceback)?;
+            append_execution_text(execution, &traceback)?;
             execution.status = "error".into();
         }
         "execute_reply" => {
@@ -292,6 +305,77 @@ fn append_bounded(output: &mut String, value: &str) -> Result<(), String> {
         output.push('\n');
     }
     Ok(())
+}
+
+fn append_mime_bundle(
+    execution: &mut RemoteExecution,
+    data: &serde_json::Value,
+) -> Result<(), String> {
+    let Some(bundle) = data.as_object() else {
+        return Ok(());
+    };
+    if let Some(plain) = bundle.get("text/plain").and_then(mime_text) {
+        append_execution_text(execution, &plain)?;
+    }
+    const SUPPORTED: [&str; 5] = [
+        "text/html",
+        "text/markdown",
+        "image/svg+xml",
+        "image/png",
+        "application/json",
+    ];
+    for mime in SUPPORTED {
+        let Some(value) = bundle.get(mime) else {
+            continue;
+        };
+        let data = mime_text(value).unwrap_or_else(|| value.to_string());
+        let used = execution.output.len()
+            + execution
+                .mime
+                .iter()
+                .map(|output| output.mime.len() + output.data.len())
+                .sum::<usize>();
+        if used.saturating_add(mime.len()).saturating_add(data.len()) > MAX_REMOTE_OUTPUT_BYTES {
+            return Err("Remote output exceeded the 2 MiB limit.".into());
+        }
+        execution.mime.push(crate::notebook::RichOutput {
+            mime: mime.into(),
+            data,
+        });
+    }
+    Ok(())
+}
+
+fn mime_text(value: &serde_json::Value) -> Option<String> {
+    if let Some(text) = value.as_str() {
+        return Some(text.to_owned());
+    }
+    value.as_array().and_then(|parts| {
+        parts
+            .iter()
+            .map(|part| part.as_str())
+            .collect::<Option<Vec<_>>>()
+            .map(|parts| parts.concat())
+    })
+}
+
+fn append_execution_text(execution: &mut RemoteExecution, value: &str) -> Result<(), String> {
+    let rich_bytes = execution
+        .mime
+        .iter()
+        .map(|output| output.mime.len() + output.data.len())
+        .sum::<usize>();
+    let additional = value.len() + usize::from(!value.ends_with('\n'));
+    if execution
+        .output
+        .len()
+        .saturating_add(rich_bytes)
+        .saturating_add(additional)
+        > MAX_REMOTE_OUTPUT_BYTES
+    {
+        return Err("Remote output exceeded the 2 MiB limit.".into());
+    }
+    append_bounded(&mut execution.output, value)
 }
 
 fn websocket_endpoint(base: &str, kernel_id: &str, session_id: &str) -> Result<url::Url, String> {
@@ -484,6 +568,7 @@ mod tests {
 
         let mut execution = RemoteExecution {
             output: String::new(),
+            mime: Vec::new(),
             execution_count: None,
             status: "running".into(),
         };
@@ -496,6 +581,23 @@ mod tests {
             (false, false)
         );
         assert_eq!(execution.output, "hello\n");
+        apply_execution_message(
+            &mut execution,
+            &serde_json::json!({
+                "msg_type":"display_data",
+                "content":{"data":{
+                    "text/plain":"chart",
+                    "text/html":["<strong>", "chart</strong>"],
+                    "application/json":{"points":[1,2]}
+                }}
+            }),
+        )
+        .unwrap();
+        assert_eq!(execution.output, "hello\nchart\n");
+        assert_eq!(execution.mime.len(), 2);
+        assert_eq!(execution.mime[0].mime, "text/html");
+        assert_eq!(execution.mime[0].data, "<strong>chart</strong>");
+        assert_eq!(execution.mime[1].data, r#"{"points":[1,2]}"#);
         assert_eq!(
             apply_execution_message(
                 &mut execution,

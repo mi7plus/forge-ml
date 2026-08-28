@@ -51,6 +51,7 @@ pub enum Request {
         kernel_name: String,
     },
     RemoteKernelStop(crate::remote::RemoteKernelSession),
+    RemoteKernelInterrupt(crate::remote::RemoteKernelSession),
     RemoteExecute {
         session: crate::remote::RemoteKernelSession,
         code: String,
@@ -78,11 +79,13 @@ pub enum ResultEvent {
     RemoteMessage(Result<String, String>),
     RemoteKernelStarted(Result<crate::remote::RemoteKernelSession, String>),
     RemoteKernelStopped(Result<String, String>),
+    RemoteKernelInterrupted(Result<String, String>),
     RemoteExecuted(Result<crate::remote::RemoteExecution, String>),
 }
 
 pub struct IntegrationWorker {
     sender: Sender<Request>,
+    control_sender: Sender<Request>,
     receiver: Receiver<ResultEvent>,
 }
 
@@ -90,6 +93,8 @@ impl IntegrationWorker {
     pub fn new() -> Self {
         let (request_tx, request_rx) = mpsc::channel();
         let (result_tx, result_rx) = mpsc::channel();
+        let (control_tx, control_rx) = mpsc::channel();
+        let control_result_tx = result_tx.clone();
         thread::spawn(move || {
             while let Ok(request) = request_rx.recv() {
                 let result = execute(request);
@@ -98,14 +103,28 @@ impl IntegrationWorker {
                 }
             }
         });
+        thread::spawn(move || {
+            while let Ok(request) = control_rx.recv() {
+                let result = execute(request);
+                if control_result_tx.send(result).is_err() {
+                    break;
+                }
+            }
+        });
         Self {
             sender: request_tx,
+            control_sender: control_tx,
             receiver: result_rx,
         }
     }
 
     pub fn submit(&self, request: Request) -> Result<(), String> {
-        self.sender.send(request).map_err(|error| error.to_string())
+        let sender = if matches!(request, Request::RemoteKernelInterrupt(_)) {
+            &self.control_sender
+        } else {
+            &self.sender
+        };
+        sender.send(request).map_err(|error| error.to_string())
     }
 
     pub fn try_recv(&self) -> Option<ResultEvent> {
@@ -192,6 +211,9 @@ fn execute(request: Request) -> ResultEvent {
         } => ResultEvent::RemoteKernelStarted(crate::remote::start_kernel(&profile, &kernel_name)),
         Request::RemoteKernelStop(session) => {
             ResultEvent::RemoteKernelStopped(crate::remote::stop_kernel(&session))
+        }
+        Request::RemoteKernelInterrupt(session) => {
+            ResultEvent::RemoteKernelInterrupted(crate::remote::interrupt_kernel(&session))
         }
         Request::RemoteExecute { session, code } => {
             ResultEvent::RemoteExecuted(crate::remote::execute(&session, &code))

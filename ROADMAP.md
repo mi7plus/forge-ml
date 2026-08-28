@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.37.0`
+Current application version: `0.38.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -48,7 +48,7 @@ tables, plots, and metrics still enter through a compatibility stdout adapter.
 - [x] Markdown cells.
 - [x] Standard `.ipynb` import/export.
 - [~] Jupyter kernel protocol support (kernelspec integration is available; native Evcxr remains the default).
-- [~] Remote kernels (secured discovery, lifecycle, and bounded text execution landed; rich output, interrupts, and direct notebook routing remain).
+- [~] Remote kernels (secured discovery, lifecycle, bounded rich execution, and responsive interrupts landed; stdin and direct notebook routing remain).
 
 ### Rust language intelligence
 
@@ -800,8 +800,24 @@ Implementation notes:
 Implementation notes:
 
 - The server handles Jupyter connection-file signing behind its WebSocket gateway; Forge authenticates the HTTPS/WSS transport with the token from the OS credential store.
-- Forge currently consumes legacy JSON text frames. Rich MIME bundles, binary buffers, stdin prompts, interrupts, and direct routing from notebook cells remain explicit follow-up work.
+- At the end of 0.37, Forge consumed legacy JSON text frames; rich MIME bundles, binary buffers, stdin prompts, interrupts, and direct notebook routing were explicit follow-up work. Version 0.38 completes MIME preservation and interrupts.
 - The reduced Cargo development/test profiles reclaimed 103.8 GiB of generated artifacts on the Windows verification host; release optimization and shipping symbols are configured independently.
+
+## 0.38 remote Jupyter interrupts and rich output — implemented
+
+- [x] Preserve HTML, Markdown, SVG, PNG, and JSON results from Jupyter MIME bundles alongside their plain-text fallback.
+- [x] Accept string arrays used by Jupyter for multiline MIME payloads and serialize structured JSON payloads.
+- [x] Enforce the existing 2 MiB output budget across combined text and rich payloads.
+- [x] Add an **Interrupt execution** action while a remote request is running.
+- [x] Send interrupts on a dedicated control worker so they are not queued behind the blocking execution channel.
+- [x] Prevent duplicate interrupt requests and expose captured rich payloads in a bounded, collapsible Deep Learning view.
+- [x] Test mixed text/HTML/JSON display bundles and keep request parsing isolated from the UI.
+
+Implementation notes:
+
+- Interrupt uses Jupyter's authenticated `POST /api/kernels/{id}/interrupt` endpoint. The execution WebSocket remains responsible for reporting the resulting reply and idle state.
+- Rich payloads are preserved for inspection without executing remote HTML or SVG in the IDE, avoiding an embedded active-content surface.
+- stdin prompts and direct notebook-cell routing remain explicit follow-up work.
 
 ## Known technical risks
 

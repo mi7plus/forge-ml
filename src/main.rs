@@ -361,6 +361,9 @@ struct ForgeApp {
     remote_kernel_name: String,
     remote_kernel_session: Option<remote::RemoteKernelSession>,
     remote_code: String,
+    remote_mime_outputs: Vec<RichOutput>,
+    remote_execution_pending: bool,
+    remote_interrupt_pending: bool,
     registry_model: String,
     registry_version: String,
     registry_format: String,
@@ -625,6 +628,9 @@ impl ForgeApp {
             remote_kernel_name: "python3".into(),
             remote_kernel_session: None,
             remote_code: "print(\"hello from Forge ML\")".into(),
+            remote_mime_outputs: Vec::new(),
+            remote_execution_pending: false,
+            remote_interrupt_pending: false,
             registry_model: "model".into(),
             registry_version: "0.1.0".into(),
             registry_format: "onnx".into(),
@@ -1807,20 +1813,28 @@ impl ForgeApp {
                     }
                     Err(error) => self.sql_output = error,
                 },
-                ResultEvent::RemoteExecuted(result) => match result {
-                    Ok(execution) => {
-                        self.sql_output = format!(
-                            "Remote execution {}{}\n{}",
-                            execution.status,
-                            execution
-                                .execution_count
-                                .map(|count| format!(" · In [{count}]"))
-                                .unwrap_or_default(),
-                            execution.output
-                        );
+                ResultEvent::RemoteKernelInterrupted(result) => {
+                    self.remote_interrupt_pending = false;
+                    self.sql_output = result.unwrap_or_else(|error| error);
+                }
+                ResultEvent::RemoteExecuted(result) => {
+                    self.remote_execution_pending = false;
+                    match result {
+                        Ok(execution) => {
+                            self.remote_mime_outputs = execution.mime;
+                            self.sql_output = format!(
+                                "Remote execution {}{}\n{}",
+                                execution.status,
+                                execution
+                                    .execution_count
+                                    .map(|count| format!(" · In [{count}]"))
+                                    .unwrap_or_default(),
+                                execution.output
+                            );
+                        }
+                        Err(error) => self.sql_output = error,
                     }
-                    Err(error) => self.sql_output = error,
-                },
+                }
             }
         }
         if let Some(kernel) = &self.python_kernel {
@@ -3622,6 +3636,23 @@ impl ForgeApp {
                         Err(error) => self.sql_output = error,
                     }
                 }
+                let can_interrupt = self.remote_execution_pending && !self.remote_interrupt_pending;
+                if ui
+                    .add_enabled(can_interrupt, egui::Button::new("Interrupt execution"))
+                    .clicked()
+                {
+                    match self
+                        .integration_worker
+                        .submit(IntegrationRequest::RemoteKernelInterrupt(session.clone()))
+                    {
+                        Ok(()) => {
+                            self.integration_pending += 1;
+                            self.remote_interrupt_pending = true;
+                            self.sql_output = "Interrupting remote execution…".into();
+                        }
+                        Err(error) => self.sql_output = error,
+                    }
+                }
             }
         });
         ui.add(
@@ -3645,6 +3676,8 @@ impl ForgeApp {
                     }) {
                     Ok(()) => {
                         self.integration_pending += 1;
+                        self.remote_execution_pending = true;
+                        self.remote_mime_outputs.clear();
                         self.sql_output = "Running code on remote kernel…".into();
                     }
                     Err(error) => self.sql_output = error,
@@ -3700,6 +3733,21 @@ impl ForgeApp {
                     }
                 }
             });
+        }
+        if !self.remote_mime_outputs.is_empty() {
+            ui.collapsing(
+                format!("Remote rich output ({})", self.remote_mime_outputs.len()),
+                |ui| {
+                    for output in &self.remote_mime_outputs {
+                        ui.label(RichText::new(&output.mime).strong().color(CYAN));
+                        egui::ScrollArea::horizontal()
+                            .max_height(160.0)
+                            .show(ui, |ui| {
+                                ui.label(RichText::new(&output.data).monospace());
+                            });
+                    }
+                },
+            );
         }
     }
 
