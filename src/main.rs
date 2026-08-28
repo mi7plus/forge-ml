@@ -4408,6 +4408,19 @@ impl ForgeApp {
                         .unwrap_or_else(|error| format!("Training import failed: {error}"));
                 }
             }
+            if !self.training_events.is_empty() && ui.button("HTML report").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_file_name("forge-training-report.html")
+                    .save_file()
+                {
+                    self.console = millwright_studio::training_report(&self.training_events)
+                        .and_then(|report| {
+                            std::fs::write(&path, report).map_err(|error| error.to_string())
+                        })
+                        .map(|()| format!("Exported training report to {}", path.display()))
+                        .unwrap_or_else(|error| format!("Training report failed: {error}"));
+                }
+            }
             if !self.training_events.is_empty() && ui.button("Open metric plots").clicked() {
                 let plots = millwright_studio::training_plots(&self.training_events);
                 let count = plots.len();

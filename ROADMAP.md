@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.59.0`
+Current application version: `0.60.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1150,6 +1150,21 @@ Implementation notes:
 
 - Imported events remain memory-only and can immediately regenerate native training plots without being silently added to project or session persistence.
 - CSV remains an export format; typed JSON is the lossless re-import format because it preserves the `TrainingEvent` variant schema.
+
+## 0.60 offline training monitoring reports — implemented
+
+- [x] Export a self-contained HTML training summary directly from the monitoring overview.
+- [x] Summarize retained events, epochs, batches, completed trials, failures, latest loss/metric, and best score.
+- [x] Include a reverse-chronological audit table bounded to the newest 1,000 events.
+- [x] Limit each rendered event detail to 8,192 characters before HTML generation.
+- [x] Escape all event JSON before inserting it into report markup.
+- [x] Apply a restrictive content-security policy with no scripts or remote resources.
+- [x] Test summary values, hostile telemetry escaping, script absence, and offline output.
+
+Implementation notes:
+
+- Reports summarize current live or explicitly imported telemetry; they do not mutate training events, generated plots, experiments, or project state.
+- The report favors reviewable operational evidence over interactive charts. Native training plots can be exported separately or incorporated into a broader experiment report later.
 
 ## Known technical risks
 

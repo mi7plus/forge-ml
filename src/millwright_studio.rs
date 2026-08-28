@@ -6,6 +6,8 @@ pub const MAX_TRAINING_EVENTS: usize = 10_000;
 const MAX_TRAINING_TEXT_BYTES: usize = 64 * 1024;
 const MAX_TRAINING_IMPORT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_TRAINING_EXPORT_BYTES: usize = 64 * 1024 * 1024;
+const MAX_REPORT_EVENTS: usize = 1_000;
+const MAX_REPORT_EVENT_CHARS: usize = 8_192;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TrainingEvent {
@@ -139,6 +141,95 @@ pub fn parse_training_json(bytes: &[u8]) -> Result<Vec<TrainingEvent>, String> {
         ));
     }
     Ok(events)
+}
+
+pub fn training_report(events: &[TrainingEvent]) -> Result<String, String> {
+    if events.is_empty() {
+        return Err("No training events are available for a report".into());
+    }
+    let mut epochs = 0usize;
+    let mut batches = 0usize;
+    let mut trials = 0usize;
+    let mut failures = 0usize;
+    let mut latest_loss = None;
+    let mut latest_metric = None;
+    let mut best_score: Option<f64> = None;
+    for event in events {
+        match event {
+            TrainingEvent::Epoch { loss, metric, .. } => {
+                epochs += 1;
+                latest_loss = Some(*loss);
+                if metric.is_some() {
+                    latest_metric = *metric;
+                }
+            }
+            TrainingEvent::Batch { loss, .. } => {
+                batches += 1;
+                latest_loss = Some(*loss);
+            }
+            TrainingEvent::TrialCompleted { score, .. } => {
+                trials += 1;
+                best_score = Some(best_score.map_or(*score, |best| best.max(*score)));
+            }
+            TrainingEvent::Completed { best_score: score } => best_score = Some(*score),
+            TrainingEvent::Failed { .. } => failures += 1,
+            _ => {}
+        }
+    }
+    let rows = events
+        .iter()
+        .enumerate()
+        .rev()
+        .take(MAX_REPORT_EVENTS)
+        .map(|(index, event)| {
+            let detail = serde_json::to_string(event)
+                .unwrap_or_default()
+                .chars()
+                .take(MAX_REPORT_EVENT_CHARS)
+                .collect::<String>();
+            format!(
+                "<tr><td>{}</td><td>{}</td><td><code>{}</code></td></tr>",
+                index + 1,
+                event_kind(event),
+                html_escape(&detail)
+            )
+        })
+        .collect::<String>();
+    Ok(format!(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'\"><title>Forge ML training report</title><style>body{{font:14px system-ui,sans-serif;max-width:1100px;margin:32px auto;padding:0 16px;color:#20242b}}.cards{{display:flex;gap:10px;flex-wrap:wrap}}.card{{border:1px solid #ccd2da;border-radius:6px;padding:10px;min-width:120px}}table{{border-collapse:collapse;width:100%;margin-top:16px}}th,td{{border:1px solid #ccd2da;padding:6px;text-align:left;vertical-align:top}}code{{white-space:pre-wrap;word-break:break-word}}</style></head><body><h1>Forge ML training report</h1><p>{} retained events; the audit table shows the newest {}.</p><div class=\"cards\"><div class=\"card\"><strong>Epoch events</strong><br>{epochs}</div><div class=\"card\"><strong>Batch events</strong><br>{batches}</div><div class=\"card\"><strong>Completed trials</strong><br>{trials}</div><div class=\"card\"><strong>Failures</strong><br>{failures}</div><div class=\"card\"><strong>Latest loss</strong><br>{}</div><div class=\"card\"><strong>Latest metric</strong><br>{}</div><div class=\"card\"><strong>Best score</strong><br>{}</div></div><h2>Recent event audit</h2><table><thead><tr><th>#</th><th>Type</th><th>Event</th></tr></thead><tbody>{rows}</tbody></table></body></html>",
+        events.len(),
+        events.len().min(MAX_REPORT_EVENTS),
+        report_number(latest_loss),
+        report_number(latest_metric),
+        report_number(best_score),
+    ))
+}
+
+fn report_number(value: Option<f64>) -> String {
+    value.map_or_else(|| "—".into(), |value| format!("{value:.6}"))
+}
+
+fn event_kind(event: &TrainingEvent) -> &'static str {
+    match event {
+        TrainingEvent::Started { .. } => "Started",
+        TrainingEvent::TrialStarted { .. } => "Trial started",
+        TrainingEvent::FoldCompleted { .. } => "Fold completed",
+        TrainingEvent::TrialCompleted { .. } => "Trial completed",
+        TrainingEvent::Epoch { .. } => "Epoch",
+        TrainingEvent::Batch { .. } => "Batch",
+        TrainingEvent::Checkpoint { .. } => "Checkpoint",
+        TrainingEvent::EarlyStopping { .. } => "Early stopping",
+        TrainingEvent::Completed { .. } => "Completed",
+        TrainingEvent::Failed { .. } => "Failed",
+    }
+}
+
+fn html_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 pub fn training_plots(events: &[TrainingEvent]) -> Vec<PlotSpec> {
@@ -481,5 +572,30 @@ mod tests {
         assert_eq!(plots.len(), 4);
         assert!(plots.iter().all(|plot| plot.validate().is_ok()));
         assert_eq!(plots[0].series.len(), 2);
+    }
+
+    #[test]
+    fn training_report_summarizes_and_escapes_events() {
+        let events = vec![
+            TrainingEvent::Epoch {
+                epoch: 1,
+                total: 1,
+                loss: 0.25,
+                metric: Some(0.9),
+            },
+            TrainingEvent::TrialCompleted {
+                trial: 1,
+                score: 0.91,
+            },
+            TrainingEvent::Failed {
+                message: "<script>alert(1)</script>".into(),
+            },
+        ];
+        let report = training_report(&events).unwrap();
+        assert!(report.contains("0.250000"));
+        assert!(report.contains("0.910000"));
+        assert!(report.contains("&lt;script&gt;"));
+        assert!(!report.contains("<script>"));
+        assert!(!report.contains("https://"));
     }
 }
