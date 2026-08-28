@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.39.0`
+Current application version: `0.40.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -48,7 +48,7 @@ tables, plots, and metrics still enter through a compatibility stdout adapter.
 - [x] Markdown cells.
 - [x] Standard `.ipynb` import/export.
 - [~] Jupyter kernel protocol support (kernelspec integration is available; native Evcxr remains the default).
-- [~] Remote kernels (secured discovery, lifecycle, bounded rich execution, responsive interrupts, and notebook routing landed; stdin remains).
+- [x] Remote kernel MVP (secured discovery, lifecycle, bounded rich execution, responsive interrupts, notebook routing, and stdin prompts).
 
 ### Rust language intelligence
 
@@ -834,7 +834,24 @@ Implementation notes:
 
 - The routing choice is deliberately session-only: Forge cannot safely restore ownership of a server-side kernel after restart.
 - **Restart and run all** runs all cells in the current remote session because remote kernel restart is not yet exposed.
-- Jupyter stdin prompts remain disabled and are the final protocol-level item in this roadmap slice.
+- At the end of 0.39, Jupyter stdin prompts remained disabled as the final protocol-level item in this roadmap slice; 0.40 completes them.
+
+## 0.40 remote Jupyter stdin — implemented
+
+- [x] Enable stdin in remote Jupyter execute requests.
+- [x] Recognize correlated `input_request` messages without completing or decrementing the active integration task.
+- [x] Present a focused IDE input dialog for standalone and notebook-cell remote execution.
+- [x] Mask password requests and avoid copying prompt responses into logs, project state, or cell output.
+- [x] Send Jupyter 5.3 `input_reply` messages on the stdin channel with the request header as parent metadata.
+- [x] Keep the reply channel alive across multiple prompts in one execution.
+- [x] Limit prompts and replies to 64 KiB and time out unanswered prompts after five minutes.
+- [x] Make Cancel and Stop drop the pending input channel and interrupt the remote kernel through the independent control lane.
+- [x] Test stdin enablement and the structure/correlation of generated reply messages.
+
+Implementation notes:
+
+- This completes the planned remote-kernel MVP. Binary Jupyter buffers and comm/widget protocols remain outside the MVP and can be added when a concrete data interchange or widget requirement needs them.
+- Remote input exists only in memory for the duration of the request; password values use the same bounded channel but are never displayed after submission.
 
 ## Known technical risks
 

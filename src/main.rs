@@ -64,6 +64,7 @@ use session::SessionState;
 use std::collections::{HashMap, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Sender};
 use std::time::{Duration, Instant};
 
 const TEXT: Color32 = Color32::PLACEHOLDER;
@@ -365,6 +366,10 @@ struct ForgeApp {
     remote_execution_pending: bool,
     remote_interrupt_pending: bool,
     remote_notebook_execution: bool,
+    remote_input_sender: Option<Sender<String>>,
+    remote_input_prompt: Option<String>,
+    remote_input_response: String,
+    remote_input_password: bool,
     registry_model: String,
     registry_version: String,
     registry_format: String,
@@ -633,6 +638,10 @@ impl ForgeApp {
             remote_execution_pending: false,
             remote_interrupt_pending: false,
             remote_notebook_execution: false,
+            remote_input_sender: None,
+            remote_input_prompt: None,
+            remote_input_response: String::new(),
+            remote_input_password: false,
             registry_model: "model".into(),
             registry_version: "0.1.0".into(),
             registry_format: "onnx".into(),
@@ -789,6 +798,9 @@ impl ForgeApp {
                 Ok(()) => {
                     self.integration_pending += 1;
                     self.remote_interrupt_pending = true;
+                    self.remote_input_sender = None;
+                    self.remote_input_prompt = None;
+                    self.remote_input_response.clear();
                     self.console = "Interrupting remote notebook execution…".into();
                 }
                 Err(error) => {
@@ -1464,14 +1476,17 @@ impl ForgeApp {
                 self.console = "Start a remote kernel or disable remote notebook execution.".into();
                 return;
             };
+            let (input_tx, input_rx) = mpsc::channel();
             match self
                 .integration_worker
                 .submit(IntegrationRequest::RemoteExecute {
                     session,
                     code,
                     cell_id: Some(cell_id),
+                    input: input_rx,
                 }) {
                 Ok(()) => {
+                    self.remote_input_sender = Some(input_tx);
                     self.integration_pending += 1;
                     self.remote_execution_pending = true;
                     self.run_state = RunState::Running(cell_id);
@@ -1813,7 +1828,9 @@ impl ForgeApp {
             self.job_queue.poll(root);
         }
         while let Some(event) = self.integration_worker.try_recv() {
-            self.integration_pending = self.integration_pending.saturating_sub(1);
+            if !matches!(&event, ResultEvent::RemoteInputRequested { .. }) {
+                self.integration_pending = self.integration_pending.saturating_sub(1);
+            }
             match event {
                 ResultEvent::DataImport { path, result } => match result {
                     Ok((dataset_name, dataset)) => {
@@ -1893,8 +1910,25 @@ impl ForgeApp {
                     self.remote_interrupt_pending = false;
                     self.sql_output = result.unwrap_or_else(|error| error);
                 }
+                ResultEvent::RemoteInputRequested {
+                    cell_id,
+                    prompt,
+                    password,
+                } => {
+                    self.remote_input_prompt = Some(if let Some(cell_id) = cell_id {
+                        format!("Cell {}: {prompt}", cell_id + 1)
+                    } else {
+                        prompt
+                    });
+                    self.remote_input_password = password;
+                    self.remote_input_response.clear();
+                }
                 ResultEvent::RemoteExecuted { cell_id, result } => {
                     self.remote_execution_pending = false;
+                    self.remote_input_sender = None;
+                    self.remote_input_prompt = None;
+                    self.remote_input_response.clear();
+                    self.remote_input_password = false;
                     match result {
                         Ok(execution) => {
                             let message = format!(
@@ -3757,6 +3791,9 @@ impl ForgeApp {
                         Ok(()) => {
                             self.integration_pending += 1;
                             self.remote_interrupt_pending = true;
+                            self.remote_input_sender = None;
+                            self.remote_input_prompt = None;
+                            self.remote_input_response.clear();
                             self.sql_output = "Interrupting remote execution…".into();
                         }
                         Err(error) => self.sql_output = error,
@@ -3786,14 +3823,17 @@ impl ForgeApp {
             .clicked()
         {
             if let Some(session) = self.remote_kernel_session.clone() {
+                let (input_tx, input_rx) = mpsc::channel();
                 match self
                     .integration_worker
                     .submit(IntegrationRequest::RemoteExecute {
                         session,
                         code: self.remote_code.clone(),
                         cell_id: None,
+                        input: input_rx,
                     }) {
                     Ok(()) => {
+                        self.remote_input_sender = Some(input_tx);
                         self.integration_pending += 1;
                         self.remote_execution_pending = true;
                         self.remote_mime_outputs.clear();
@@ -5964,6 +6004,70 @@ impl ForgeApp {
         self.status_announcement = format!("Command completed: {:?}", command);
     }
 
+    fn remote_input_window(&mut self, ctx: &egui::Context) {
+        let Some(prompt) = self.remote_input_prompt.clone() else {
+            return;
+        };
+        let mut submit = false;
+        let mut cancel = false;
+        egui::Window::new("Remote kernel input")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.set_min_width(380.0);
+                ui.label(prompt);
+                let response = ui.add(
+                    egui::TextEdit::singleline(&mut self.remote_input_response)
+                        .password(self.remote_input_password)
+                        .desired_width(f32::INFINITY)
+                        .hint_text(if self.remote_input_password {
+                            "Password input"
+                        } else {
+                            "Reply to remote kernel"
+                        }),
+                );
+                if response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)) {
+                    submit = true;
+                }
+                ui.horizontal(|ui| {
+                    submit |= ui.button("Send").clicked();
+                    cancel |= ui.button("Cancel execution").clicked();
+                });
+                ui.small("Input is sent only to the active Jupyter kernel and is not persisted.");
+            });
+        if submit {
+            if self.remote_input_response.len() > 64 * 1024 {
+                self.console = "Remote input is limited to 64 KiB.".into();
+                return;
+            }
+            let reply = std::mem::take(&mut self.remote_input_response);
+            match self
+                .remote_input_sender
+                .as_ref()
+                .ok_or_else(|| "Remote input channel is no longer available.".to_owned())
+                .and_then(|sender| sender.send(reply).map_err(|error| error.to_string()))
+            {
+                Ok(()) => {
+                    self.remote_input_prompt = None;
+                    self.remote_input_password = false;
+                }
+                Err(error) => {
+                    self.remote_input_sender = None;
+                    self.remote_input_prompt = None;
+                    self.remote_input_password = false;
+                    self.console = error;
+                }
+            }
+        } else if cancel {
+            self.remote_input_sender = None;
+            self.remote_input_prompt = None;
+            self.remote_input_response.clear();
+            self.remote_input_password = false;
+            self.stop_execution();
+        }
+    }
+
     fn accessibility_shortcuts(&mut self, ctx: &egui::Context) {
         if ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::P)) {
             self.command_palette_open = true;
@@ -6370,6 +6474,7 @@ impl eframe::App for ForgeApp {
         self.unsaved_confirmation(ui.ctx());
         self.settings_window(ui.ctx());
         self.dataset_window(ui.ctx());
+        self.remote_input_window(ui.ctx());
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {

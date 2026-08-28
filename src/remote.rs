@@ -8,6 +8,7 @@ use std::{
 
 const MAX_REMOTE_CODE_BYTES: usize = 1024 * 1024;
 const MAX_REMOTE_OUTPUT_BYTES: usize = 2 * 1024 * 1024;
+const MAX_REMOTE_INPUT_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RemoteProfile {
@@ -31,6 +32,11 @@ pub struct RemoteExecution {
     pub mime: Vec<crate::notebook::RichOutput>,
     pub execution_count: Option<u64>,
     pub status: String,
+}
+
+pub struct RemoteInputRequest {
+    pub prompt: String,
+    pub password: bool,
 }
 
 pub fn store_token(profile: &RemoteProfile, token: &str) -> Result<(), String> {
@@ -157,7 +163,12 @@ pub fn interrupt_kernel(session: &RemoteKernelSession) -> Result<String, String>
     ))
 }
 
-pub fn execute(session: &RemoteKernelSession, code: &str) -> Result<RemoteExecution, String> {
+pub fn execute(
+    session: &RemoteKernelSession,
+    code: &str,
+    input: &std::sync::mpsc::Receiver<String>,
+    mut on_input: impl FnMut(RemoteInputRequest) -> Result<(), String>,
+) -> Result<RemoteExecution, String> {
     validate_profile(&session.profile)?;
     validate_identifier(&session.id, "Kernel session ID")?;
     if code.trim().is_empty() {
@@ -214,6 +225,28 @@ pub fn execute(session: &RemoteKernelSession, code: &str) -> Result<RemoteExecut
         if value["parent_header"]["msg_id"].as_str() != Some(msg_id.as_str()) {
             continue;
         }
+        if message_type(&value) == "input_request" {
+            let prompt = value["content"]["prompt"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned();
+            if prompt.len() > MAX_REMOTE_INPUT_BYTES {
+                return Err("Remote input prompt exceeded the 64 KiB limit.".into());
+            }
+            let password = value["content"]["password"].as_bool().unwrap_or(false);
+            on_input(RemoteInputRequest { prompt, password })?;
+            let reply = input.recv_timeout(Duration::from_secs(300)).map_err(|_| {
+                "Remote input was cancelled or timed out after 5 minutes.".to_owned()
+            })?;
+            if reply.len() > MAX_REMOTE_INPUT_BYTES {
+                return Err("Remote input is limited to 64 KiB.".into());
+            }
+            let reply = input_reply(&session_id, &value["header"], &reply);
+            socket
+                .send(tungstenite::Message::text(reply.to_string()))
+                .map_err(|e| redact(&e.to_string(), &token))?;
+            continue;
+        }
         let state = apply_execution_message(&mut execution, &value)?;
         idle |= state.0;
         replied |= state.1;
@@ -226,10 +259,7 @@ fn apply_execution_message(
     execution: &mut RemoteExecution,
     value: &serde_json::Value,
 ) -> Result<(bool, bool), String> {
-    let msg_type = value["msg_type"]
-        .as_str()
-        .or_else(|| value["header"]["msg_type"].as_str())
-        .unwrap_or_default();
+    let msg_type = message_type(value);
     let mut idle = false;
     let mut replied = false;
     match msg_type {
@@ -287,12 +317,41 @@ fn execute_request(session_id: &str, msg_id: &str, code: &str) -> serde_json::Va
             "silent": false,
             "store_history": true,
             "user_expressions": {},
-            "allow_stdin": false,
+            "allow_stdin": true,
             "stop_on_error": true
         },
         "channel": "shell",
         "buffers": []
     })
+}
+
+fn input_reply(
+    session_id: &str,
+    parent_header: &serde_json::Value,
+    value: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "header": {
+            "msg_id": uuid::Uuid::new_v4().to_string(),
+            "username": "forge-ml",
+            "session": session_id,
+            "date": chrono::Utc::now().to_rfc3339(),
+            "msg_type": "input_reply",
+            "version": "5.3"
+        },
+        "parent_header": parent_header,
+        "metadata": {},
+        "content": { "value": value },
+        "channel": "stdin",
+        "buffers": []
+    })
+}
+
+fn message_type(value: &serde_json::Value) -> &str {
+    value["msg_type"]
+        .as_str()
+        .or_else(|| value["header"]["msg_type"].as_str())
+        .unwrap_or_default()
 }
 
 fn append_bounded(output: &mut String, value: &str) -> Result<(), String> {
@@ -556,6 +615,16 @@ mod tests {
         let message = execute_request("session-1", "message-1", "1 + 1");
         assert_eq!(message["header"]["msg_type"], "execute_request");
         assert_eq!(message["content"]["code"], "1 + 1");
+        assert_eq!(message["content"]["allow_stdin"], true);
+        let reply = input_reply(
+            "session-1",
+            &serde_json::json!({"msg_id":"input-message-1"}),
+            "secret",
+        );
+        assert_eq!(reply["header"]["msg_type"], "input_reply");
+        assert_eq!(reply["parent_header"]["msg_id"], "input-message-1");
+        assert_eq!(reply["content"]["value"], "secret");
+        assert_eq!(reply["channel"], "stdin");
         let endpoint =
             websocket_endpoint("https://example.test/user/forge", "kernel-1", "session-1").unwrap();
         assert_eq!(endpoint.scheme(), "wss");

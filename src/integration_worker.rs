@@ -56,6 +56,7 @@ pub enum Request {
         session: crate::remote::RemoteKernelSession,
         code: String,
         cell_id: Option<usize>,
+        input: Receiver<String>,
     },
 }
 
@@ -81,6 +82,11 @@ pub enum ResultEvent {
     RemoteKernelStarted(Result<crate::remote::RemoteKernelSession, String>),
     RemoteKernelStopped(Result<String, String>),
     RemoteKernelInterrupted(Result<String, String>),
+    RemoteInputRequested {
+        cell_id: Option<usize>,
+        prompt: String,
+        password: bool,
+    },
     RemoteExecuted {
         cell_id: Option<usize>,
         result: Result<crate::remote::RemoteExecution, String>,
@@ -101,7 +107,7 @@ impl IntegrationWorker {
         let control_result_tx = result_tx.clone();
         thread::spawn(move || {
             while let Ok(request) = request_rx.recv() {
-                let result = execute(request);
+                let result = execute(request, &result_tx);
                 if result_tx.send(result).is_err() {
                     break;
                 }
@@ -109,7 +115,7 @@ impl IntegrationWorker {
         });
         thread::spawn(move || {
             while let Ok(request) = control_rx.recv() {
-                let result = execute(request);
+                let result = execute(request, &control_result_tx);
                 if control_result_tx.send(result).is_err() {
                     break;
                 }
@@ -141,7 +147,7 @@ impl IntegrationWorker {
     }
 }
 
-fn execute(request: Request) -> ResultEvent {
+fn execute(request: Request, events: &Sender<ResultEvent>) -> ResultEvent {
     match request {
         Request::DataImport(path) => ResultEvent::DataImport {
             result: prepared_import(crate::data::load_table(&path)),
@@ -223,9 +229,18 @@ fn execute(request: Request) -> ResultEvent {
             session,
             code,
             cell_id,
+            input,
         } => ResultEvent::RemoteExecuted {
             cell_id,
-            result: crate::remote::execute(&session, &code),
+            result: crate::remote::execute(&session, &code, &input, |request| {
+                events
+                    .send(ResultEvent::RemoteInputRequested {
+                        cell_id,
+                        prompt: request.prompt,
+                        password: request.password,
+                    })
+                    .map_err(|error| error.to_string())
+            }),
         },
     }
 }
