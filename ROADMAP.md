@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.38.0`
+Current application version: `0.39.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -48,7 +48,7 @@ tables, plots, and metrics still enter through a compatibility stdout adapter.
 - [x] Markdown cells.
 - [x] Standard `.ipynb` import/export.
 - [~] Jupyter kernel protocol support (kernelspec integration is available; native Evcxr remains the default).
-- [~] Remote kernels (secured discovery, lifecycle, bounded rich execution, and responsive interrupts landed; stdin and direct notebook routing remain).
+- [~] Remote kernels (secured discovery, lifecycle, bounded rich execution, responsive interrupts, and notebook routing landed; stdin remains).
 
 ### Rust language intelligence
 
@@ -817,7 +817,24 @@ Implementation notes:
 
 - Interrupt uses Jupyter's authenticated `POST /api/kernels/{id}/interrupt` endpoint. The execution WebSocket remains responsible for reporting the resulting reply and idle state.
 - Rich payloads are preserved for inspection without executing remote HTML or SVG in the IDE, avoiding an embedded active-content surface.
-- stdin prompts and direct notebook-cell routing remain explicit follow-up work.
+- At the end of 0.38, stdin prompts and direct notebook-cell routing remained explicit follow-up work; 0.39 completes notebook routing.
+
+## 0.39 remote notebook execution — implemented
+
+- [x] Add an explicit **Run notebook cells on active remote kernel** execution-target toggle.
+- [x] Route Run Cell, Run Above, and Run All through the normal notebook queue to the managed Jupyter session.
+- [x] Correlate background results with their originating Forge cell instead of the standalone remote editor.
+- [x] Preserve text and rich MIME payloads in each cell's existing output record.
+- [x] Continue queued cells after successful remote replies and stop the queue on remote errors.
+- [x] Route the normal Stop action to the dedicated remote interrupt lane while a notebook cell is active.
+- [x] Display non-plain MIME payloads as inert, collapsible source in the cell console.
+- [x] Clear the remote execution target when Forge stops its managed kernel.
+
+Implementation notes:
+
+- The routing choice is deliberately session-only: Forge cannot safely restore ownership of a server-side kernel after restart.
+- **Restart and run all** runs all cells in the current remote session because remote kernel restart is not yet exposed.
+- Jupyter stdin prompts remain disabled and are the final protocol-level item in this roadmap slice.
 
 ## Known technical risks
 

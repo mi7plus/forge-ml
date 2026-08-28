@@ -55,6 +55,7 @@ pub enum Request {
     RemoteExecute {
         session: crate::remote::RemoteKernelSession,
         code: String,
+        cell_id: Option<usize>,
     },
 }
 
@@ -80,7 +81,10 @@ pub enum ResultEvent {
     RemoteKernelStarted(Result<crate::remote::RemoteKernelSession, String>),
     RemoteKernelStopped(Result<String, String>),
     RemoteKernelInterrupted(Result<String, String>),
-    RemoteExecuted(Result<crate::remote::RemoteExecution, String>),
+    RemoteExecuted {
+        cell_id: Option<usize>,
+        result: Result<crate::remote::RemoteExecution, String>,
+    },
 }
 
 pub struct IntegrationWorker {
@@ -215,9 +219,14 @@ fn execute(request: Request) -> ResultEvent {
         Request::RemoteKernelInterrupt(session) => {
             ResultEvent::RemoteKernelInterrupted(crate::remote::interrupt_kernel(&session))
         }
-        Request::RemoteExecute { session, code } => {
-            ResultEvent::RemoteExecuted(crate::remote::execute(&session, &code))
-        }
+        Request::RemoteExecute {
+            session,
+            code,
+            cell_id,
+        } => ResultEvent::RemoteExecuted {
+            cell_id,
+            result: crate::remote::execute(&session, &code),
+        },
     }
 }
 

@@ -364,6 +364,7 @@ struct ForgeApp {
     remote_mime_outputs: Vec<RichOutput>,
     remote_execution_pending: bool,
     remote_interrupt_pending: bool,
+    remote_notebook_execution: bool,
     registry_model: String,
     registry_version: String,
     registry_format: String,
@@ -631,6 +632,7 @@ impl ForgeApp {
             remote_mime_outputs: Vec::new(),
             remote_execution_pending: false,
             remote_interrupt_pending: false,
+            remote_notebook_execution: false,
             registry_model: "model".into(),
             registry_version: "0.1.0".into(),
             registry_format: "onnx".into(),
@@ -753,6 +755,13 @@ impl ForgeApp {
     }
 
     fn restart_and_run_all(&mut self) {
+        if self.remote_notebook_execution {
+            self.console =
+                "Remote kernel restart is not available; running all cells in the active session."
+                    .into();
+            self.enqueue_cells(0..self.cells().len());
+            return;
+        }
         self.run_queue.clear();
         self.run_all_after_reset = true;
         self.run_state = RunState::Booting;
@@ -763,6 +772,32 @@ impl ForgeApp {
     fn stop_execution(&mut self) {
         self.run_queue.clear();
         self.run_all_after_reset = false;
+        if self.remote_execution_pending {
+            let Some(session) = self.remote_kernel_session.clone() else {
+                self.run_state = RunState::Failed;
+                self.console = "The active remote kernel is no longer available.".into();
+                return;
+            };
+            if self.remote_interrupt_pending {
+                self.console = "Remote interrupt already requested…".into();
+                return;
+            }
+            match self
+                .integration_worker
+                .submit(IntegrationRequest::RemoteKernelInterrupt(session))
+            {
+                Ok(()) => {
+                    self.integration_pending += 1;
+                    self.remote_interrupt_pending = true;
+                    self.console = "Interrupting remote notebook execution…".into();
+                }
+                Err(error) => {
+                    self.run_state = RunState::Failed;
+                    self.console = error;
+                }
+            }
+            return;
+        }
         self.run_state = RunState::Booting;
         self.console = "Stopping execution and restarting the Rust runtime...".to_owned();
         if let Err(error) = self.runtime.stop() {
@@ -1421,6 +1456,46 @@ impl ForgeApp {
             self.run_next();
             return;
         }
+        if self.remote_notebook_execution {
+            let Some(session) = self.remote_kernel_session.clone() else {
+                self.run_queue.clear();
+                self.run_state = RunState::Failed;
+                self.cell_records.entry(cell_id).or_default().state = Some(CellState::Failed);
+                self.console = "Start a remote kernel or disable remote notebook execution.".into();
+                return;
+            };
+            match self
+                .integration_worker
+                .submit(IntegrationRequest::RemoteExecute {
+                    session,
+                    code,
+                    cell_id: Some(cell_id),
+                }) {
+                Ok(()) => {
+                    self.integration_pending += 1;
+                    self.remote_execution_pending = true;
+                    self.run_state = RunState::Running(cell_id);
+                    let provenance = self.project_root().map(|root| git::provenance(&root));
+                    let record = self.cell_records.entry(cell_id).or_default();
+                    record.state = Some(CellState::Running);
+                    record.output.clear();
+                    record.rich_outputs.clear();
+                    record.elapsed_ms = None;
+                    if let Some((commit, dirty)) = provenance {
+                        record.git_commit = Some(commit);
+                        record.git_dirty = dirty;
+                    }
+                    self.console = format!("Running cell {} on remote kernel…", cell_id + 1);
+                }
+                Err(error) => {
+                    self.run_queue.clear();
+                    self.run_state = RunState::Failed;
+                    self.cell_records.entry(cell_id).or_default().state = Some(CellState::Failed);
+                    self.console = error;
+                }
+            }
+            return;
+        }
         let code = prepare_runtime_code(&code, self.active().path.as_deref());
         if self.runtime.execute(cell_id, code).is_ok() {
             self.run_state = RunState::Running(cell_id);
@@ -1809,6 +1884,7 @@ impl ForgeApp {
                 ResultEvent::RemoteKernelStopped(result) => match result {
                     Ok(message) => {
                         self.remote_kernel_session = None;
+                        self.remote_notebook_execution = false;
                         self.sql_output = message;
                     }
                     Err(error) => self.sql_output = error,
@@ -1817,12 +1893,11 @@ impl ForgeApp {
                     self.remote_interrupt_pending = false;
                     self.sql_output = result.unwrap_or_else(|error| error);
                 }
-                ResultEvent::RemoteExecuted(result) => {
+                ResultEvent::RemoteExecuted { cell_id, result } => {
                     self.remote_execution_pending = false;
                     match result {
                         Ok(execution) => {
-                            self.remote_mime_outputs = execution.mime;
-                            self.sql_output = format!(
+                            let message = format!(
                                 "Remote execution {}{}\n{}",
                                 execution.status,
                                 execution
@@ -1831,8 +1906,42 @@ impl ForgeApp {
                                     .unwrap_or_default(),
                                 execution.output
                             );
+                            if let Some(cell_id) = cell_id {
+                                let succeeded = execution.status == "ok";
+                                let record = self.cell_records.entry(cell_id).or_default();
+                                record.state = Some(if succeeded {
+                                    CellState::Passed
+                                } else {
+                                    CellState::Failed
+                                });
+                                record.output = execution.output;
+                                record.rich_outputs = execution.mime;
+                                self.console = message;
+                                if succeeded {
+                                    self.run_state = RunState::Ready;
+                                    self.execution_count += 1;
+                                    self.run_next();
+                                } else {
+                                    self.run_state = RunState::Failed;
+                                    self.run_queue.clear();
+                                }
+                            } else {
+                                self.remote_mime_outputs = execution.mime;
+                                self.sql_output = message;
+                            }
                         }
-                        Err(error) => self.sql_output = error,
+                        Err(error) => {
+                            if let Some(cell_id) = cell_id {
+                                let record = self.cell_records.entry(cell_id).or_default();
+                                record.state = Some(CellState::Failed);
+                                record.output = error.clone();
+                                self.run_state = RunState::Failed;
+                                self.run_queue.clear();
+                                self.console = format!("Cell {} failed\n\n{error}", cell_id + 1);
+                            } else {
+                                self.sql_output = error;
+                            }
+                        }
                     }
                 }
             }
@@ -3655,6 +3764,15 @@ impl ForgeApp {
                 }
             }
         });
+        ui.add_enabled_ui(self.remote_kernel_session.is_some(), |ui| {
+            ui.checkbox(
+                &mut self.remote_notebook_execution,
+                "Run notebook cells on active remote kernel",
+            )
+            .on_hover_text(
+                "Routes Run Cell, Run Above, and Run All through the managed Jupyter kernel",
+            );
+        });
         ui.add(
             egui::TextEdit::multiline(&mut self.remote_code)
                 .desired_rows(4)
@@ -3673,6 +3791,7 @@ impl ForgeApp {
                     .submit(IntegrationRequest::RemoteExecute {
                         session,
                         code: self.remote_code.clone(),
+                        cell_id: None,
                     }) {
                     Ok(()) => {
                         self.integration_pending += 1;
@@ -5680,6 +5799,17 @@ impl ForgeApp {
                                 TEXT
                             },
                         ));
+                        if let Some(record) = self.cell_records.get(&self.selected_cell) {
+                            for output in record
+                                .rich_outputs
+                                .iter()
+                                .filter(|output| output.mime != "text/plain")
+                            {
+                                ui.collapsing(&output.mime, |ui| {
+                                    ui.label(RichText::new(&output.data).monospace().color(CYAN));
+                                });
+                            }
+                        }
                     });
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("In [ ]:").monospace().strong().color(CYAN));
