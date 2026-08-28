@@ -12,7 +12,7 @@ use arrow::{
 use parquet::arrow::ArrowWriter;
 use std::{
     fs::{self, File},
-    io::{Cursor, Write},
+    io::{Cursor, Read, Write},
     path::{Component, Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -22,6 +22,7 @@ const MAX_BUNDLE_BYTES: u64 = 500 * 1024 * 1024;
 const MAX_BUNDLE_FILES: usize = 20_000;
 static NEXT_EXPORT_TEMP: AtomicU64 = AtomicU64::new(1);
 const MAX_TRAINING_BUNDLE_BYTES: usize = 192 * 1024 * 1024;
+const MAX_TRAINING_BUNDLE_FILE_BYTES: u64 = 100 * 1024 * 1024;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum DataFormat {
@@ -584,6 +585,129 @@ pub fn training_bundle(events: &[TrainingEvent], path: &Path) -> Result<(), Stri
     atomic_bytes(path, &bytes)
 }
 
+pub struct ImportedTrainingBundle {
+    pub events: Vec<TrainingEvent>,
+    pub plots: Vec<plot::PlotSpec>,
+}
+
+pub fn import_training_bundle(path: &Path) -> Result<ImportedTrainingBundle, String> {
+    let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
+    if metadata.len() > MAX_TRAINING_BUNDLE_FILE_BYTES {
+        return Err("Training bundle exceeds the 100 MiB file limit".into());
+    }
+    let bytes = fs::read(path).map_err(|error| error.to_string())?;
+    let mut archive =
+        zip::ZipArchive::new(Cursor::new(bytes)).map_err(|error| error.to_string())?;
+    const REQUIRED: [&str; 5] = [
+        "training-events.json",
+        "training-events.csv",
+        "training-report.html",
+        "training-plots.json",
+        "forge-training-bundle.json",
+    ];
+    if archive.len() != REQUIRED.len() {
+        return Err("Training bundle contains an unexpected entry set".into());
+    }
+    let mut contents = std::collections::BTreeMap::new();
+    let mut total = 0usize;
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).map_err(|error| error.to_string())?;
+        let name = entry.name().to_owned();
+        if !REQUIRED.contains(&name.as_str()) || contents.contains_key(&name) || entry.is_dir() {
+            return Err(format!("Unexpected training bundle entry `{name}`"));
+        }
+        let size = usize::try_from(entry.size()).map_err(|_| "Bundle entry is too large")?;
+        total = total
+            .checked_add(size)
+            .ok_or("Training bundle size overflow")?;
+        if total > MAX_TRAINING_BUNDLE_BYTES + 1024 * 1024 {
+            return Err("Training bundle exceeds the uncompressed safety limit".into());
+        }
+        let mut value = Vec::with_capacity(size.min(1024 * 1024));
+        entry
+            .read_to_end(&mut value)
+            .map_err(|error| error.to_string())?;
+        if value.len() != size {
+            return Err(format!(
+                "Training bundle entry `{name}` has an invalid size"
+            ));
+        }
+        contents.insert(name, value);
+    }
+    let manifest: serde_json::Value = serde_json::from_slice(
+        contents
+            .get("forge-training-bundle.json")
+            .ok_or("Training bundle manifest is missing")?,
+    )
+    .map_err(|error| format!("Invalid training bundle manifest: {error}"))?;
+    if manifest.get("schema").and_then(|value| value.as_u64()) != Some(1)
+        || manifest
+            .get("digest_algorithm")
+            .and_then(|value| value.as_str())
+            != Some("sha256")
+    {
+        return Err("Unsupported training bundle manifest".into());
+    }
+    let manifest_entries = manifest
+        .get("entries")
+        .and_then(|value| value.as_array())
+        .ok_or("Training bundle manifest entries are missing")?;
+    if manifest_entries.len() != 4 {
+        return Err("Training bundle manifest must describe four artifacts".into());
+    }
+    let mut described = std::collections::BTreeSet::new();
+    let mut described_bytes = 0u64;
+    for item in manifest_entries {
+        let name = item
+            .get("path")
+            .and_then(|value| value.as_str())
+            .ok_or("Training bundle manifest entry path is missing")?;
+        if name == "forge-training-bundle.json" || !described.insert(name) {
+            return Err("Training bundle manifest contains duplicate or invalid paths".into());
+        }
+        let value = contents
+            .get(name)
+            .ok_or_else(|| format!("Training bundle artifact `{name}` is missing"))?;
+        let digest = crate::experiment::stable_digest(value);
+        described_bytes = described_bytes
+            .checked_add(value.len() as u64)
+            .ok_or("Training bundle manifest size overflow")?;
+        if item.get("bytes").and_then(|value| value.as_u64()) != Some(value.len() as u64)
+            || item.get("sha256").and_then(|value| value.as_str()) != Some(digest.as_str())
+        {
+            return Err(format!(
+                "Training bundle artifact `{name}` failed integrity validation"
+            ));
+        }
+    }
+    if manifest
+        .get("total_uncompressed_bytes")
+        .and_then(|value| value.as_u64())
+        != Some(described_bytes)
+    {
+        return Err("Training bundle aggregate size does not match its manifest".into());
+    }
+    let events = millwright_studio::parse_training_json(
+        contents
+            .get("training-events.json")
+            .ok_or("Training event JSON is missing")?,
+    )?;
+    let plot_bytes = contents
+        .get("training-plots.json")
+        .ok_or("Training plot JSON is missing")?;
+    let plots = if plot_bytes.iter().all(u8::is_ascii_whitespace) || plot_bytes == b"[]\n" {
+        Vec::new()
+    } else {
+        plot::parse_json(plot_bytes)?
+    };
+    if manifest.get("event_count").and_then(|value| value.as_u64()) != Some(events.len() as u64)
+        || manifest.get("plot_count").and_then(|value| value.as_u64()) != Some(plots.len() as u64)
+    {
+        return Err("Training bundle manifest counts do not match its artifacts".into());
+    }
+    Ok(ImportedTrainingBundle { events, plots })
+}
+
 pub(crate) fn write_text_pdf(path: &Path, lines: &[String]) -> Result<(), String> {
     let wrapped = lines
         .iter()
@@ -854,6 +978,10 @@ mod tests {
         ] {
             assert!(archive.by_name(name).is_ok(), "missing {name}");
         }
+        drop(archive);
+        let imported = import_training_bundle(&path).unwrap();
+        assert_eq!(imported.events, events);
+        assert_eq!(imported.plots.len(), 2);
         let _ = fs::remove_dir_all(root);
     }
 }

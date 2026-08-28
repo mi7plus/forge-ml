@@ -4442,6 +4442,35 @@ impl ForgeApp {
                         .unwrap_or_else(|error| format!("Training bundle failed: {error}"));
                 }
             }
+            if ui.button("Import bundle").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Forge training bundle", &["zip"])
+                    .pick_file()
+                {
+                    self.console = export::import_training_bundle(&path)
+                        .map(|bundle| {
+                            let events = bundle.events.len();
+                            let plots = bundle.plots.len();
+                            self.training_events = bundle.events;
+                            for spec in bundle.plots {
+                                if let Some(existing) = self
+                                    .structured_plots
+                                    .iter_mut()
+                                    .find(|existing| existing.name == spec.name)
+                                {
+                                    *existing = spec;
+                                } else {
+                                    self.structured_plots.push(spec);
+                                }
+                            }
+                            format!(
+                                "Imported {events} training event(s) and {plots} plot(s) from {}",
+                                path.display()
+                            )
+                        })
+                        .unwrap_or_else(|error| format!("Training bundle import failed: {error}"));
+                }
+            }
             if !self.training_events.is_empty() && ui.button("Open metric plots").clicked() {
                 let plots = millwright_studio::training_plots(&self.training_events);
                 let count = plots.len();

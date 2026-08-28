@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.62.0`
+Current application version: `0.63.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1195,6 +1195,21 @@ Implementation notes:
 
 - The bundle contains HTML for offline review and JSON for lossless reopening. The separately available PDF remains print-focused and is not duplicated inside the ZIP.
 - Digests attest bundle entry content for reproducibility checks; they are not signatures and do not claim an external identity.
+
+## 0.63 integrity-verified training bundle import — implemented
+
+- [x] Reopen Forge training bundles through an explicit **Import bundle** action.
+- [x] Limit compressed input to 100 MiB and expanded entries to the bounded training-bundle budget.
+- [x] Require the exact event JSON, CSV, HTML report, plot JSON, and manifest entry set with no duplicates or directories.
+- [x] Verify manifest schema, digest algorithm, aggregate size, per-entry sizes, and SHA-256 digests.
+- [x] Revalidate typed events and plot specifications and compare their counts with the manifest.
+- [x] Replace live telemetry and refresh same-name plots only after the entire archive succeeds.
+- [x] Test bundle export/import round trips for event identity and generated plot recovery.
+
+Implementation notes:
+
+- CSV and HTML are integrity-checked review artifacts; typed JSON remains the source used to restore live state.
+- Import never extracts archive paths to disk, preventing traversal and overwrite behavior from untrusted ZIP entry names.
 
 ## Known technical risks
 
