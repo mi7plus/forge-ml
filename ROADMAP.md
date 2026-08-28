@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.30.0`
+Current application version: `0.31.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -165,7 +165,7 @@ Implementation notes:
 - [x] Add virtualized table rendering.
 - [x] Add sorting, column resizing, visibility, pinning, and selection.
 - [x] Add CSV, TSV, Parquet, Arrow IPC, and JSON Lines ingestion.
-- [x] Add an optional native Millwright `Table` adapter (`millwright` feature).
+- [x] Add a native Millwright `Table` adapter (always embedded since 0.31).
 - [~] Add dataset profiles, missingness, correlations, alerts, and lineage (column statistics and source lineage landed).
 - [x] Add local Git status and project-tree decorations.
 - [x] Add diff, staging, commits, branch switching/creation, pull, and push.
@@ -179,7 +179,7 @@ Implementation notes:
 - Large filtered datasets render only visible rows; column headers support numeric-aware sorting.
 - The Git workbench uses the installed Git CLI and never stores credentials itself.
 - The Crates workbench uses Cargo for registry discovery and manifest/lockfile changes.
-- Millwright remains optional so the base IDE binary does not pull Polars into every build.
+- Millwright was optional in this milestone; 0.31 made the published crate a core dependency.
 
 ## 0.4 notebooks and GitHub — implemented
 
@@ -215,7 +215,7 @@ Implementation notes:
 Implementation notes:
 
 - Forge integrates only the published crates.io package; local Millwright checkouts are ignored.
-- Millwright/Polars remains behind the optional `millwright` feature to protect default binary size.
+- Millwright/Polars was feature-gated in this milestone; 0.31 intentionally embeds it in every build.
 - Runtime cells can stream `forge_training:<json>` and `forge_evaluation:<json>` records into Studio.
 - Generated pipelines use Millwright's Rust API and open as editable notebook cells.
 - Python inspection is read-only runtime discovery; packages and ML frameworks remain user-managed.
@@ -292,7 +292,7 @@ Implementation notes:
 
 Implementation notes:
 
-- Generated projects target published Burn `0.22.0-pre.3`; Burn is not linked into the Forge binary.
+- Generated projects target published Burn `0.22.0-pre.3`; 0.31 also links Burn into the Forge binary.
 - Deep-learning outputs use framework-neutral `forge_model`, `forge_tensor`, `forge_image`, `forge_embedding`, `forge_predictions`, and `forge_checkpoint` records.
 - This does not restore the removed Burn-specific telemetry implementation.
 - Remote tokens use the OS credential manager and never enter project profile JSON.
@@ -452,7 +452,7 @@ Implementation notes:
 
 ## 0.18 Millwright portability and model operations — implemented
 
-- [x] Enable Millwright 2.2.1's native ONNX API behind Forge's optional `millwright` feature.
+- [x] Enable Millwright 2.2.1's native ONNX API (always embedded since 0.31).
 - [x] Generate editable pipeline export cells that call `ExportOnnx` and verify a load/predict round trip.
 - [x] Resolve registry aliases to immutable version metadata before service generation.
 - [x] Copy the selected registered artifact into the generated service instead of retaining a workspace path.
@@ -464,7 +464,7 @@ Implementation notes:
 Implementation notes:
 
 - Forge consumes the published `millwright = 2.2.1` crate only; no local repository or path override is used.
-- ONNX support remains optional because Millwright's ONNX/runtime dependency graph materially increases compile and binary size.
+- ONNX support was optional in this milestone; 0.31 accepts the larger dependency graph and embeds it.
 - Generated prediction handlers deliberately remain editable integration scaffolds: model formats require format-specific tensor adapters before production inference.
 - The service copies the exact alias-resolved artifact, so later alias promotion or rollback cannot silently change an already generated deployment.
 
@@ -480,7 +480,7 @@ Implementation notes:
 
 Implementation notes:
 
-- The inference runtime is linked only into generated ONNX service projects, not Forge's default desktop binary.
+- Generated services link their own serving runtime; since 0.31 the IDE also embeds Millwright's ONNX APIs.
 - Generated projects depend on `millwright = 2.2.1` from crates.io with its `serve` feature; local Millwright repositories are not consulted.
 - Millwright's tract-backed loader handles ordinary ONNX graphs. ONNX-ML tree operators may require a different runtime adapter, which remains explicit rather than silently falling back.
 
@@ -643,7 +643,7 @@ Implementation notes:
 
 - Limits cover the display-oriented string projection used by the current viewer. Arrow buffers, vectors, and Rust collection overhead mean process memory can exceed the decoded-text count.
 - Arrow IPC files retain their encoded record-batch boundaries, so a single unusually large batch can still create a transient allocation before Forge validates its projected values.
-- The optional published-Millwright import remains a separate native path; these limits apply to Forge's standard CSV/TSV/JSON Lines/Parquet/Arrow importer.
+- The published-Millwright import remains a separate native path; these limits apply to Forge's standard CSV/TSV/JSON Lines/Parquet/Arrow importer.
 
 ## 0.29 non-blocking dataset exports — implemented
 
@@ -665,7 +665,7 @@ Implementation notes:
 
 ## 0.30 non-blocking native Millwright imports — implemented
 
-- [x] Move optional Millwright CSV and Parquet loading off the UI thread.
+- [x] Move Millwright CSV and Parquet loading off the UI thread.
 - [x] Continue using only the published `millwright = 2.2.1` crates.io dependency.
 - [x] Convert native Polars rows into typed Forge table results inside the worker.
 - [x] Apply Forge's one-million-row, 10,000-column, 512 MiB decoded-text, and 16 MiB cell limits to the projected result.
@@ -673,13 +673,34 @@ Implementation notes:
 - [x] Insert the completed result into the Arrow-backed workspace only on the UI thread.
 - [x] Open successful native imports directly in the docked dataset viewer.
 - [x] Disable the Millwright import action while another integration operation is active.
-- [x] Add a feature-gated worker test that executes the published Millwright CSV loader.
+- [x] Add a worker test that executes the published Millwright CSV loader.
 
 Implementation notes:
 
 - Millwright/Polars necessarily materializes its native table before Forge projects display strings, so Forge's decoded-data budget limits the workspace result rather than the native loader's peak allocation.
-- The optional feature remains outside the default desktop binary because its Polars and ONNX graph materially increases build time and binary size.
+- Millwright was still optional in 0.30; 0.31 intentionally moved its Polars and ONNX graph into every desktop build.
 - The standard Forge importer remains preferable when native Millwright semantics are not specifically required.
+
+## 0.31 embedded native ML runtimes — implemented
+
+- [x] Make published Millwright 2.2.1 a non-optional dependency of every Forge build.
+- [x] Keep the historical `millwright` Cargo feature as a no-op compatibility alias.
+- [x] Remove compile-time guards from native Millwright imports and their worker verification.
+- [x] Embed published Burn 0.22.0-pre.3 with training and system metrics.
+- [x] Embed Burn's portable Flex CPU runtime and cross-platform WGPU runtime.
+- [x] Add a native Burn tensor self-test to the Deep Learning pane.
+- [x] Align Forge and forge-storage on rusqlite 0.40 for Burn runtime compatibility.
+- [x] Keep generated CUDA and ROCm projects available without requiring their platform SDKs in every installer.
+- [x] Update extension and user documentation to make the new binary boundary explicit.
+- [x] Measure and report the resulting Windows release executable size.
+
+Implementation notes:
+
+- Millwright and Burn are now part of the standard IDE executable; binary size and first-build time are accepted product costs.
+- The optimized Windows x86-64 `forge_ide.exe` built for 0.31.0 is 118,527,488 bytes (113.04 MiB). Installer size will vary with packaging and compression.
+- Burn GPU support embedded in the cross-platform package is WGPU. CUDA and ROCm require vendor SDK/runtime compatibility and remain generated-project or remote-training targets.
+- Python remains runtime-only and user-managed; embedding Rust ML frameworks does not expand Forge into Python framework distribution.
+- The `millwright` feature name no longer changes dependency selection, preserving existing build scripts while ensuring all builds contain Millwright.
 
 ## Known technical risks
 

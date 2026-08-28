@@ -40,6 +40,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - SHA-256 model integrity, immutable version enforcement, and tamper-aware deployment readiness
 - Native Millwright 2.2 ONNX export/round-trip cells using the published crates.io API
 - Non-blocking native Millwright 2.2.1 CSV/Parquet imports normalized through Forge's bounded data pipeline
+- Always-embedded Millwright 2.2.1 plus Burn 0.22 training, metrics, Flex CPU, and WGPU runtimes
 - Self-contained Rust/Axum inference services with real Millwright ONNX inference, health, readiness, metadata, Docker, Compose, and Kubernetes templates
 - Framework-neutral request/error/latency and feature-drift monitoring records in the deployment pane
 - S3-compatible and rclone object-storage profiles with bounded browsing, reachability probes, and atomic prefix-aware project caching

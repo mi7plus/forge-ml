@@ -9,7 +9,7 @@ An integration can:
 3. Generate editable Rust notebook cells or standalone Cargo projects.
 4. Implement a CLI adapter that returns rectangular data normalized into Arrow.
 
-Keep optional native dependencies behind Cargo features. Millwright integration must use its published crates.io package; do not depend on a neighboring checkout. Burn projects are generated against the published package and Burn is not linked into the default IDE binary. Python support stops at runtime/kernel execution and package discovery; Python ML packages remain user-managed.
+Millwright and Burn are core native dependencies and ship in every Forge build. Millwright integration must use its published crates.io package; do not depend on a neighboring checkout. Burn uses the published package with training, metrics, Flex CPU, and WGPU support. Keep unrelated platform-specific native dependencies behind explicit boundaries. Python support stops at runtime/kernel execution and package discovery; Python ML packages remain user-managed.
 
 Credential-bearing integrations must delegate to an OS credential manager or the external tool's credential chain. Persist only non-secret profile metadata. Bound network/process operations, limit previews, validate URLs and relative paths, and redact command errors.
 

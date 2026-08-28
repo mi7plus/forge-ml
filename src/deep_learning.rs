@@ -14,7 +14,7 @@ pub enum Backend {
 impl Backend {
     pub fn label(self) -> &'static str {
         match self {
-            Self::Cpu => "CPU / ndarray",
+            Self::Cpu => "CPU / Flex",
             Self::Wgpu => "WebGPU",
             Self::Cuda => "CUDA",
             Self::Rocm => "ROCm",
@@ -22,12 +22,19 @@ impl Backend {
     }
     pub fn feature(self) -> &'static str {
         match self {
-            Self::Cpu => "ndarray",
+            Self::Cpu => "flex",
             Self::Wgpu => "wgpu",
             Self::Cuda => "cuda",
             Self::Rocm => "rocm",
         }
     }
+}
+
+pub fn native_burn_self_test() -> String {
+    use burn::tensor::{Device, Tensor};
+    let input = Tensor::<1>::from_data([1.0_f32, 2.0, 3.0], &Device::flex());
+    let sum: f32 = input.sum().into_scalar();
+    format!("Embedded Burn {BURN_VERSION} Flex runtime ready (tensor sum {sum:.1}).")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -182,5 +189,10 @@ mod tests {
             &mut state,
         );
         assert_eq!(state.tensors[0].shape, [2]);
+    }
+
+    #[test]
+    fn embedded_burn_executes_a_native_tensor() {
+        assert!(native_burn_self_test().contains("tensor sum 6.0"));
     }
 }

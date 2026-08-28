@@ -12,7 +12,6 @@ use std::{
 
 pub enum Request {
     DataImport(PathBuf),
-    #[cfg(feature = "millwright")]
     MillwrightImport(PathBuf),
     DataExport {
         name: String,
@@ -111,7 +110,6 @@ fn execute(request: Request) -> ResultEvent {
             result: crate::data::load_table(&path),
             path,
         },
-        #[cfg(feature = "millwright")]
         Request::MillwrightImport(path) => ResultEvent::DataImport {
             result: crate::data::load_millwright_table(&path),
             path,
@@ -235,7 +233,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
-    #[cfg(feature = "millwright")]
     #[test]
     fn worker_imports_through_published_millwright() {
         let root =

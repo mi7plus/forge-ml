@@ -2123,7 +2123,6 @@ impl ForgeApp {
                     self.import_dataset();
                     ui.close();
                 }
-                #[cfg(feature = "millwright")]
                 if ui
                     .add_enabled(
                         self.integration_pending == 0,
@@ -3332,6 +3331,9 @@ impl ForgeApp {
                     })
                     .unwrap_or_else(|| "Open a project first.".into());
             }
+            if ui.button("Test embedded Burn").clicked() {
+                self.sql_output = deep_learning::native_burn_self_test();
+            }
             ui.add(egui::DragValue::new(&mut self.early_stopping_patience).prefix("patience "));
             ui.add(
                 egui::TextEdit::singleline(&mut self.resume_checkpoint)
@@ -3339,7 +3341,7 @@ impl ForgeApp {
             );
         });
         ui.label(format!(
-            "Burn template {} · backend dependencies remain project-local",
+            "Burn {} embedded · Flex CPU, WGPU, training, and metrics compiled into Forge",
             deep_learning::BURN_VERSION
         ));
         ui.label(&self.sql_output);
@@ -4090,7 +4092,6 @@ impl ForgeApp {
         }
     }
 
-    #[cfg(feature = "millwright")]
     fn import_millwright_dataset(&mut self) {
         if self.integration_pending > 0 {
             self.console = "Wait for the current data operation to finish.".into();

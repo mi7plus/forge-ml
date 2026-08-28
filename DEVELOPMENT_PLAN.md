@@ -43,7 +43,7 @@ forge-ml/
 ├── forge-kernel       Rust/Evcxr and Jupyter kernel management
 ├── forge-data         Arrow tables, previews, queries, and conversions
 ├── forge-connectors   Files, databases, and object storage
-├── forge-millwright   Native Millwright integration
+├── forge-millwright   Always-embedded native Millwright integration
 ├── forge-training     Runs, monitoring, checkpoints, and experiment storage
 ├── forge-python       Python runtime, environments, and kernels only
 ├── forge-packages     Cargo/crates.io and Python/PyPI integration

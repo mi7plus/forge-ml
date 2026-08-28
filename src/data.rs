@@ -112,15 +112,6 @@ impl Dataset {
             })
             .collect()
     }
-
-    #[cfg(feature = "millwright")]
-    #[allow(dead_code)]
-    pub fn from_millwright(table: &millwright::table::Table) -> Result<Self, String> {
-        Self::from_table(
-            millwright_table_data(table, IMPORT_LIMITS)?,
-            Some("millwright::Table".into()),
-        )
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -255,7 +246,6 @@ fn validate_import_file(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(feature = "millwright")]
 pub fn load_millwright_table(path: &Path) -> Result<(String, TableData, String), String> {
     validate_import_file(path)?;
     let table = match path
@@ -282,7 +272,6 @@ pub fn load_millwright_table(path: &Path) -> Result<(String, TableData, String),
     ))
 }
 
-#[cfg(feature = "millwright")]
 fn millwright_table_data(
     table: &millwright::table::Table,
     limits: ImportLimits,
