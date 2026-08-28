@@ -65,6 +65,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - Framework-neutral structured plots with 11 plot families, series visibility, log transforms, and JSON/SVG export
 - Two-axis virtualized data grids with selection, hidden/pinned/resizable columns, explicit draft editing, selection export, and linked plots
 - Revision-aware filter/sort indexes and zero-copy steady-state table viewing
+- Coalescing background filter/sort indexing with revision-safe result delivery
 - Reproducible project bundles plus standalone EDA and experiment-comparison HTML reports
 
 ## Notebook controls

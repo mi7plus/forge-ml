@@ -64,7 +64,10 @@ use session::SessionState;
 use std::collections::{HashMap, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Sender};
+use std::sync::{
+    mpsc::{self, Receiver, Sender},
+    Arc,
+};
 use std::time::{Duration, Instant};
 
 const TEXT: Color32 = Color32::PLACEHOLDER;
@@ -206,6 +209,16 @@ struct DatasetViewState {
     linked_x: usize,
     linked_y: usize,
     row_index_cache: Option<RowIndexCache>,
+    row_index_pending: Option<RowIndexKey>,
+    row_index_worker: RowIndexWorker,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RowIndexKey {
+    revision: u64,
+    filter: String,
+    sort_column: Option<usize>,
+    sort_descending: bool,
 }
 
 struct RowIndexCache {
@@ -214,6 +227,53 @@ struct RowIndexCache {
     sort_column: Option<usize>,
     sort_descending: bool,
     rows: Vec<usize>,
+}
+
+struct RowIndexRequest {
+    key: RowIndexKey,
+    data: Arc<TableData>,
+}
+
+struct RowIndexWorker {
+    sender: Sender<RowIndexRequest>,
+    receiver: Receiver<RowIndexCache>,
+}
+
+impl Default for RowIndexWorker {
+    fn default() -> Self {
+        let (request_tx, request_rx) = mpsc::channel::<RowIndexRequest>();
+        let (result_tx, result_rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            while let Ok(mut request) = request_rx.recv() {
+                while let Ok(newer) = request_rx.try_recv() {
+                    request = newer;
+                }
+                let key = request.key;
+                let rows = build_row_index(
+                    &request.data,
+                    &key.filter,
+                    key.sort_column,
+                    key.sort_descending,
+                );
+                if result_tx
+                    .send(RowIndexCache {
+                        revision: key.revision,
+                        filter: key.filter,
+                        sort_column: key.sort_column,
+                        sort_descending: key.sort_descending,
+                        rows,
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+        Self {
+            sender: request_tx,
+            receiver: result_rx,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -5145,7 +5205,7 @@ impl ForgeApp {
             let state = self.dataset_views.entry(name.to_owned()).or_default();
             return Some(draw_dataset_table(
                 ui,
-                &mut dataset.table,
+                &dataset.table,
                 state,
                 true,
                 id_salt,
@@ -5153,13 +5213,13 @@ impl ForgeApp {
             ));
         }
         let values = self.data.vectors.get(name)?;
-        let mut table = TableData {
+        let table = std::sync::Arc::new(TableData {
             columns: vec!["value".to_owned()],
             rows: values.iter().map(|value| vec![value.to_string()]).collect(),
-        };
+        });
         Some(draw_dataset_table(
             ui,
-            &mut table,
+            &table,
             self.dataset_views.entry(name.to_owned()).or_default(),
             false,
             id_salt,
@@ -6532,13 +6592,15 @@ impl eframe::App for ForgeApp {
 
 fn draw_dataset_table(
     ui: &mut egui::Ui,
-    data: &mut TableData,
+    data: &std::sync::Arc<TableData>,
     state: &mut DatasetViewState,
     editable: bool,
     id_salt: &str,
     revision: Option<u64>,
 ) -> DatasetViewResult {
     let mut result = DatasetViewResult::default();
+    let immutable_data = data.clone();
+    let data = data.as_ref();
     let column_count = data.columns.len();
     state.visible.resize(column_count, true);
     state.pinned.resize(column_count, false);
@@ -6610,9 +6672,11 @@ fn draw_dataset_table(
         linked_x,
         linked_y,
         row_index_cache,
+        row_index_pending,
+        row_index_worker,
         ..
     } = state;
-    let display = edit_draft.as_mut().unwrap_or(data);
+    let display = edit_draft.as_ref().unwrap_or(data);
     ui.horizontal_wrapped(|ui| {
         ui.label(format!("{} selected", selected_rows.len()));
         if ui.button("Export selection CSV…").clicked() {
@@ -6706,23 +6770,54 @@ fn draw_dataset_table(
     });
     ui.separator();
     let uncached_rows;
+    let pending_rows = Vec::new();
     let matching_rows: &[usize] = if let Some(revision) = revision.filter(|_| !editing) {
+        let key = RowIndexKey {
+            revision,
+            filter: filter.clone(),
+            sort_column: *sort_column,
+            sort_descending: *sort_descending,
+        };
+        while let Ok(cache) = row_index_worker.receiver.try_recv() {
+            let cache_key = RowIndexKey {
+                revision: cache.revision,
+                filter: cache.filter.clone(),
+                sort_column: cache.sort_column,
+                sort_descending: cache.sort_descending,
+            };
+            if cache_key == key {
+                *row_index_cache = Some(cache);
+                *row_index_pending = None;
+            }
+        }
         let cache_matches = row_index_cache.as_ref().is_some_and(|cache| {
             cache.revision == revision
                 && cache.filter == *filter
                 && cache.sort_column == *sort_column
                 && cache.sort_descending == *sort_descending
         });
-        if !cache_matches {
-            *row_index_cache = Some(RowIndexCache {
-                revision,
-                filter: filter.clone(),
-                sort_column: *sort_column,
-                sort_descending: *sort_descending,
-                rows: build_row_index(display, filter, *sort_column, *sort_descending),
-            });
+        if !cache_matches
+            && row_index_pending.as_ref() != Some(&key)
+            && row_index_worker
+                .sender
+                .send(RowIndexRequest {
+                    key: key.clone(),
+                    data: immutable_data,
+                })
+                .is_ok()
+        {
+            *row_index_pending = Some(key);
         }
-        &row_index_cache.as_ref().expect("cache initialized").rows
+        if cache_matches {
+            &row_index_cache.as_ref().expect("cache matched").rows
+        } else {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Filtering and sorting dataset in the background…");
+            });
+            ui.ctx().request_repaint_after(Duration::from_millis(50));
+            &pending_rows
+        }
     } else {
         uncached_rows = build_row_index(display, filter, *sort_column, *sort_descending);
         &uncached_rows
@@ -6738,6 +6833,7 @@ fn draw_dataset_table(
         ui.available_width().max(120.0),
     );
     let rendered_columns = &ordered_columns[column_window.start..column_window.end];
+    let display_columns = display.columns.clone();
     egui::ScrollArea::both()
         .id_salt(("dataset_table_scroll", id_salt))
         .auto_shrink([false, false])
@@ -6765,7 +6861,7 @@ fn draw_dataset_table(
                             ui.add_space(column_window.leading);
                         }
                         for index in rendered_columns {
-                            let column = &display.columns[*index];
+                            let column = &display_columns[*index];
                             let arrow = if *sort_column == Some(*index) {
                                 if *sort_descending {
                                     " ↓"
@@ -6819,14 +6915,19 @@ fn draw_dataset_table(
                             if editing {
                                 ui.add_sized(
                                     [widths[*column], 20.0],
-                                    egui::TextEdit::singleline(&mut display.rows[*index][*column])
-                                        .font(egui::TextStyle::Monospace),
+                                    egui::TextEdit::singleline(
+                                        &mut edit_draft
+                                            .as_mut()
+                                            .expect("editing requires a draft")
+                                            .rows[*index][*column],
+                                    )
+                                    .font(egui::TextStyle::Monospace),
                                 );
                             } else {
                                 ui.add_sized(
                                     [widths[*column], 20.0],
                                     egui::Label::new(
-                                        RichText::new(&display.rows[*index][*column])
+                                        RichText::new(&data.rows[*index][*column])
                                             .monospace()
                                             .size(10.0),
                                     )
@@ -7700,5 +7801,36 @@ mod editor_tests {
         assert_eq!(build_row_index(&table, "alpha", None, false), [1, 2]);
         assert_eq!(build_row_index(&table, "", Some(1), false), [1, 0, 2]);
         assert_eq!(build_row_index(&table, "", Some(0), true), [0, 2, 1]);
+    }
+
+    #[test]
+    fn row_index_worker_returns_revision_keyed_results() {
+        let worker = RowIndexWorker::default();
+        worker
+            .sender
+            .send(RowIndexRequest {
+                key: RowIndexKey {
+                    revision: 7,
+                    filter: "alpha".into(),
+                    sort_column: Some(1),
+                    sort_descending: true,
+                },
+                data: Arc::new(TableData {
+                    columns: vec!["name".into(), "score".into()],
+                    rows: vec![
+                        vec!["alpha".into(), "2".into()],
+                        vec!["alphabet".into(), "30".into()],
+                        vec!["beta".into(), "10".into()],
+                    ],
+                }),
+            })
+            .unwrap();
+        let result = worker
+            .receiver
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+        assert_eq!(result.revision, 7);
+        assert_eq!(result.filter, "alpha");
+        assert_eq!(result.rows, [1, 0]);
     }
 }

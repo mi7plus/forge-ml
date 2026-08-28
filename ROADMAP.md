@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.42.0`
+Current application version: `0.43.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -72,7 +72,7 @@ tables, plots, and metrics still enter through a compatibility stdout adapter.
 - [x] Vector line/bar visualizations.
 - [x] Dataset and plot deletion.
 - [x] CSV telemetry export.
-- [~] Table rendering is suitable for prototypes, not million-row datasets.
+- [~] Million-row table workflows (two-axis virtualization and background filter/sort indexing landed; row-oriented compatibility storage still limits memory efficiency).
 - [~] Arrow-backed datasets and streamed record batches (bounded chunked storage and streaming exports landed; incremental UI ingestion remains).
 - [x] Virtualized rows and columns.
 - [x] Sorting, column controls, selection, editing, and linked plots.
@@ -885,6 +885,23 @@ Implementation notes:
 
 - Progress measures decoded rows. Arrow construction and quality analysis still complete on the worker before the dataset becomes visible, preserving atomic workspace insertion.
 - Incremental partial-table display remains deferred because exposing incomplete quality, filters, edits, and exports would require a transactional dataset state in the UI.
+
+## 0.43 background data-view indexing — implemented
+
+- [x] Move immutable dataset filtering and sorting off the egui rendering thread.
+- [x] Share row-oriented dataset data with index workers through `Arc` rather than cloning million-row tables.
+- [x] Key requests and results by dataset revision, filter, sort column, and direction.
+- [x] Discard stale results after edits, imports, query changes, or rapid filter typing.
+- [x] Coalesce queued requests before each scan so superseded keystrokes do not all trigger full work.
+- [x] Show a non-blocking indexing indicator and repaint promptly while results are pending.
+- [x] Preserve synchronous draft indexing so unsaved cell edits remain immediately visible to filters.
+- [x] Keep virtualized rows/columns, selection, linked plots, and revision-aware caching unchanged after delivery.
+- [x] Test background result delivery, revision metadata, filtering, and numeric sort order.
+
+Implementation notes:
+
+- Each dataset view owns one lightweight index worker, created lazily with its view state and stopped automatically when the state is dropped.
+- The table is blank while its first index is built rather than rendering a stale revision. Later cached views remain valid only for an exact query key.
 
 ## Known technical risks
 

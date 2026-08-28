@@ -44,7 +44,7 @@ static NEXT_DATASET_REVISION: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone)]
 pub struct Dataset {
-    pub table: TableData,
+    pub table: Arc<TableData>,
     pub batches: Vec<RecordBatch>,
     pub source: Option<String>,
     pub revision: u64,
@@ -88,7 +88,7 @@ impl Dataset {
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
-            table,
+            table: Arc::new(table),
             batches,
             source,
             revision: NEXT_DATASET_REVISION.fetch_add(1, Ordering::Relaxed),
@@ -294,7 +294,7 @@ impl DataWorkspace {
         self.tables
             .iter()
             .map(|(name, dataset)| {
-                let bytes = serde_json::to_vec(&dataset.table).unwrap_or_default();
+                let bytes = serde_json::to_vec(dataset.table.as_ref()).unwrap_or_default();
                 (name.clone(), crate::experiment::stable_digest(&bytes))
             })
             .collect()
