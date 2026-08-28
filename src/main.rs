@@ -4544,13 +4544,24 @@ impl ForgeApp {
                         egui::Grid::new(format!("profile_{name}"))
                             .striped(true)
                             .show(ui, |ui| {
-                                for label in ["Column", "Missing", "Unique", "Min", "Max", "Mean"] {
+                                for label in [
+                                    "Column", "Missing", "Numeric", "Unique", "Min", "Max", "Mean",
+                                    "Std dev",
+                                ] {
                                     ui.strong(label);
                                 }
                                 ui.end_row();
                                 for profile in data.profile() {
-                                    ui.label(profile.name);
-                                    ui.label(profile.missing.to_string());
+                                    ui.label(&profile.name);
+                                    ui.label(format!(
+                                        "{} ({:.1}%)",
+                                        profile.missing, profile.missing_percent
+                                    ));
+                                    ui.label(format!(
+                                        "{}/{}",
+                                        profile.numeric_count,
+                                        data.rows.len().saturating_sub(profile.missing)
+                                    ));
                                     ui.label(profile.unique.to_string());
                                     ui.label(
                                         profile
@@ -4570,6 +4581,50 @@ impl ForgeApp {
                                             .map(|v| format!("{v:.4}"))
                                             .unwrap_or_else(|| "—".into()),
                                     );
+                                    ui.label(
+                                        profile
+                                            .std_dev
+                                            .map(|v| format!("{v:.4}"))
+                                            .unwrap_or_else(|| "—".into()),
+                                    );
+                                    ui.end_row();
+                                }
+                            });
+                    });
+                    egui::CollapsingHeader::new("Quality alerts").show(ui, |ui| {
+                        let quality = data.quality();
+                        ui.label(format!("{} alert(s)", quality.alerts.len()));
+                        if quality.alerts.is_empty() {
+                            ui.label("No missingness, constant-column, or mixed-type alerts.");
+                        } else {
+                            for alert in &quality.alerts {
+                                ui.label(RichText::new(format!("• {alert}")).color(EMBER));
+                            }
+                        }
+                    });
+                    egui::CollapsingHeader::new("Numeric correlations").show(ui, |ui| {
+                        let quality = data.quality();
+                        ui.label(
+                            RichText::new(format!(
+                                "{} pair(s); Pearson correlation over at most {} rows and {} numeric columns.",
+                                quality.correlations.len(),
+                                quality.correlation_rows, quality.correlation_columns
+                            ))
+                            .size(9.0)
+                            .color(MUTED),
+                        );
+                        egui::Grid::new(format!("correlations_{name}"))
+                            .striped(true)
+                            .show(ui, |ui| {
+                                ui.strong("Columns");
+                                ui.strong("r");
+                                ui.end_row();
+                                for correlation in quality.correlations.iter().take(20) {
+                                    ui.label(format!(
+                                        "{} ↔ {}",
+                                        correlation.left, correlation.right
+                                    ));
+                                    ui.label(format!("{:.4}", correlation.coefficient));
                                     ui.end_row();
                                 }
                             });

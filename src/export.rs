@@ -326,16 +326,42 @@ fn excluded(path: &Path) -> bool {
 pub fn dataset_report(name: &str, dataset: &Dataset) -> String {
     let profile_rows = dataset
         .profile()
-        .into_iter()
+        .iter()
         .map(|p| {
             format!(
-                "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+                "<tr><td>{}</td><td>{} ({:.1}%)</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
                 escape(&p.name),
                 p.missing,
+                p.missing_percent,
+                p.numeric_count,
                 p.unique,
                 number(p.min),
                 number(p.max),
-                number(p.mean)
+                number(p.mean),
+                number(p.std_dev)
+            )
+        })
+        .collect::<String>();
+    let quality = dataset.quality();
+    let alerts = if quality.alerts.is_empty() {
+        "<li>No missingness, constant-column, or mixed-type alerts.</li>".to_owned()
+    } else {
+        quality
+            .alerts
+            .iter()
+            .map(|alert| format!("<li>{}</li>", escape(alert)))
+            .collect::<String>()
+    };
+    let correlations = quality
+        .correlations
+        .iter()
+        .take(20)
+        .map(|correlation| {
+            format!(
+                "<tr><td>{}</td><td>{}</td><td>{:.4}</td></tr>",
+                escape(&correlation.left),
+                escape(&correlation.right),
+                correlation.coefficient
             )
         })
         .collect::<String>();
@@ -357,7 +383,7 @@ pub fn dataset_report(name: &str, dataset: &Dataset) -> String {
             )
         })
         .collect::<String>();
-    html(&format!("Dataset report — {}",escape(name)), &format!("<h1>{}</h1><p>{} rows × {} columns. Preview limited to 100 rows.</p><h2>Column profile</h2><table><tr><th>Column</th><th>Missing</th><th>Unique</th><th>Min</th><th>Max</th><th>Mean</th></tr>{profile_rows}</table><h2>Preview</h2><div class=\"scroll\"><table><tr>{headers}</tr>{rows}</table></div>",escape(name),dataset.rows.len(),dataset.columns.len()))
+    html(&format!("Dataset report — {}",escape(name)), &format!("<h1>{}</h1><p>{} rows × {} columns. Preview limited to 100 rows.</p><h2>Quality alerts</h2><ul>{alerts}</ul><h2>Column profile</h2><table><tr><th>Column</th><th>Missing</th><th>Numeric</th><th>Unique</th><th>Min</th><th>Max</th><th>Mean</th><th>Std dev</th></tr>{profile_rows}</table><h2>Numeric correlations</h2><p>Bounded to {} rows and {} numeric columns; strongest 20 pairs shown.</p><table><tr><th>Left</th><th>Right</th><th>Pearson r</th></tr>{correlations}</table><h2>Preview</h2><div class=\"scroll\"><table><tr>{headers}</tr>{rows}</table></div>",escape(name),dataset.rows.len(),dataset.columns.len(),quality.correlation_rows,quality.correlation_columns))
 }
 
 pub fn experiment_report(runs: &[ExperimentRun], metric: &str) -> String {

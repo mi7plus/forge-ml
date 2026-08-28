@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.32.0`
+Current application version: `0.33.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -166,7 +166,7 @@ Implementation notes:
 - [x] Add sorting, column resizing, visibility, pinning, and selection.
 - [x] Add CSV, TSV, Parquet, Arrow IPC, and JSON Lines ingestion.
 - [x] Add a native Millwright `Table` adapter (always embedded since 0.31).
-- [~] Add dataset profiles, missingness, correlations, alerts, and lineage (column statistics and source lineage landed).
+- [x] Add dataset profiles, missingness, correlations, alerts, and lineage.
 - [x] Add local Git status and project-tree decorations.
 - [x] Add diff, staging, commits, branch switching/creation, pull, and push.
 - [x] Add crates.io search and crate detail views through Cargo.
@@ -715,6 +715,23 @@ Implementation notes:
 - The visual drag target remains 12 px high and keeps the vertical-resize cursor and hover treatment.
 - When less than 252 px is available, the two panes share the usable height evenly; at normal sizes each pane retains a 120 px minimum.
 - These deterministic layout tests cover the state and geometry boundaries practical without a platform window; cross-platform visual smoke testing remains a release activity.
+
+## 0.33 dataset quality and correlations — implemented
+
+- [x] Report missing percentages, numeric coverage, standard deviation, uniqueness, range, and mean per column.
+- [x] Detect high missingness, constant columns, and mixed numeric/text values.
+- [x] Compute Pearson correlations for usable numeric column pairs and sort by absolute strength.
+- [x] Bound correlation work to 10,000 rows and 24 numeric columns.
+- [x] Cache profiles and quality results once per immutable dataset revision.
+- [x] Show alerts and strongest correlations in the Data inspector.
+- [x] Include quality alerts and correlations in EDA HTML reports.
+- [x] Preserve existing source lineage and cryptographic source fingerprints.
+
+Implementation notes:
+
+- Profiles are evaluated lazily, keeping dataset insertion off the profiling path, then reused on subsequent UI frames and exports.
+- Dataset edits rebuild the Arrow batch with a new revision, naturally invalidating the cached profile and quality report.
+- Correlations use complete finite numeric pairs from the bounded row window; constant and mixed-type columns are excluded.
 
 ## Known technical risks
 

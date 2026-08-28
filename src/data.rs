@@ -12,7 +12,7 @@ use std::{
     path::Path,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc,
+        Arc, OnceLock,
     },
 };
 
@@ -21,6 +21,8 @@ const MAX_IMPORT_ROWS: usize = 1_000_000;
 const MAX_IMPORT_COLUMNS: usize = 10_000;
 const MAX_DECODED_BYTES: usize = 512 * 1024 * 1024;
 const MAX_CELL_BYTES: usize = 16 * 1024 * 1024;
+const MAX_CORRELATION_COLUMNS: usize = 24;
+const MAX_CORRELATION_ROWS: usize = 10_000;
 
 #[derive(Clone, Copy)]
 struct ImportLimits {
@@ -45,6 +47,8 @@ pub struct Dataset {
     pub batch: RecordBatch,
     pub source: Option<String>,
     pub revision: u64,
+    profile: OnceLock<Vec<ColumnProfile>>,
+    quality: OnceLock<DatasetQuality>,
 }
 
 impl Deref for Dataset {
@@ -79,38 +83,18 @@ impl Dataset {
             batch,
             source,
             revision: NEXT_DATASET_REVISION.fetch_add(1, Ordering::Relaxed),
+            profile: OnceLock::new(),
+            quality: OnceLock::new(),
         })
     }
 
-    pub fn profile(&self) -> Vec<ColumnProfile> {
-        self.table
-            .columns
-            .iter()
-            .enumerate()
-            .map(|(index, name)| {
-                let mut missing = 0;
-                let mut unique = std::collections::HashSet::new();
-                let mut numeric = Vec::new();
-                for value in self.table.rows.iter().filter_map(|row| row.get(index)) {
-                    if value.trim().is_empty() {
-                        missing += 1;
-                    }
-                    unique.insert(value);
-                    if let Ok(value) = value.parse::<f64>() {
-                        numeric.push(value);
-                    }
-                }
-                ColumnProfile {
-                    name: name.clone(),
-                    missing,
-                    unique: unique.len(),
-                    min: numeric.iter().copied().reduce(f64::min),
-                    max: numeric.iter().copied().reduce(f64::max),
-                    mean: (!numeric.is_empty())
-                        .then(|| numeric.iter().sum::<f64>() / numeric.len() as f64),
-                }
-            })
-            .collect()
+    pub fn profile(&self) -> &[ColumnProfile] {
+        self.profile.get_or_init(|| profile_table(&self.table))
+    }
+
+    pub fn quality(&self) -> &DatasetQuality {
+        self.quality
+            .get_or_init(|| quality_report(&self.table, self.profile()))
     }
 }
 
@@ -119,9 +103,162 @@ pub struct ColumnProfile {
     pub name: String,
     pub missing: usize,
     pub unique: usize,
+    pub missing_percent: f64,
+    pub numeric_count: usize,
     pub min: Option<f64>,
     pub max: Option<f64>,
     pub mean: Option<f64>,
+    pub std_dev: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Correlation {
+    pub left: String,
+    pub right: String,
+    pub coefficient: f64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct DatasetQuality {
+    pub alerts: Vec<String>,
+    pub correlations: Vec<Correlation>,
+    pub correlation_rows: usize,
+    pub correlation_columns: usize,
+}
+
+fn profile_table(table: &TableData) -> Vec<ColumnProfile> {
+    table
+        .columns
+        .iter()
+        .enumerate()
+        .map(|(index, name)| {
+            let mut missing = 0;
+            let mut unique = std::collections::HashSet::new();
+            let mut numeric = Vec::new();
+            for value in table.rows.iter().filter_map(|row| row.get(index)) {
+                if value.trim().is_empty() {
+                    missing += 1;
+                    continue;
+                }
+                unique.insert(value);
+                if let Ok(value) = value.parse::<f64>() {
+                    if value.is_finite() {
+                        numeric.push(value);
+                    }
+                }
+            }
+            let mean =
+                (!numeric.is_empty()).then(|| numeric.iter().sum::<f64>() / numeric.len() as f64);
+            let std_dev = mean.map(|mean| {
+                (numeric
+                    .iter()
+                    .map(|value| (value - mean).powi(2))
+                    .sum::<f64>()
+                    / numeric.len() as f64)
+                    .sqrt()
+            });
+            ColumnProfile {
+                name: name.clone(),
+                missing,
+                unique: unique.len(),
+                missing_percent: if table.rows.is_empty() {
+                    0.0
+                } else {
+                    missing as f64 * 100.0 / table.rows.len() as f64
+                },
+                numeric_count: numeric.len(),
+                min: numeric.iter().copied().reduce(f64::min),
+                max: numeric.iter().copied().reduce(f64::max),
+                mean,
+                std_dev,
+            }
+        })
+        .collect()
+}
+
+fn quality_report(table: &TableData, profile: &[ColumnProfile]) -> DatasetQuality {
+    let mut alerts = Vec::new();
+    for column in profile {
+        let present = table.rows.len().saturating_sub(column.missing);
+        if column.missing_percent >= 20.0 {
+            alerts.push(format!(
+                "{} has {:.1}% missing values.",
+                column.name, column.missing_percent
+            ));
+        }
+        if present > 1 && column.unique == 1 {
+            alerts.push(format!(
+                "{} is constant across non-missing rows.",
+                column.name
+            ));
+        }
+        if column.numeric_count > 0 && column.numeric_count < present {
+            alerts.push(format!(
+                "{} mixes numeric and non-numeric values ({} of {} parsed).",
+                column.name, column.numeric_count, present
+            ));
+        }
+    }
+
+    let numeric_columns = profile
+        .iter()
+        .enumerate()
+        .filter(|(_, column)| {
+            let present = table.rows.len().saturating_sub(column.missing);
+            present >= 2 && column.numeric_count == present && column.std_dev.unwrap_or(0.0) > 0.0
+        })
+        .take(MAX_CORRELATION_COLUMNS)
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    let correlation_rows = table.rows.len().min(MAX_CORRELATION_ROWS);
+    let mut correlations = Vec::new();
+    for (position, &left) in numeric_columns.iter().enumerate() {
+        for &right in &numeric_columns[position + 1..] {
+            let pairs = table
+                .rows
+                .iter()
+                .take(correlation_rows)
+                .filter_map(|row| {
+                    Some((
+                        row.get(left)?.parse::<f64>().ok()?,
+                        row.get(right)?.parse::<f64>().ok()?,
+                    ))
+                })
+                .filter(|(x, y)| x.is_finite() && y.is_finite())
+                .collect::<Vec<_>>();
+            if let Some(coefficient) = pearson(&pairs) {
+                correlations.push(Correlation {
+                    left: table.columns[left].clone(),
+                    right: table.columns[right].clone(),
+                    coefficient,
+                });
+            }
+        }
+    }
+    correlations.sort_by(|a, b| b.coefficient.abs().total_cmp(&a.coefficient.abs()));
+    DatasetQuality {
+        alerts,
+        correlations,
+        correlation_rows,
+        correlation_columns: numeric_columns.len(),
+    }
+}
+
+fn pearson(pairs: &[(f64, f64)]) -> Option<f64> {
+    if pairs.len() < 2 {
+        return None;
+    }
+    let count = pairs.len() as f64;
+    let mean_x = pairs.iter().map(|pair| pair.0).sum::<f64>() / count;
+    let mean_y = pairs.iter().map(|pair| pair.1).sum::<f64>() / count;
+    let numerator = pairs
+        .iter()
+        .map(|(x, y)| (x - mean_x) * (y - mean_y))
+        .sum::<f64>();
+    let x_variance = pairs.iter().map(|(x, _)| (x - mean_x).powi(2)).sum::<f64>();
+    let y_variance = pairs.iter().map(|(_, y)| (y - mean_y).powi(2)).sum::<f64>();
+    let denominator = (x_variance * y_variance).sqrt();
+    (denominator > f64::EPSILON).then_some(numerator / denominator)
 }
 
 #[derive(Default)]
@@ -497,6 +634,38 @@ mod tests {
         .unwrap();
         assert_eq!(dataset.batch.num_rows(), 3);
         assert_eq!(dataset.profile()[0].mean, Some(2.0));
+        assert_eq!(dataset.profile()[0].missing_percent, 100.0 / 3.0);
+        assert_eq!(dataset.profile()[0].numeric_count, 2);
+        assert_eq!(dataset.profile()[0].std_dev, Some(1.0));
+    }
+
+    #[test]
+    fn reports_quality_alerts_and_bounded_numeric_correlations() {
+        let dataset = Dataset::from_table(
+            TableData {
+                columns: vec!["x".into(), "y".into(), "constant".into(), "mixed".into()],
+                rows: vec![
+                    vec!["1".into(), "2".into(), "same".into(), "1".into()],
+                    vec!["2".into(), "4".into(), "same".into(), "text".into()],
+                    vec!["3".into(), "6".into(), "".into(), "".into()],
+                ],
+            },
+            None,
+        )
+        .unwrap();
+        let quality = dataset.quality();
+        assert!(quality
+            .alerts
+            .iter()
+            .any(|alert| alert.contains("constant across")));
+        assert!(quality
+            .alerts
+            .iter()
+            .any(|alert| alert.contains("mixes numeric")));
+        assert_eq!(quality.correlations.len(), 1);
+        assert_eq!(quality.correlations[0].left, "x");
+        assert_eq!(quality.correlations[0].right, "y");
+        assert!((quality.correlations[0].coefficient - 1.0).abs() < 1e-12);
     }
 
     #[test]
