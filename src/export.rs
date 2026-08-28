@@ -1,7 +1,9 @@
 use crate::{
     data::Dataset,
     experiment::ExperimentRun,
+    millwright_studio::{self, TrainingEvent},
     notebook::{CellKind, NotebookDocument},
+    plot,
 };
 use arrow::{
     csv::WriterBuilder, ipc::writer::FileWriter, record_batch::RecordBatch,
@@ -10,7 +12,7 @@ use arrow::{
 use parquet::arrow::ArrowWriter;
 use std::{
     fs::{self, File},
-    io::Write,
+    io::{Cursor, Write},
     path::{Component, Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -19,6 +21,7 @@ const MAX_BUNDLE_FILE_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_BUNDLE_BYTES: u64 = 500 * 1024 * 1024;
 const MAX_BUNDLE_FILES: usize = 20_000;
 static NEXT_EXPORT_TEMP: AtomicU64 = AtomicU64::new(1);
+const MAX_TRAINING_BUNDLE_BYTES: usize = 192 * 1024 * 1024;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum DataFormat {
@@ -510,6 +513,77 @@ pub fn experiment_pdf(runs: &[ExperimentRun], metric: &str, path: &Path) -> Resu
     write_text_pdf(path, &lines)
 }
 
+pub fn training_bundle(events: &[TrainingEvent], path: &Path) -> Result<(), String> {
+    if events.is_empty() {
+        return Err("No training events are available for a bundle".into());
+    }
+    let event_json = millwright_studio::training_json(events)?;
+    let event_csv = millwright_studio::training_csv(events)?;
+    let report = millwright_studio::training_report(events)?.into_bytes();
+    let plots = millwright_studio::training_plots(events);
+    let plot_json = if plots.is_empty() {
+        b"[]\n".to_vec()
+    } else {
+        plot::collection_json(&plots)?
+    };
+    let artifacts = [
+        ("training-events.json", event_json),
+        ("training-events.csv", event_csv),
+        ("training-report.html", report),
+        ("training-plots.json", plot_json),
+    ];
+    let total = artifacts
+        .iter()
+        .map(|(_, bytes)| bytes.len())
+        .sum::<usize>();
+    if total > MAX_TRAINING_BUNDLE_BYTES {
+        return Err("Training bundle exceeds the 192 MiB uncompressed limit".into());
+    }
+    let entries = artifacts
+        .iter()
+        .map(|(name, bytes)| {
+            serde_json::json!({
+                "path": name,
+                "bytes": bytes.len(),
+                "sha256": crate::experiment::stable_digest(bytes),
+            })
+        })
+        .collect::<Vec<_>>();
+    let manifest = serde_json::to_vec_pretty(&serde_json::json!({
+        "schema": 1,
+        "forge_version": env!("CARGO_PKG_VERSION"),
+        "event_count": events.len(),
+        "plot_count": plots.len(),
+        "digest_algorithm": "sha256",
+        "total_uncompressed_bytes": total,
+        "entries": entries,
+    }))
+    .map_err(|error| error.to_string())?;
+    let cursor = Cursor::new(Vec::new());
+    let mut archive = zip::ZipWriter::new(cursor);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    for (name, bytes) in artifacts {
+        archive
+            .start_file(name, options)
+            .map_err(|error| error.to_string())?;
+        archive
+            .write_all(&bytes)
+            .map_err(|error| error.to_string())?;
+    }
+    archive
+        .start_file("forge-training-bundle.json", options)
+        .map_err(|error| error.to_string())?;
+    archive
+        .write_all(&manifest)
+        .map_err(|error| error.to_string())?;
+    let bytes = archive
+        .finish()
+        .map_err(|error| error.to_string())?
+        .into_inner();
+    atomic_bytes(path, &bytes)
+}
+
 pub(crate) fn write_text_pdf(path: &Path, lines: &[String]) -> Result<(), String> {
     let wrapped = lines
         .iter()
@@ -754,6 +828,32 @@ mod tests {
         assert!(text.contains(r"line \(0\) \\ value"));
         assert!(text.contains("xref\n0 8"));
         assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn training_bundle_contains_attested_portable_artifacts() {
+        let root =
+            std::env::temp_dir().join(format!("forge-training-bundle-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("training.zip");
+        let events = vec![TrainingEvent::Epoch {
+            epoch: 1,
+            total: 2,
+            loss: 0.5,
+            metric: Some(0.8),
+        }];
+        training_bundle(&events, &path).unwrap();
+        let mut archive = zip::ZipArchive::new(File::open(&path).unwrap()).unwrap();
+        for name in [
+            "training-events.json",
+            "training-events.csv",
+            "training-report.html",
+            "training-plots.json",
+            "forge-training-bundle.json",
+        ] {
+            assert!(archive.by_name(name).is_ok(), "missing {name}");
+        }
         let _ = fs::remove_dir_all(root);
     }
 }

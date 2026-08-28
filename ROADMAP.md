@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.61.0`
+Current application version: `0.62.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1180,6 +1180,21 @@ Implementation notes:
 
 - The PDF audit is intentionally tighter than HTML to keep printed reports readable; typed JSON remains the complete re-importable event artifact.
 - Non-ASCII glyphs follow the native PDF writer's existing replacement policy until embedded Unicode fonts are implemented.
+
+## 0.62 attested portable training bundles — implemented
+
+- [x] Export one compressed training ZIP from the monitoring overview.
+- [x] Include validated typed event JSON, escaped CSV, the offline HTML report, and re-importable native plot JSON.
+- [x] Include a schema-versioned manifest with Forge version, event/plot counts, aggregate size, and digest algorithm.
+- [x] Record every artifact's uncompressed byte length and SHA-256 digest in the manifest.
+- [x] Enforce a 192 MiB aggregate uncompressed bundle limit in addition to individual export limits.
+- [x] Publish bundles through synchronized sibling temporary files with rollback-safe replacement.
+- [x] Test the resulting archive for every required portable artifact and manifest.
+
+Implementation notes:
+
+- The bundle contains HTML for offline review and JSON for lossless reopening. The separately available PDF remains print-focused and is not duplicated inside the ZIP.
+- Digests attest bundle entry content for reproducibility checks; they are not signatures and do not claim an external identity.
 
 ## Known technical risks
 

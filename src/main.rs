@@ -4432,6 +4432,16 @@ impl ForgeApp {
                         .unwrap_or_else(|error| format!("Training PDF failed: {error}"));
                 }
             }
+            if !self.training_events.is_empty() && ui.button("Training bundle").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_file_name("forge-training-bundle.zip")
+                    .save_file()
+                {
+                    self.console = export::training_bundle(&self.training_events, &path)
+                        .map(|()| format!("Exported training bundle to {}", path.display()))
+                        .unwrap_or_else(|error| format!("Training bundle failed: {error}"));
+                }
+            }
             if !self.training_events.is_empty() && ui.button("Open metric plots").clicked() {
                 let plots = millwright_studio::training_plots(&self.training_events);
                 let count = plots.len();

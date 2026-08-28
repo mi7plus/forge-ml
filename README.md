@@ -45,6 +45,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - All-or-nothing validated training JSON import for reopening archived telemetry
 - Self-contained offline training summary and event-audit HTML reports
 - Atomic paginated native PDF training summaries with bounded event audits
+- Compressed attested training bundles with events, reports, plots, and SHA-256 manifest entries
 - One-click native loss, metric, trial-score, and throughput plots from training telemetry
 - Regression-tested right-pane dataset docking, divider clamping, and persisted layout defaults
 - Cached dataset-quality profiles with missingness, type coverage, standard deviation, bounded correlations, and alerts
