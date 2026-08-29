@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.80.0`
+Current application version: `0.81.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1457,6 +1457,22 @@ Implementation notes:
 
 - Cancellation is checked between optimizer steps; an in-flight device operation completes before the worker stops.
 - The existing integration worker serializes native training with other data integration requests, keeping background resource use bounded.
+
+## 0.81 configurable embedded Burn optimization — implemented
+
+- [x] Add native epoch and learning-rate controls to the Deep Learning pane.
+- [x] Validate epochs from 1 through 10,000 before device initialization.
+- [x] Reject zero, negative, non-finite, and greater-than-one learning rates.
+- [x] Copy configuration into each background request so active runs remain immutable.
+- [x] Apply the selected values to native SGD and typed epoch totals.
+- [x] Include epoch and learning-rate configuration in monitored job labels.
+- [x] Bound event-vector preallocation for the validated epoch count.
+- [x] Test custom event counts and invalid configuration rejection.
+
+Implementation notes:
+
+- These controls configure the embedded linear-regression trainer; generated Burn projects remain fully editable for arbitrary architectures and optimizers.
+- Training configuration is recorded in the job label and therefore propagates into run overviews, CSV, reports, and attested bundles.
 
 ## Known technical risks
 

@@ -7,6 +7,39 @@ use crate::millwright_studio::TrainingEvent;
 
 pub const BURN_VERSION: &str = "0.22.0-pre.3";
 static NEXT_BURN_DEMO: AtomicU64 = AtomicU64::new(1);
+const MAX_NATIVE_EPOCHS: usize = 10_000;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NativeTrainingConfig {
+    pub epochs: usize,
+    pub learning_rate: f64,
+}
+
+impl Default for NativeTrainingConfig {
+    fn default() -> Self {
+        Self {
+            epochs: 40,
+            learning_rate: 0.05,
+        }
+    }
+}
+
+impl NativeTrainingConfig {
+    fn validate(self) -> Result<Self, String> {
+        if !(1..=MAX_NATIVE_EPOCHS).contains(&self.epochs) {
+            return Err(format!(
+                "Native Burn epochs must be between 1 and {MAX_NATIVE_EPOCHS}"
+            ));
+        }
+        if !self.learning_rate.is_finite() || self.learning_rate <= 0.0 || self.learning_rate > 1.0
+        {
+            return Err(
+                "Native Burn learning rate must be finite and greater than 0 through 1".into(),
+            );
+        }
+        Ok(self)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Backend {
@@ -43,14 +76,21 @@ pub fn native_burn_self_test() -> String {
 
 #[cfg(test)]
 pub fn native_burn_training_demo(backend: Backend) -> Result<Vec<TrainingEvent>, String> {
-    native_burn_training_demo_with_progress(backend, || false, |_| {})
+    native_burn_training_demo_with_progress(
+        backend,
+        NativeTrainingConfig::default(),
+        || false,
+        |_| {},
+    )
 }
 
 pub fn native_burn_training_demo_with_progress(
     backend: Backend,
+    config: NativeTrainingConfig,
     cancelled: impl Fn() -> bool,
     on_event: impl FnMut(TrainingEvent),
 ) -> Result<Vec<TrainingEvent>, String> {
+    let config = config.validate()?;
     if matches!(backend, Backend::Cuda | Backend::Rocm) {
         return Err(format!(
             "{} is available for generated or remote Burn projects, not the embedded runtime",
@@ -58,7 +98,7 @@ pub fn native_burn_training_demo_with_progress(
         ));
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        native_burn_training_demo_inner(backend, cancelled, on_event)
+        native_burn_training_demo_inner(backend, config, cancelled, on_event)
     }))
     .map_err(|_| {
         format!(
@@ -70,6 +110,7 @@ pub fn native_burn_training_demo_with_progress(
 
 fn native_burn_training_demo_inner(
     backend: Backend,
+    config: NativeTrainingConfig,
     cancelled: impl Fn() -> bool,
     mut on_event: impl FnMut(TrainingEvent),
 ) -> Result<Vec<TrainingEvent>, String> {
@@ -100,17 +141,22 @@ fn native_burn_training_demo_inner(
             run_id: run_id.clone(),
         },
         TrainingEvent::Started {
-            job: format!("Embedded Burn {} linear regression", backend.label()),
+            job: format!(
+                "Embedded Burn {} linear regression ({} epochs, lr {})",
+                backend.label(),
+                config.epochs,
+                config.learning_rate
+            ),
             total_trials: 1,
         },
     ];
-    let mut events = Vec::with_capacity(83);
+    let mut events = Vec::with_capacity(config.epochs.saturating_mul(2).saturating_add(4));
     for event in initial_events {
         on_event(event.clone());
         events.push(event);
     }
     let mut final_loss = None;
-    for epoch in 1..=40 {
+    for epoch in 1..=config.epochs {
         if cancelled() {
             return Err("Embedded Burn training was cancelled".into());
         }
@@ -122,7 +168,7 @@ fn native_burn_training_demo_inner(
         }
         let gradients = loss.backward();
         let gradients = GradientsParams::from_grads(gradients, &model);
-        model = optimizer.step(0.05, model, gradients);
+        model = optimizer.step(config.learning_rate, model, gradients);
         final_loss = Some(loss_value);
         for event in [
             TrainingEvent::RunContext {
@@ -130,7 +176,7 @@ fn native_burn_training_demo_inner(
             },
             TrainingEvent::Epoch {
                 epoch,
-                total: 40,
+                total: config.epochs,
                 loss: loss_value,
                 metric: None,
             },
@@ -337,6 +383,7 @@ mod tests {
         let mut emitted = Vec::new();
         let result = native_burn_training_demo_with_progress(
             Backend::Cpu,
+            NativeTrainingConfig::default(),
             || true,
             |event| emitted.push(event),
         );
@@ -345,5 +392,49 @@ mod tests {
         assert!(!emitted
             .iter()
             .any(|event| matches!(event, TrainingEvent::Completed { .. })));
+    }
+
+    #[test]
+    fn embedded_burn_training_validates_and_applies_configuration() {
+        let events = native_burn_training_demo_with_progress(
+            Backend::Cpu,
+            NativeTrainingConfig {
+                epochs: 3,
+                learning_rate: 0.02,
+            },
+            || false,
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(events.len(), 10);
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, TrainingEvent::Epoch { .. }))
+                .count(),
+            3
+        );
+        for config in [
+            NativeTrainingConfig {
+                epochs: 0,
+                learning_rate: 0.05,
+            },
+            NativeTrainingConfig {
+                epochs: 1,
+                learning_rate: f64::NAN,
+            },
+            NativeTrainingConfig {
+                epochs: 1,
+                learning_rate: 0.0,
+            },
+        ] {
+            assert!(native_burn_training_demo_with_progress(
+                Backend::Cpu,
+                config,
+                || false,
+                |_| {}
+            )
+            .is_err());
+        }
     }
 }

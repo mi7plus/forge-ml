@@ -44,6 +44,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - One-click embedded Burn Flex/autodiff linear training with native SGD and typed Forge telemetry
 - Backend-aware embedded Burn training across Flex CPU and compatible WGPU adapters
 - Non-blocking embedded Burn training with live typed progress and cooperative cancellation
+- Validated native Burn epoch and learning-rate controls with configuration-labeled runs
 - Bounded framework-neutral training event monitoring with validated JSON/CSV export
 - All-or-nothing validated training JSON import for reopening archived telemetry
 - Self-contained offline training summary and event-audit HTML reports

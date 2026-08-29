@@ -33,7 +33,7 @@ mod updater;
 
 use data::DataWorkspace;
 use database::{ConnectionKind, ConnectionProfile};
-use deep_learning::{Backend as DeepBackend, DeepOutputs, ResourceSnapshot};
+use deep_learning::{Backend as DeepBackend, DeepOutputs, NativeTrainingConfig, ResourceSnapshot};
 use diagnostics::DiagnosticsHandle;
 use eframe::egui;
 use egui::{Color32, Frame, Margin, Panel, RichText, Stroke};
@@ -431,6 +431,8 @@ struct ForgeApp {
     sql_history: Vec<String>,
     deep_backend: DeepBackend,
     burn_training_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+    burn_training_epochs: usize,
+    burn_training_learning_rate: f64,
     deep_outputs: DeepOutputs,
     resource_system: sysinfo::System,
     resource_snapshot: ResourceSnapshot,
@@ -706,6 +708,8 @@ impl ForgeApp {
             sql_history,
             deep_backend: DeepBackend::Cpu,
             burn_training_cancel: None,
+            burn_training_epochs: 40,
+            burn_training_learning_rate: 0.05,
             deep_outputs: DeepOutputs::default(),
             resource_system: sysinfo::System::new_all(),
             resource_snapshot: ResourceSnapshot::default(),
@@ -3808,6 +3812,10 @@ impl ForgeApp {
                     .integration_worker
                     .submit(IntegrationRequest::BurnTraining {
                         backend: self.deep_backend,
+                        config: NativeTrainingConfig {
+                            epochs: self.burn_training_epochs,
+                            learning_rate: self.burn_training_learning_rate,
+                        },
                         cancelled: Arc::clone(&cancelled),
                     }) {
                     Ok(()) => {
@@ -3829,6 +3837,17 @@ impl ForgeApp {
                     self.sql_output = "Cancelling embedded Burn training…".into();
                 }
             }
+            ui.add(
+                egui::DragValue::new(&mut self.burn_training_epochs)
+                    .range(1..=10_000)
+                    .prefix("epochs "),
+            );
+            ui.add(
+                egui::DragValue::new(&mut self.burn_training_learning_rate)
+                    .range(0.000_001..=1.0)
+                    .speed(0.001)
+                    .prefix("lr "),
+            );
             ui.add(egui::DragValue::new(&mut self.early_stopping_patience).prefix("patience "));
             ui.add(
                 egui::TextEdit::singleline(&mut self.resume_checkpoint)

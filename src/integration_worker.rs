@@ -18,6 +18,7 @@ use std::{
 pub enum Request {
     BurnTraining {
         backend: crate::deep_learning::Backend,
+        config: crate::deep_learning::NativeTrainingConfig,
         cancelled: Arc<AtomicBool>,
     },
     DataImport(PathBuf),
@@ -163,9 +164,14 @@ impl IntegrationWorker {
 
 fn execute(request: Request, events: &Sender<ResultEvent>) -> ResultEvent {
     match request {
-        Request::BurnTraining { backend, cancelled } => {
+        Request::BurnTraining {
+            backend,
+            config,
+            cancelled,
+        } => {
             let result = crate::deep_learning::native_burn_training_demo_with_progress(
                 backend,
+                config,
                 || cancelled.load(Ordering::Relaxed),
                 |event| {
                     let _ = events.send(ResultEvent::BurnTrainingProgress(event));
@@ -304,6 +310,7 @@ mod tests {
         worker
             .submit(Request::BurnTraining {
                 backend: crate::deep_learning::Backend::Cpu,
+                config: crate::deep_learning::NativeTrainingConfig::default(),
                 cancelled: Arc::new(AtomicBool::new(false)),
             })
             .unwrap();
