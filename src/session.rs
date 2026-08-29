@@ -146,6 +146,9 @@ pub struct SessionState {
     pub native_training_feature: String,
     #[serde(default)]
     pub native_training_target: String,
+    /// Serialized `egui_tiles` dock layout (JSON). `None` restores the default.
+    #[serde(default)]
+    pub dock_layout: Option<String>,
 }
 
 impl SessionState {
@@ -232,6 +235,7 @@ impl Default for SessionState {
             native_training_use_dataset: false,
             native_training_feature: String::new(),
             native_training_target: String::new(),
+            dock_layout: None,
         }
     }
 }
