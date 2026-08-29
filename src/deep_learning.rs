@@ -41,21 +41,42 @@ pub fn native_burn_self_test() -> String {
     format!("Embedded Burn {BURN_VERSION} Flex runtime ready (tensor sum {sum:.1}).")
 }
 
-pub fn native_burn_training_demo() -> Result<Vec<TrainingEvent>, String> {
+pub fn native_burn_training_demo(backend: Backend) -> Result<Vec<TrainingEvent>, String> {
+    if matches!(backend, Backend::Cuda | Backend::Rocm) {
+        return Err(format!(
+            "{} is available for generated or remote Burn projects, not the embedded runtime",
+            backend.label()
+        ));
+    }
+    std::panic::catch_unwind(|| native_burn_training_demo_inner(backend)).map_err(|_| {
+        format!(
+            "The embedded {} Burn device could not be initialized",
+            backend.label()
+        )
+    })?
+}
+
+fn native_burn_training_demo_inner(backend: Backend) -> Result<Vec<TrainingEvent>, String> {
     use burn::{
         nn::LinearConfig,
         optim::{GradientsParams, SgdConfig},
-        tensor::{Device, Tensor},
+        tensor::{Device, DeviceKind, Tensor},
     };
 
-    let device = Device::flex().autodiff();
+    let device = match backend {
+        Backend::Cpu => Device::flex(),
+        Backend::Wgpu => Device::wgpu(DeviceKind::DefaultDevice),
+        Backend::Cuda | Backend::Rocm => unreachable!("unsupported backend rejected above"),
+    }
+    .autodiff();
     device.seed(7);
     let mut model = LinearConfig::new(1, 1).init(&device);
     let mut optimizer = SgdConfig::new().init();
     let input = Tensor::<2>::from_data([[-2.0_f32], [-1.0], [0.0], [1.0], [2.0]], &device);
     let target = Tensor::<2>::from_data([[-3.0_f32], [-1.0], [1.0], [3.0], [5.0]], &device);
     let run_id = format!(
-        "burn-native-{}",
+        "burn-{}-{}",
+        backend.feature(),
         NEXT_BURN_DEMO.fetch_add(1, Ordering::Relaxed)
     );
     let mut events = vec![
@@ -63,7 +84,7 @@ pub fn native_burn_training_demo() -> Result<Vec<TrainingEvent>, String> {
             run_id: run_id.clone(),
         },
         TrainingEvent::Started {
-            job: "Embedded Burn linear regression".into(),
+            job: format!("Embedded Burn {} linear regression", backend.label()),
             total_trials: 1,
         },
     ];
@@ -260,7 +281,7 @@ mod tests {
 
     #[test]
     fn embedded_burn_trains_and_emits_typed_progress() {
-        let events = native_burn_training_demo().unwrap();
+        let events = native_burn_training_demo(Backend::Cpu).unwrap();
         let losses = events
             .iter()
             .filter_map(|event| match event {
@@ -277,5 +298,7 @@ mod tests {
             events.last(),
             Some(TrainingEvent::Completed { .. })
         ));
+        assert!(native_burn_training_demo(Backend::Cuda).is_err());
+        assert!(native_burn_training_demo(Backend::Rocm).is_err());
     }
 }

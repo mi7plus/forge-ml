@@ -3785,7 +3785,7 @@ impl ForgeApp {
                 self.sql_output = deep_learning::native_burn_self_test();
             }
             if ui.button("Run native Burn demo").clicked() {
-                self.sql_output = deep_learning::native_burn_training_demo()
+                self.sql_output = deep_learning::native_burn_training_demo(self.deep_backend)
                     .map(|events| {
                         let count = events.len();
                         for event in events {

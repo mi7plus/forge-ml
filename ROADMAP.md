@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.78.0`
+Current application version: `0.79.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1428,6 +1428,20 @@ Implementation notes:
 
 - The demo is intentionally small and synchronous so it proves the embedded training stack without turning the UI action into a long-running trainer.
 - Production-scale Burn training remains an editable generated project or background/remote job and can emit the same scoped protocol.
+
+## 0.79 backend-aware embedded Burn training — implemented
+
+- [x] Route the native Burn demo through the Deep Learning pane's selected backend.
+- [x] Support portable Flex CPU and compatible WGPU devices through Burn's unified autodiff device.
+- [x] Label run IDs and job names with the selected backend for monitoring and export provenance.
+- [x] Convert embedded device initialization panics into a bounded IDE-visible failure.
+- [x] Reject CUDA and ROCm before initialization while retaining them for generated/remote projects.
+- [x] Test CPU optimization and explicit CUDA/ROCm rejection without requiring GPU hardware in CI.
+
+Implementation notes:
+
+- WGPU execution is opt-in through the existing selector and may depend on local adapter/driver availability.
+- The deterministic CI test remains on Flex CPU; compilation still type-checks the embedded WGPU training path.
 
 ## Known technical risks
 
