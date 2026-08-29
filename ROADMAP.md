@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.84.0`
+Current application version: `0.85.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1522,6 +1522,22 @@ Implementation notes:
 
 - Standardization makes the embedded SGD defaults useful across ordinary column magnitudes without allowing holdout values to influence preprocessing.
 - Scaling parameters are currently provenance rather than a separately registered inference artifact; native model persistence is a subsequent milestone.
+
+## 0.85 portable native regression artifacts — implemented
+
+- [x] Read the trained Burn linear weight and bias after optimization.
+- [x] Convert standardized parameters into an original-unit slope and intercept.
+- [x] Create a schema-versioned artifact with run/data provenance, scaling, score, and epoch count.
+- [x] Validate names, finite parameters, positive scales, schema, and fitted metadata.
+- [x] Add direct finite-value inference in the Deep Learning pane without Python or Burn execution.
+- [x] Export human-readable model JSON atomically with a 64 KiB limit.
+- [x] Import and validate model JSON without mutating the active artifact on failure.
+- [x] Test fitted artifact inference, JSON round trips, and unsupported schema rejection.
+
+Implementation notes:
+
+- The artifact stores the original-unit equation for portable univariate inference while retaining fitted preprocessing values for auditability.
+- This compact artifact is separate from a general Burn record/checkpoint, which will be needed for arbitrary multivariate and deep architectures.
 
 ## Known technical risks
 

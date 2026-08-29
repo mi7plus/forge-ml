@@ -1109,6 +1109,32 @@ fn atomic_bytes(path: &Path, bytes: &[u8]) -> Result<(), String> {
     }
     result
 }
+
+pub fn native_regression_artifact(
+    artifact: &crate::deep_learning::NativeRegressionArtifact,
+    path: &Path,
+) -> Result<(), String> {
+    artifact.validate()?;
+    let bytes = serde_json::to_vec_pretty(artifact).map_err(|error| error.to_string())?;
+    if bytes.len() > 64 * 1024 {
+        return Err("Native regression artifact exceeds the 64 KiB export limit".into());
+    }
+    atomic_bytes(path, &bytes)
+}
+
+pub fn import_native_regression_artifact(
+    path: &Path,
+) -> Result<crate::deep_learning::NativeRegressionArtifact, String> {
+    let metadata = std::fs::metadata(path).map_err(|error| error.to_string())?;
+    if metadata.len() > 64 * 1024 {
+        return Err("Native regression artifact exceeds the 64 KiB import limit".into());
+    }
+    let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
+    let artifact: crate::deep_learning::NativeRegressionArtifact =
+        serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+    artifact.validate()?;
+    Ok(artifact)
+}
 fn number(value: Option<f64>) -> String {
     value
         .map(|v| format!("{v:.6}"))
@@ -1129,6 +1155,39 @@ fn escape(text: &str) -> String {
 mod tests {
     use super::*;
     use forge_protocol::TableData;
+
+    #[test]
+    fn native_regression_artifact_round_trips_and_rejects_invalid_schema() {
+        let root = std::env::temp_dir().join(format!(
+            "forge-native-model-{}-{}.json",
+            std::process::id(),
+            crate::deep_learning::BURN_VERSION.replace('.', "-")
+        ));
+        let artifact = crate::deep_learning::NativeRegressionArtifact {
+            schema: 1,
+            run_id: "burn-flex-test".into(),
+            dataset: "sample".into(),
+            feature: "x".into(),
+            target: "y".into(),
+            slope: 2.0,
+            intercept: 1.0,
+            feature_mean: 0.0,
+            feature_scale: 1.0,
+            target_mean: 1.0,
+            target_scale: 2.0,
+            best_score: -0.01,
+            epochs_completed: 40,
+        };
+        native_regression_artifact(&artifact, &root).unwrap();
+        let imported = import_native_regression_artifact(&root).unwrap();
+        assert_eq!(imported, artifact);
+        assert_eq!(imported.predict(3.0).unwrap(), 7.0);
+        let mut invalid = artifact;
+        invalid.schema = 99;
+        assert!(native_regression_artifact(&invalid, &root).is_err());
+        let _ = fs::remove_file(root);
+    }
+
     #[test]
     fn exports_dataset_formats() {
         let root = std::env::temp_dir().join(format!("forge-export-{}", std::process::id()));

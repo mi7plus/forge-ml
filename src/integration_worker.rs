@@ -72,7 +72,7 @@ pub enum Request {
 
 pub enum ResultEvent {
     BurnTrainingProgress(crate::millwright_studio::TrainingEvent),
-    BurnTrainingFinished(Result<usize, String>),
+    BurnTrainingFinished(Result<crate::deep_learning::NativeTrainingOutcome, String>),
     DataImportProgress {
         path: PathBuf,
         rows: usize,
@@ -179,8 +179,7 @@ fn execute(request: Request, events: &Sender<ResultEvent>) -> ResultEvent {
                 |event| {
                     let _ = events.send(ResultEvent::BurnTrainingProgress(event));
                 },
-            )
-            .map(|events| events.len());
+            );
             ResultEvent::BurnTrainingFinished(result)
         }
         Request::DataImport(path) => {
@@ -326,7 +325,7 @@ mod tests {
             {
                 ResultEvent::BurnTrainingProgress(_) => progress += 1,
                 ResultEvent::BurnTrainingFinished(result) => {
-                    assert_eq!(result.unwrap(), progress);
+                    assert_eq!(result.unwrap().events.len(), progress);
                     break;
                 }
                 _ => panic!("unexpected worker result"),

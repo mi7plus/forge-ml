@@ -20,6 +20,79 @@ pub struct NativeTrainingData {
     targets: Vec<f32>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NativeRegressionArtifact {
+    pub schema: u32,
+    pub run_id: String,
+    pub dataset: String,
+    pub feature: String,
+    pub target: String,
+    pub slope: f64,
+    pub intercept: f64,
+    pub feature_mean: f64,
+    pub feature_scale: f64,
+    pub target_mean: f64,
+    pub target_scale: f64,
+    pub best_score: f64,
+    pub epochs_completed: usize,
+}
+
+impl NativeRegressionArtifact {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.schema != 1 {
+            return Err(format!(
+                "Unsupported native regression artifact schema {}",
+                self.schema
+            ));
+        }
+        for (kind, value) in [
+            ("Run", self.run_id.as_str()),
+            ("Dataset", self.dataset.as_str()),
+            ("Feature", self.feature.as_str()),
+            ("Target", self.target.as_str()),
+        ] {
+            if value.is_empty() || value.len() > 128 {
+                return Err(format!("{kind} name must contain 1 through 128 bytes"));
+            }
+        }
+        for value in [
+            self.slope,
+            self.intercept,
+            self.feature_mean,
+            self.feature_scale,
+            self.target_mean,
+            self.target_scale,
+            self.best_score,
+        ] {
+            if !value.is_finite() {
+                return Err("Native regression artifact contains a non-finite value".into());
+            }
+        }
+        if self.feature_scale <= 0.0 || self.target_scale <= 0.0 || self.epochs_completed == 0 {
+            return Err("Native regression artifact contains invalid fitted metadata".into());
+        }
+        Ok(())
+    }
+
+    pub fn predict(&self, feature: f64) -> Result<f64, String> {
+        self.validate()?;
+        if !feature.is_finite() {
+            return Err("Native regression inference requires a finite feature value".into());
+        }
+        let prediction = self.slope.mul_add(feature, self.intercept);
+        prediction
+            .is_finite()
+            .then_some(prediction)
+            .ok_or_else(|| "Native regression inference produced a non-finite value".into())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct NativeTrainingOutcome {
+    pub events: Vec<TrainingEvent>,
+    pub artifact: NativeRegressionArtifact,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Standardization {
     feature_mean: f32,
@@ -214,6 +287,7 @@ pub fn native_burn_training_demo(backend: Backend) -> Result<Vec<TrainingEvent>,
         || false,
         |_| {},
     )
+    .map(|outcome| outcome.events)
 }
 
 pub fn native_burn_training_demo_with_progress(
@@ -222,7 +296,7 @@ pub fn native_burn_training_demo_with_progress(
     data: Option<NativeTrainingData>,
     cancelled: impl Fn() -> bool,
     on_event: impl FnMut(TrainingEvent),
-) -> Result<Vec<TrainingEvent>, String> {
+) -> Result<NativeTrainingOutcome, String> {
     let config = config.validate()?;
     if matches!(backend, Backend::Cuda | Backend::Rocm) {
         return Err(format!(
@@ -247,7 +321,7 @@ fn native_burn_training_demo_inner(
     data: Option<NativeTrainingData>,
     cancelled: impl Fn() -> bool,
     mut on_event: impl FnMut(TrainingEvent),
-) -> Result<Vec<TrainingEvent>, String> {
+) -> Result<NativeTrainingOutcome, String> {
     use burn::{
         nn::LinearConfig,
         optim::{GradientsParams, SgdConfig},
@@ -263,23 +337,30 @@ fn native_burn_training_demo_inner(
     device.seed(7);
     let mut model = LinearConfig::new(1, 1).init(&device);
     let mut optimizer = SgdConfig::new().init();
-    let (mut inputs, mut targets, mut data_label) = if let Some(data) = data {
-        let rows = data.inputs.len();
-        (
-            data.inputs,
-            data.targets,
-            format!(
-                "{} {}→{} ({rows} rows)",
-                data.dataset, data.feature, data.target
-            ),
-        )
-    } else {
-        (
-            vec![-2.0_f32, -1.0, 0.0, 1.0, 2.0],
-            vec![-3.0_f32, -1.0, 1.0, 3.0, 5.0],
-            "built-in sample".into(),
-        )
-    };
+    let (mut inputs, mut targets, mut data_label, dataset, feature, target_name) =
+        if let Some(data) = data {
+            let rows = data.inputs.len();
+            (
+                data.inputs,
+                data.targets,
+                format!(
+                    "{} {}→{} ({rows} rows)",
+                    data.dataset, data.feature, data.target
+                ),
+                data.dataset,
+                data.feature,
+                data.target,
+            )
+        } else {
+            (
+                vec![-2.0_f32, -1.0, 0.0, 1.0, 2.0],
+                vec![-3.0_f32, -1.0, 1.0, 3.0, 5.0],
+                "built-in sample".into(),
+                "built-in sample".into(),
+                "x".into(),
+                "y".into(),
+            )
+        };
     let validation_rows = if config.validation_fraction > 0.0 {
         ((inputs.len() as f64 * config.validation_fraction).round() as usize)
             .clamp(1, inputs.len() - 1)
@@ -337,6 +418,7 @@ fn native_burn_training_demo_inner(
     let mut final_loss = None;
     let mut best_validation: Option<f64> = None;
     let mut stale_epochs = 0;
+    let mut epochs_completed = 0;
     for epoch in 1..=config.epochs {
         if cancelled() {
             return Err("Embedded Burn training was cancelled".into());
@@ -352,6 +434,7 @@ fn native_burn_training_demo_inner(
         let gradients = GradientsParams::from_grads(gradients, &model);
         model = optimizer.step(config.learning_rate, model, gradients);
         final_loss = Some(loss_value);
+        epochs_completed = epoch;
         let validation_loss = validation.as_ref().map(|(input, target)| {
             ((model.forward(input.clone()) - target.clone())
                 .powf_scalar(2.0)
@@ -392,13 +475,46 @@ fn native_burn_training_demo_inner(
         .or(final_loss)
         .ok_or("Embedded Burn training emitted no epochs")?;
     for event in [
-        TrainingEvent::RunContext { run_id },
+        TrainingEvent::RunContext {
+            run_id: run_id.clone(),
+        },
         TrainingEvent::Completed { best_score },
     ] {
         on_event(event.clone());
         events.push(event);
     }
-    Ok(events)
+    let standardized_weight = model.weight.val().into_scalar::<f32>() as f64;
+    let standardized_bias = model
+        .bias
+        .as_ref()
+        .map(|bias| bias.val().into_scalar::<f32>() as f64)
+        .unwrap_or(0.0);
+    let feature_mean = f64::from(standardization.feature_mean);
+    let feature_scale = f64::from(standardization.feature_scale);
+    let target_mean = f64::from(standardization.target_mean);
+    let target_scale = f64::from(standardization.target_scale);
+    let slope = target_scale * standardized_weight / feature_scale;
+    let intercept = target_mean + target_scale * standardized_bias - slope * feature_mean;
+    if !slope.is_finite() || !intercept.is_finite() {
+        return Err("Embedded Burn training produced invalid inference parameters".into());
+    }
+    let artifact = NativeRegressionArtifact {
+        schema: 1,
+        run_id,
+        dataset,
+        feature,
+        target: target_name,
+        slope,
+        intercept,
+        feature_mean,
+        feature_scale,
+        target_mean,
+        target_scale,
+        best_score,
+        epochs_completed,
+    };
+    artifact.validate()?;
+    Ok(NativeTrainingOutcome { events, artifact })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -614,7 +730,7 @@ mod tests {
         let data = native_training_data("sample", &table, "feature", "target").unwrap();
         assert_eq!(data.inputs, vec![-1.0, 0.0, 1.0]);
         assert_eq!(data.targets, vec![-1.0, 1.0, 3.0]);
-        let events = native_burn_training_demo_with_progress(
+        let outcome = native_burn_training_demo_with_progress(
             Backend::Cpu,
             NativeTrainingConfig {
                 epochs: 3,
@@ -626,6 +742,7 @@ mod tests {
             |_| {},
         )
         .unwrap();
+        let events = &outcome.events;
         assert_eq!(events.len(), 10);
         assert_eq!(
             events
@@ -646,6 +763,9 @@ mod tests {
             TrainingEvent::Started { job, .. }
                 if job.contains("sample feature→target (3 rows)")
         ));
+        let prediction = outcome.artifact.predict(2.0).unwrap();
+        assert!(prediction.is_finite());
+        assert_eq!(outcome.artifact.schema, 1);
         assert!(native_training_data("sample", &table, "feature", "feature").is_err());
         assert!(native_training_data("sample", &table, "missing", "target").is_err());
         for config in [

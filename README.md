@@ -48,6 +48,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - Native Burn univariate regression over selected dataset columns with bounded numeric preparation
 - Deterministic native validation holdouts, validation-loss telemetry, and patience-based early stopping
 - Leakage-safe native feature/target standardization with original-unit loss reporting
+- Portable schema-1 native regression artifacts with atomic JSON import/export and in-IDE inference
 - Bounded framework-neutral training event monitoring with validated JSON/CSV export
 - All-or-nothing validated training JSON import for reopening archived telemetry
 - Self-contained offline training summary and event-audit HTML reports

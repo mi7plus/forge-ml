@@ -437,6 +437,8 @@ struct ForgeApp {
     burn_training_use_dataset: bool,
     burn_training_feature: String,
     burn_training_target: String,
+    native_burn_artifact: Option<deep_learning::NativeRegressionArtifact>,
+    native_burn_inference_feature: f64,
     deep_outputs: DeepOutputs,
     resource_system: sysinfo::System,
     resource_snapshot: ResourceSnapshot,
@@ -718,6 +720,8 @@ impl ForgeApp {
             burn_training_use_dataset: false,
             burn_training_feature: String::new(),
             burn_training_target: String::new(),
+            native_burn_artifact: None,
+            native_burn_inference_feature: 0.0,
             deep_outputs: DeepOutputs::default(),
             resource_system: sysinfo::System::new_all(),
             resource_snapshot: ResourceSnapshot::default(),
@@ -1944,7 +1948,9 @@ impl ForgeApp {
                 ResultEvent::BurnTrainingFinished(result) => {
                     self.burn_training_cancel = None;
                     self.sql_output = result
-                        .map(|count| {
+                        .map(|outcome| {
+                            let count = outcome.events.len();
+                            self.native_burn_artifact = Some(outcome.artifact);
                             format!(
                                 "Completed embedded Burn training and recorded {count} typed event(s)."
                             )
@@ -3901,6 +3907,58 @@ impl ForgeApp {
             deep_learning::BURN_VERSION
         ));
         ui.label(&self.sql_output);
+        if let Some(artifact) = &self.native_burn_artifact {
+            ui.label(format!(
+                "Fitted {} = {:.6} × {} + {:.6} · best score {:.6} · {} epoch(s)",
+                artifact.target,
+                artifact.slope,
+                artifact.feature,
+                artifact.intercept,
+                artifact.best_score,
+                artifact.epochs_completed
+            ));
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::DragValue::new(&mut self.native_burn_inference_feature)
+                        .speed(0.1)
+                        .prefix(format!("{} ", artifact.feature)),
+                );
+                if ui.button("Predict").clicked() {
+                    self.sql_output = artifact
+                        .predict(self.native_burn_inference_feature)
+                        .map(|prediction| format!("{} = {prediction:.8}", artifact.target))
+                        .unwrap_or_else(|error| error);
+                }
+                if ui.button("Export model JSON…").clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .set_file_name("native-burn-regression.json")
+                        .add_filter("JSON", &["json"])
+                        .save_file()
+                    {
+                        self.sql_output = export::native_regression_artifact(artifact, &path)
+                            .map(|()| format!("Exported native model to {}", path.display()))
+                            .unwrap_or_else(|error| format!("Model export failed: {error}"));
+                    }
+                }
+            });
+        }
+        if ui.button("Import native model JSON…").clicked() {
+            if let Some(path) = rfd::FileDialog::new()
+                .add_filter("JSON", &["json"])
+                .pick_file()
+            {
+                match export::import_native_regression_artifact(&path) {
+                    Ok(artifact) => {
+                        self.sql_output = format!(
+                            "Imported native regression model for {} → {}.",
+                            artifact.feature, artifact.target
+                        );
+                        self.native_burn_artifact = Some(artifact);
+                    }
+                    Err(error) => self.sql_output = format!("Model import failed: {error}"),
+                }
+            }
+        }
         let memory = if self.resource_snapshot.total_memory == 0 {
             0.0
         } else {
