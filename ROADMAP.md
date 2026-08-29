@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.67.0`
+Current application version: `0.68.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1269,6 +1269,20 @@ Implementation notes:
 
 - The native text PDF path avoids browser, web-renderer, and Python runtime dependencies.
 - PDF pagination and character sanitization are inherited from Forge's shared report writer.
+
+## 0.68 attested portable deployment monitoring bundles — implemented
+
+- [x] Export a compressed deployment-monitoring bundle through an atomic publication path.
+- [x] Include the validated JSON snapshot, offline HTML report, and re-importable native plot JSON.
+- [x] Add a versioned manifest with service/drift/plot counts and aggregate uncompressed size.
+- [x] Record byte size and SHA-256 digest attestations for every portable artifact.
+- [x] Cap aggregate uncompressed artifacts at 64 MiB before archive publication.
+- [x] Test the exact artifact set and verify manifest sizes and digests against archived bytes.
+
+Implementation notes:
+
+- Bundles contain operational counters and feature labels, but no credentials, request bodies, prediction payloads, or model binaries.
+- The snapshot and report reuse their existing validation and retention limits before any archive is written.
 
 ## Known technical risks
 

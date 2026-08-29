@@ -62,6 +62,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - One-click native request, error-rate, p95-latency, and drift-threshold monitoring plots
 - Self-contained offline deployment health and drift-breach HTML reports
 - Native paginated deployment health and drift-breach PDF reports
+- Attested portable deployment-monitoring bundles with snapshots, reports, and native plots
 - S3-compatible and rclone object-storage profiles with bounded browsing, reachability probes, and atomic prefix-aware project caching
 - Hardened SQLite, DuckDB, PostgreSQL, and verified-TLS MySQL profiles with test probes, command timeouts, output caps, and credential-safe errors
 - Project-scoped successful SQL history with bounded deduplication, recall, JSON export, and explicit clearing

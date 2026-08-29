@@ -4,6 +4,7 @@ use crate::{
     millwright_studio::{self, TrainingEvent},
     notebook::{CellKind, NotebookDocument},
     plot,
+    service_monitor::{self, DriftEvent, ServiceEvent},
 };
 use arrow::{
     csv::WriterBuilder, ipc::writer::FileWriter, record_batch::RecordBatch,
@@ -23,6 +24,7 @@ const MAX_BUNDLE_FILES: usize = 20_000;
 static NEXT_EXPORT_TEMP: AtomicU64 = AtomicU64::new(1);
 const MAX_TRAINING_BUNDLE_BYTES: usize = 192 * 1024 * 1024;
 const MAX_TRAINING_BUNDLE_FILE_BYTES: u64 = 100 * 1024 * 1024;
+const MAX_MONITORING_BUNDLE_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum DataFormat {
@@ -585,6 +587,76 @@ pub fn training_bundle(events: &[TrainingEvent], path: &Path) -> Result<(), Stri
     atomic_bytes(path, &bytes)
 }
 
+pub fn monitoring_bundle(
+    service_events: &[ServiceEvent],
+    drift_events: &[DriftEvent],
+    path: &Path,
+) -> Result<(), String> {
+    let snapshot = service_monitor::snapshot_json(service_events, drift_events)?;
+    if service_events.is_empty() && drift_events.is_empty() {
+        return Err("No deployment monitoring events are available for a bundle".into());
+    }
+    let report = service_monitor::monitoring_report(service_events, drift_events)?.into_bytes();
+    let plots = service_monitor::monitoring_plots(service_events, drift_events);
+    let plot_json = plot::collection_json(&plots)?;
+    let artifacts = [
+        ("monitoring-snapshot.json", snapshot),
+        ("monitoring-report.html", report),
+        ("monitoring-plots.json", plot_json),
+    ];
+    let total = artifacts
+        .iter()
+        .map(|(_, bytes)| bytes.len())
+        .sum::<usize>();
+    if total > MAX_MONITORING_BUNDLE_BYTES {
+        return Err("Deployment monitoring bundle exceeds the 64 MiB uncompressed limit".into());
+    }
+    let entries = artifacts
+        .iter()
+        .map(|(name, bytes)| {
+            serde_json::json!({
+                "path": name,
+                "bytes": bytes.len(),
+                "sha256": crate::experiment::stable_digest(bytes),
+            })
+        })
+        .collect::<Vec<_>>();
+    let manifest = serde_json::to_vec_pretty(&serde_json::json!({
+        "schema": 1,
+        "forge_version": env!("CARGO_PKG_VERSION"),
+        "service_event_count": service_events.len(),
+        "drift_event_count": drift_events.len(),
+        "plot_count": plots.len(),
+        "digest_algorithm": "sha256",
+        "total_uncompressed_bytes": total,
+        "entries": entries,
+    }))
+    .map_err(|error| error.to_string())?;
+    let cursor = Cursor::new(Vec::new());
+    let mut archive = zip::ZipWriter::new(cursor);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    for (name, bytes) in artifacts {
+        archive
+            .start_file(name, options)
+            .map_err(|error| error.to_string())?;
+        archive
+            .write_all(&bytes)
+            .map_err(|error| error.to_string())?;
+    }
+    archive
+        .start_file("forge-monitoring-bundle.json", options)
+        .map_err(|error| error.to_string())?;
+    archive
+        .write_all(&manifest)
+        .map_err(|error| error.to_string())?;
+    let bytes = archive
+        .finish()
+        .map_err(|error| error.to_string())?
+        .into_inner();
+    atomic_bytes(path, &bytes)
+}
+
 pub struct ImportedTrainingBundle {
     pub events: Vec<TrainingEvent>,
     pub plots: Vec<plot::PlotSpec>,
@@ -982,6 +1054,51 @@ mod tests {
         let imported = import_training_bundle(&path).unwrap();
         assert_eq!(imported.events, events);
         assert_eq!(imported.plots.len(), 2);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn monitoring_bundle_contains_attested_portable_artifacts() {
+        let root =
+            std::env::temp_dir().join(format!("forge-monitoring-bundle-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("monitoring.zip");
+        let services = vec![ServiceEvent {
+            model: "iris".into(),
+            version: "1".into(),
+            requests: 100,
+            errors: 2,
+            p95_ms: Some(4.0),
+        }];
+        let drift = vec![DriftEvent {
+            model: "iris".into(),
+            version: "1".into(),
+            feature: "width".into(),
+            score: 0.3,
+            threshold: 0.2,
+        }];
+        monitoring_bundle(&services, &drift, &path).unwrap();
+        let mut archive = zip::ZipArchive::new(File::open(&path).unwrap()).unwrap();
+        let manifest: serde_json::Value = {
+            let file = archive.by_name("forge-monitoring-bundle.json").unwrap();
+            serde_json::from_reader(file).unwrap()
+        };
+        assert_eq!(manifest["service_event_count"], 1);
+        assert_eq!(manifest["drift_event_count"], 1);
+        assert_eq!(manifest["plot_count"], 4);
+        for entry in manifest["entries"].as_array().unwrap() {
+            let name = entry["path"].as_str().unwrap();
+            let mut bytes = Vec::new();
+            archive
+                .by_name(name)
+                .unwrap()
+                .read_to_end(&mut bytes)
+                .unwrap();
+            assert_eq!(entry["bytes"], bytes.len());
+            assert_eq!(entry["sha256"], crate::experiment::stable_digest(&bytes));
+        }
+        assert!(monitoring_bundle(&[], &[], &path).is_err());
+        drop(archive);
         let _ = fs::remove_dir_all(root);
     }
 }
