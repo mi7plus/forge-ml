@@ -4,64 +4,188 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Forge ML — a Rust IDE for machine learning</title>
-<meta name="description" content="Forge ML is a desktop scientific IDE for interactive Rust machine-learning work: a persistent Evcxr console, notebook cells, live plots, embedded Burn training, and native model deployment.">
+<meta name="description" content="Forge ML is a desktop scientific IDE for interactive Rust machine-learning work: a dockable workspace, a persistent Evcxr console, notebook cells, live plots, embedded Burn training, and native model deployment.">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <nav class="nav">
   <span class="brand">FORGE <span>ML</span></span>
   <div class="links">
+    <a href="#workspace">Workspace</a>
     <a href="#features">Features</a>
     <a href="#workflow">Workflow</a>
-    <a href="#ml">ML &amp; deploy</a>
+    <a href="#ml">Train &amp; ship</a>
     <a href="guide.html">Guide</a>
-    <a href="https://github.com/mi7plus/forge-ml">GitHub</a>
+    <a class="cta" href="https://github.com/mi7plus/forge-ml">GitHub</a>
   </div>
 </nav>
 
-<header class="hero wrap">
-  <p class="eyebrow">Desktop scientific IDE · Rust</p>
-  <h1>An interactive IDE for<br>machine learning in Rust.</h1>
-  <p class="lede">Forge ML brings the Spyder-style scientific workspace to Rust: a persistent
-  Evcxr console, <code>//# %%</code> notebook cells, a live variable and plot inspector, embedded
-  Burn training, and native model deployment — all in one native desktop app.</p>
-  <div class="badges">
-    <span class="chip">Evcxr console</span>
-    <span class="chip">Burn 0.22 training</span>
-    <span class="chip">Millwright ONNX</span>
-    <span class="chip">rust-analyzer</span>
-    <span class="chip">Arrow / Parquet</span>
-    <span class="chip">Offline &amp; local</span>
-  </div>
-  <div class="cta">
-    <a class="btn primary" href="guide.html">Read the guide</a>
-    <a class="btn ghost" href="https://github.com/mi7plus/forge-ml">View source</a>
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <p class="eyebrow">Desktop scientific IDE · Rust</p>
+      <h1>The IDE for machine<br>learning in Rust.</h1>
+      <p class="lede">A Spyder-style scientific workspace built for Rust: a fully dockable layout,
+      a persistent Evcxr console, <code>//# %%</code> notebook cells, a live variable and plot
+      inspector, embedded Burn training, and native model deployment — one native desktop app,
+      offline by default.</p>
+      <div class="badges">
+        <span class="chip">Evcxr console</span>
+        <span class="chip">Dockable panes</span>
+        <span class="chip">Burn 0.22 training</span>
+        <span class="chip">Millwright ONNX</span>
+        <span class="chip">rust-analyzer</span>
+        <span class="chip">Arrow / Parquet</span>
+      </div>
+      <div class="cta">
+        <a class="btn primary" href="guide.html">Read the guide →</a>
+        <a class="btn ghost" href="https://github.com/mi7plus/forge-ml">View source</a>
+      </div>
+    </div>
+
+    <div class="mockup" role="img" aria-label="Forge ML workspace: a dockable layout with a left navigator, a center editor, a right inspector, and a bottom console.">
+      <div class="titlebar">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span class="tb-title">FORGE ML — linear_model.rs</span>
+      </div>
+      <svg viewBox="0 0 640 392" xmlns="http://www.w3.org/2000/svg">
+        <!-- panels -->
+        <rect x="0" y="0" width="640" height="392" style="fill:var(--surface)"/>
+        <!-- left navigator -->
+        <rect x="0" y="0" width="150" height="356" style="fill:var(--surface-2)"/>
+        <rect x="10" y="12" width="52" height="16" rx="4" style="fill:var(--bg)"/>
+        <rect x="68" y="12" width="52" height="16" rx="4" style="fill:transparent;stroke:var(--border);stroke-width:1"/>
+        <text x="18" y="24" style="fill:var(--cyan);font:600 9px sans-serif">Files</text>
+        <text x="76" y="24" style="fill:var(--muted);font:9px sans-serif">Outline</text>
+        <g style="fill:var(--muted);font:9px monospace">
+          <text x="12" y="48">▸ src</text>
+          <text x="20" y="63">main.rs</text>
+          <text x="20" y="78">model.rs</text>
+          <text x="12" y="93">▸ examples</text>
+        </g>
+        <line x1="10" y1="108" x2="140" y2="108" style="stroke:var(--border);stroke-width:1"/>
+        <text x="12" y="124" style="fill:var(--muted);font:700 8px sans-serif;letter-spacing:.1em">NOTEBOOK CELLS</text>
+        <g style="font:9px monospace">
+          <text x="12" y="142" style="fill:var(--green)">[ok] 01 setup</text>
+          <text x="12" y="157" style="fill:var(--green)">[ok] 02 data</text>
+          <rect x="8" y="163" width="134" height="14" rx="3" style="fill:var(--red-soft)"/>
+          <text x="12" y="173" style="fill:var(--cyan)">[&gt;]  03 train</text>
+          <text x="12" y="188" style="fill:var(--muted)">[ ]  04 evaluate</text>
+        </g>
+
+        <!-- editor -->
+        <rect x="150" y="0" width="330" height="300" style="fill:var(--bg)"/>
+        <rect x="150" y="0" width="330" height="26" style="fill:var(--surface-2)"/>
+        <rect x="158" y="5" width="92" height="18" rx="4" style="fill:var(--bg)"/>
+        <text x="166" y="18" style="fill:var(--text);font:9px monospace">linear_model.rs</text>
+        <text x="262" y="18" style="fill:var(--muted);font:9px monospace">data.rs</text>
+        <g style="font:9px monospace">
+          <text x="162" y="48" style="fill:var(--muted)">1</text><rect x="176" y="40" width="60" height="9" rx="2" style="fill:var(--violet)"/><rect x="240" y="40" width="120" height="9" rx="2" style="fill:var(--muted);opacity:.5"/>
+          <text x="162" y="66" style="fill:var(--muted)">2</text><rect x="176" y="58" width="40" height="9" rx="2" style="fill:var(--red)"/><rect x="220" y="58" width="150" height="9" rx="2" style="fill:var(--muted);opacity:.5"/>
+          <text x="162" y="84" style="fill:var(--muted)">3</text><rect x="176" y="76" width="90" height="9" rx="2" style="fill:var(--cyan)"/><rect x="270" y="76" width="70" height="9" rx="2" style="fill:var(--muted);opacity:.5"/>
+          <text x="162" y="102" style="fill:var(--muted)">4</text><rect x="176" y="94" width="70" height="9" rx="2" style="fill:var(--ember)"/>
+          <text x="162" y="120" style="fill:var(--muted)">5</text><rect x="176" y="112" width="130" height="9" rx="2" style="fill:var(--muted);opacity:.5"/>
+          <text x="162" y="138" style="fill:var(--muted)">6</text><rect x="176" y="130" width="50" height="9" rx="2" style="fill:var(--green)"/><rect x="230" y="130" width="90" height="9" rx="2" style="fill:var(--muted);opacity:.5"/>
+        </g>
+        <text x="162" y="170" style="fill:var(--muted);font:9px monospace">forge_metric:loss=0.041</text>
+
+        <!-- bottom console under editor -->
+        <rect x="150" y="300" width="330" height="56" style="fill:var(--surface-2)"/>
+        <rect x="158" y="304" width="60" height="15" rx="3" style="fill:var(--bg)"/>
+        <text x="164" y="315" style="fill:var(--cyan);font:600 8px sans-serif">Console</text>
+        <text x="224" y="315" style="fill:var(--muted);font:8px sans-serif">History</text>
+        <text x="272" y="315" style="fill:var(--muted);font:8px sans-serif">Python</text>
+        <text x="158" y="336" style="fill:var(--green);font:9px monospace">In [3]: model.predict(4.0)</text>
+        <text x="158" y="350" style="fill:var(--text);font:9px monospace">=&gt; 8.21</text>
+
+        <!-- right inspector -->
+        <rect x="480" y="0" width="160" height="356" style="fill:var(--surface-2)"/>
+        <g style="font:8px sans-serif">
+          <rect x="488" y="10" width="40" height="15" rx="3" style="fill:var(--bg)"/>
+          <text x="494" y="21" style="fill:var(--cyan);font-weight:600">Plots</text>
+          <text x="534" y="21" style="fill:var(--muted)">Runs</text>
+          <text x="568" y="21" style="fill:var(--muted)">Vars</text>
+          <text x="602" y="21" style="fill:var(--muted)">SQL</text>
+        </g>
+        <rect x="490" y="36" width="140" height="96" rx="6" style="fill:var(--bg);stroke:var(--border);stroke-width:1"/>
+        <polyline points="498,120 516,104 534,110 552,84 570,90 588,64 606,58 622,46"
+                  style="fill:none;stroke:var(--cyan);stroke-width:2"/>
+        <polyline points="498,124 516,116 534,118 552,104 570,108 588,96 606,92 622,86"
+                  style="fill:none;stroke:var(--red);stroke-width:1.5;opacity:.7"/>
+        <text x="494" y="150" style="fill:var(--muted);font:700 8px sans-serif;letter-spacing:.08em">TRAINING LOSS</text>
+        <g style="font:9px monospace">
+          <text x="494" y="172" style="fill:var(--muted)">epoch 60</text>
+          <text x="494" y="187" style="fill:var(--text)">loss   0.041</text>
+          <text x="494" y="202" style="fill:var(--text)">val    0.058</text>
+          <text x="494" y="217" style="fill:var(--green)">R²     0.994</text>
+        </g>
+
+        <!-- status bar -->
+        <rect x="0" y="356" width="640" height="36" style="fill:var(--surface-2)"/>
+        <line x1="0" y1="356" x2="640" y2="356" style="stroke:var(--border);stroke-width:1"/>
+        <circle cx="14" cy="374" r="4" style="fill:var(--green)"/>
+        <text x="24" y="378" style="fill:var(--green);font:9px sans-serif">Ready</text>
+        <text x="82" y="378" style="fill:var(--muted);font:9px sans-serif">linear_model.rs •</text>
+        <text x="540" y="378" style="fill:var(--muted);font:9px monospace">Ln 3, Col 12</text>
+      </svg>
+    </div>
   </div>
 </header>
 
-<section id="features" class="wrap">
-  <p class="eyebrow">What's inside</p>
-  <h2>A full scientific workspace, editor-first</h2>
-  <p class="lede">Every pane surrounds the editor the way a scientific IDE should — and each one is
-  driven by real, bounded, non-blocking background work.</p>
-  <div class="grid">
-    <div class="card"><span class="ico">▶</span><h3>Persistent Rust console</h3><p>An Evcxr session runs off the UI thread. Cells share state, so setup and data cells feed later ones. Reset the runtime without restarting the app.</p></div>
-    <div class="card"><span class="ico">▦</span><h3>Notebook cells</h3><p>Split scripts into cells with <code>//# %%</code>. Run a cell, everything above, or all — with per-cell status, output, compiler errors, and timing.</p></div>
-    <div class="card"><span class="ico">◔</span><h3>Variables &amp; plots</h3><p>Live Evcxr variable names and Rust types after every cell. Publish metrics, vectors, and tables from <code>stdout</code> into charts and grids.</p></div>
-    <div class="card"><span class="ico">⊞</span><h3>Data viewer</h3><p>Import CSV, TSV, JSON Lines, Parquet, and Arrow IPC. Virtualized two-axis grids with filter, sort, pin/hide columns, editing, and linked plots.</p></div>
-    <div class="card"><span class="ico">◈</span><h3>rust-analyzer</h3><p>Document sync, inline diagnostics, hover, caret-anchored completion, and Ctrl+click go-to-definition across files.</p></div>
-    <div class="card"><span class="ico">⌘</span><h3>Command palette</h3><p>Ctrl+Shift+P fuzzy-searches every command. F6 cycles inspector panes; the whole workspace is keyboard-reachable.</p></div>
-    <div class="card"><span class="ico">◱</span><h3>Experiments</h3><p>Name, snapshot, compare, clone, and archive runs. SHA-256 provenance over datasets, sources, lockfiles, and bundles.</p></div>
-    <div class="card"><span class="ico">◆</span><h3>SQL &amp; storage</h3><p>Read-only SQL workbench over SQLite, DuckDB, PostgreSQL, and MySQL; S3-compatible and rclone object storage — all credential-safe.</p></div>
-    <div class="card"><span class="ico">⇲</span><h3>Offline by default</h3><p>Diagnostics are off unless enabled. Nothing uploads automatically; credentials live in the OS keychain, never in project files.</p></div>
+<section id="workspace" class="tinted">
+  <div class="wrap">
+    <p class="eyebrow">Your workspace, your way</p>
+    <h2>A fully dockable scientific layout</h2>
+    <p class="lede">Every tool surface is a pane you can split, drag between regions, tab together,
+    reorder, or hide. Arrange the workspace once and Forge remembers it across restarts.</p>
+    <div class="rows">
+      <div class="row2">
+        <div class="rk">Dock anything<span class="tag">drag &amp; drop</span></div>
+        <p>Drag a pane's tab to split a region, move it to another edge, or group it with others.
+        The editor, file tree, outline, cell rail, console, history, Python runtime, data viewer,
+        and every inspector are all first-class dockable panes.</p>
+      </div>
+      <div class="row2">
+        <div class="rk">Show only what you need<span class="tag">View → Panes</span></div>
+        <p>Toggle any pane on or off from the View menu, or reset to the default layout at any time.
+        Long panes scroll independently and remember where you left them.</p>
+      </div>
+      <div class="row2">
+        <div class="rk">Keyboard-driven<span class="tag">Ctrl+1..9 · F6</span></div>
+        <p>Jump straight to an inspector with Ctrl+1 through Ctrl+9, cycle panes with F6, and reach
+        every command through the Ctrl+Shift+P palette. A status bar keeps runtime, file, and
+        language-server state in one place.</p>
+      </div>
+    </div>
   </div>
 </section>
 
-<section id="workflow" class="wrap">
-  <p class="eyebrow">The loop</p>
-  <h2>Write a cell, run it, watch the plots</h2>
-  <p>Cells publish visualization data straight through <code>stdout</code>. Metrics become live line
-  charts, vectors become bar plots, and tables open in the full data viewer:</p>
+<section id="features">
+  <div class="wrap">
+    <p class="eyebrow">What's inside</p>
+    <h2>Editor-first, driven by real background work</h2>
+    <p class="lede">Each pane is backed by bounded, non-blocking work — imports, diagnostics,
+    indexing, and training all run off the UI thread.</p>
+    <div class="grid">
+      <div class="card"><span class="ico">▶</span><h3>Persistent Rust console</h3><p>An Evcxr session runs off the UI thread. Cells share state, so setup and data cells feed later ones. Reset the runtime without restarting the app.</p></div>
+      <div class="card"><span class="ico">▦</span><h3>Notebook cells</h3><p>Split scripts into cells with <code>//# %%</code>. Run one, everything above, or all — with per-cell status, output, compiler errors, and timing.</p></div>
+      <div class="card"><span class="ico">◔</span><h3>Variables &amp; plots</h3><p>Live Evcxr variable names and Rust types after every cell. Publish metrics, vectors, and tables from <code>stdout</code> into charts and grids.</p></div>
+      <div class="card"><span class="ico">⊞</span><h3>Data viewer</h3><p>Import CSV, TSV, JSON Lines, Parquet, and Arrow IPC. Virtualized two-axis grids with filter, sort, pin/hide columns, editing, and linked plots.</p></div>
+      <div class="card"><span class="ico">◈</span><h3>rust-analyzer</h3><p>Document sync, inline diagnostics, hover, caret-anchored completion, and Ctrl+click go-to-definition across files.</p></div>
+      <div class="card"><span class="ico">⌘</span><h3>Command palette</h3><p>Ctrl+Shift+P fuzzy-searches every command. Panes are keyboard-reachable and the whole layout is navigable without a mouse.</p></div>
+      <div class="card"><span class="ico">◱</span><h3>Experiments</h3><p>Name, snapshot, compare, clone, and archive runs. SHA-256 provenance over datasets, sources, lockfiles, and bundles.</p></div>
+      <div class="card"><span class="ico">◆</span><h3>SQL &amp; storage</h3><p>Read-only SQL workbench over SQLite, DuckDB, PostgreSQL, and MySQL; S3-compatible and rclone object storage — all credential-safe.</p></div>
+      <div class="card"><span class="ico">⇲</span><h3>Offline by default</h3><p>Diagnostics are off unless enabled. Nothing uploads automatically; credentials live in the OS keychain, never in project files.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="workflow" class="tinted">
+  <div class="wrap">
+    <p class="eyebrow">The loop</p>
+    <h2>Write a cell, run it, watch the plots</h2>
+    <p>Cells publish visualization data straight through <code>stdout</code>. Metrics become live line
+    charts, vectors become bar plots, and tables open in the full data viewer:</p>
 <pre><code>//# %% training loop
 for epoch in 0..epochs {
     let loss = (-0.22 * epoch as f64).exp();
@@ -69,52 +193,46 @@ for epoch in 0..epochs {
 }
 println!("forge_vector:weights=0.18,-0.42,0.91,0.37");
 println!(r#"forge_table:sample={"columns":["x","label"],"rows":[[0.2,"cat"],[0.7,"dog"]]}"#);</code></pre>
-  <div class="note">Select a cell in the notebook rail and press <strong>Shift+Enter</strong>. Metrics
-  appear in <em>Charts</em>, vectors and tables in <em>Data</em> — click a dataset name to open the
-  full table viewer.</div>
-
-  <h3>Keyboard-first</h3>
-  <table>
-    <tr><th>Action</th><th>Shortcut</th></tr>
-    <tr><td>Run the selected cell</td><td><kbd>Shift</kbd> + <kbd>Enter</kbd></td></tr>
-    <tr><td>Run all cells</td><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Enter</kbd></td></tr>
-    <tr><td>Command palette</td><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd></td></tr>
-    <tr><td>Cycle inspector panes</td><td><kbd>F6</kbd></td></tr>
-    <tr><td>Search the project</td><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd></td></tr>
-    <tr><td>Go to definition</td><td><kbd>Ctrl</kbd> + click</td></tr>
-  </table>
-</section>
-
-<section id="ml" class="wrap">
-  <p class="eyebrow">Train &amp; ship</p>
-  <h2>Embedded training and native deployment</h2>
-  <p>Forge embeds <strong>Burn 0.22</strong> (Flex CPU + WGPU backends) and <strong>Millwright 2.2.1</strong>
-  ONNX. Train an autodiff linear model on a selected dataset with validation holdouts and early
-  stopping — no Python required — then register, verify, and generate a standalone Rust service.</p>
-  <div class="grid">
-    <div class="card"><h3>Native regression</h3><p>Leakage-safe standardization, deterministic validation, patience-based early stopping, and original-unit loss. Predict inline or score a whole table.</p></div>
-    <div class="card"><h3>Model registry</h3><p>Project-local versioning with promotion/rollback aliases, immutable bytes, and SHA-256 integrity checks before every load.</p></div>
-    <div class="card"><h3>Generated services</h3><p>One click produces an Axum <code>POST /predict</code> service with health, readiness, metadata, Docker, Compose, and Kubernetes files.</p></div>
-    <div class="card"><h3>Monitoring</h3><p>Framework-neutral request / error / latency and explainable feature-drift tracking, with offline HTML/PDF reports and attested bundles.</p></div>
+    <div class="note">Select a cell in the rail and press <strong>Shift+Enter</strong>. Metrics appear in
+    <em>Plots</em>, vectors and tables in <em>Data</em> — click a dataset name to open the full table viewer.</div>
   </div>
-  <div class="note">Model cards, training reports, and EDA exports are fully offline HTML/PDF — no browser,
-  no Python runtime, no network calls.</div>
 </section>
 
-<section class="wrap">
-  <h2>Get started</h2>
-  <p>Forge ML is a Cargo workspace. On Windows, build from a Visual Studio Native Tools command prompt
-  so Cargo can find the MSVC linker:</p>
+<section id="ml">
+  <div class="wrap">
+    <p class="eyebrow">Train &amp; ship</p>
+    <h2>Embedded training and native deployment</h2>
+    <p class="lede">Forge embeds <strong>Burn 0.22</strong> (Flex CPU + WGPU) and <strong>Millwright 2.2.1</strong>
+    ONNX. Train, register, verify, and generate a standalone Rust service — no Python required.</p>
+    <div class="grid">
+      <div class="card"><h3>Native regression</h3><p>Leakage-safe standardization, deterministic validation, patience-based early stopping, and original-unit loss. Predict inline or score a whole table.</p></div>
+      <div class="card"><h3>Model registry</h3><p>Project-local versioning with promotion/rollback aliases, immutable bytes, and SHA-256 integrity checks before every load.</p></div>
+      <div class="card"><h3>Generated services</h3><p>One click produces an Axum <code>POST /predict</code> service with health, readiness, metadata, Docker, Compose, and Kubernetes files.</p></div>
+      <div class="card"><h3>Monitoring</h3><p>Framework-neutral request / error / latency and explainable feature-drift tracking, with offline HTML/PDF reports and attested bundles.</p></div>
+    </div>
+    <div class="note">Model cards, training reports, and EDA exports are fully offline HTML/PDF — no browser,
+    no Python runtime, no network calls.</div>
+  </div>
+</section>
+
+<section id="start" class="tinted">
+  <div class="wrap">
+    <p class="eyebrow">Get started</p>
+    <h2>Clone and run</h2>
+    <p>Forge ML is a Cargo workspace. On Windows, build from a Visual Studio Native Tools command prompt
+    so Cargo can find the MSVC linker:</p>
 <pre><code>git clone https://github.com/mi7plus/forge-ml
 cd forge-ml
 cargo run</code></pre>
-  <p>Then open a Cargo project, open one of the <a href="https://github.com/mi7plus/forge-ml/tree/main/examples">example notebooks</a>,
-  and press Shift+Enter. The <a href="guide.html">guide</a> walks through the panes end to end.</p>
+    <p>Then open a Cargo project, open one of the
+    <a href="https://github.com/mi7plus/forge-ml/tree/main/examples">example notebooks</a>, and press
+    Shift+Enter. The <a href="guide.html">feature guide</a> walks through every pane in detail.</p>
+  </div>
 </section>
 
 <footer>
-  <p>Forge ML — an experimental desktop compute studio for interactive Rust ML.
-  <a href="https://github.com/mi7plus/forge-ml">Source</a> · <a href="guide.html">Guide</a></p>
+  <p><span class="brand">FORGE ML</span> — an experimental desktop compute studio for interactive Rust ML.</p>
+  <p><a href="https://github.com/mi7plus/forge-ml">Source</a> · <a href="guide.html">Guide</a> · <a href="https://github.com/mi7plus/forge-ml/blob/main/docs/USER_GUIDE.md">User guide</a></p>
 </footer>
 </body>
 </html>
