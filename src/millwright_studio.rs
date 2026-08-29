@@ -10,6 +10,7 @@ const MAX_REPORT_EVENTS: usize = 1_000;
 const MAX_REPORT_EVENT_CHARS: usize = 8_192;
 const MAX_PDF_REPORT_EVENTS: usize = 500;
 const MAX_PDF_EVENT_CHARS: usize = 512;
+const MAX_RUN_OVERVIEW_ROWS: usize = 128;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TrainingEvent {
@@ -61,6 +62,35 @@ pub enum TrainingEvent {
     },
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct TrainingRunSummary {
+    pub job: String,
+    pub status: String,
+    pub total_trials: usize,
+    pub completed_trials: usize,
+    pub epoch: Option<usize>,
+    pub total_epochs: Option<usize>,
+    pub latest_loss: Option<f64>,
+    pub latest_metric: Option<f64>,
+    pub best_score: Option<f64>,
+}
+
+impl TrainingRunSummary {
+    fn unscoped() -> Self {
+        Self {
+            job: "Unscoped telemetry".into(),
+            status: "Running".into(),
+            total_trials: 0,
+            completed_trials: 0,
+            epoch: None,
+            total_epochs: None,
+            latest_loss: None,
+            latest_metric: None,
+            best_score: None,
+        }
+    }
+}
+
 pub fn validate_training_event(event: &TrainingEvent) -> bool {
     let text_ok = |value: &str| value.len() <= MAX_TRAINING_TEXT_BYTES && !value.contains('\0');
     match event {
@@ -92,6 +122,59 @@ pub fn record_training_event(events: &mut Vec<TrainingEvent>, event: TrainingEve
         events.drain(..remove);
     }
     events.push(event);
+}
+
+pub fn training_run_overview(events: &[TrainingEvent]) -> Vec<TrainingRunSummary> {
+    let mut runs = Vec::<TrainingRunSummary>::new();
+    for event in events.iter().filter(|event| validate_training_event(event)) {
+        if let TrainingEvent::Started { job, total_trials } = event {
+            runs.push(TrainingRunSummary {
+                job: job.clone(),
+                status: "Running".into(),
+                total_trials: *total_trials,
+                ..TrainingRunSummary::unscoped()
+            });
+            continue;
+        }
+        if runs.is_empty() {
+            runs.push(TrainingRunSummary::unscoped());
+        }
+        let run = runs.last_mut().expect("training run exists");
+        match event {
+            TrainingEvent::TrialCompleted { score, .. } => {
+                run.completed_trials += 1;
+                run.best_score = Some(run.best_score.map_or(*score, |best| best.max(*score)));
+            }
+            TrainingEvent::Epoch {
+                epoch,
+                total,
+                loss,
+                metric,
+            } => {
+                run.epoch = Some(*epoch);
+                run.total_epochs = Some(*total);
+                run.latest_loss = Some(*loss);
+                if metric.is_some() {
+                    run.latest_metric = *metric;
+                }
+            }
+            TrainingEvent::Batch { loss, .. } => run.latest_loss = Some(*loss),
+            TrainingEvent::EarlyStopping { best_score, .. } => {
+                run.status = "Early stopped".into();
+                run.best_score = Some(*best_score);
+            }
+            TrainingEvent::Completed { best_score } => {
+                run.status = "Completed".into();
+                run.best_score = Some(*best_score);
+            }
+            TrainingEvent::Failed { .. } => run.status = "Failed".into(),
+            TrainingEvent::Started { .. }
+            | TrainingEvent::TrialStarted { .. }
+            | TrainingEvent::FoldCompleted { .. }
+            | TrainingEvent::Checkpoint { .. } => {}
+        }
+    }
+    runs.into_iter().rev().take(MAX_RUN_OVERVIEW_ROWS).collect()
 }
 
 pub fn training_json(events: &[TrainingEvent]) -> Result<Vec<u8>, String> {
@@ -684,5 +767,57 @@ mod tests {
         let lines = training_pdf_lines(&events).unwrap();
         assert!(lines.iter().any(|line| line == "Failures: 1"));
         assert!(lines.iter().any(|line| line == "Best score: 0.910000"));
+    }
+
+    #[test]
+    fn training_run_overview_summarizes_sequential_jobs_and_bounds_history() {
+        let events = vec![
+            TrainingEvent::Started {
+                job: "search".into(),
+                total_trials: 4,
+            },
+            TrainingEvent::TrialCompleted {
+                trial: 1,
+                score: 0.8,
+            },
+            TrainingEvent::Epoch {
+                epoch: 2,
+                total: 10,
+                loss: 0.4,
+                metric: Some(0.9),
+            },
+            TrainingEvent::Completed { best_score: 0.95 },
+            TrainingEvent::Started {
+                job: "fine-tune".into(),
+                total_trials: 1,
+            },
+            TrainingEvent::Batch {
+                epoch: 1,
+                batch: 2,
+                total: 8,
+                loss: 0.7,
+                samples_per_second: 50.0,
+            },
+            TrainingEvent::Failed {
+                message: "stopped".into(),
+            },
+        ];
+        let overview = training_run_overview(&events);
+        assert_eq!(overview.len(), 2);
+        assert_eq!(overview[0].job, "fine-tune");
+        assert_eq!(overview[0].status, "Failed");
+        assert_eq!(overview[0].latest_loss, Some(0.7));
+        assert_eq!(overview[1].status, "Completed");
+        assert_eq!(overview[1].completed_trials, 1);
+        assert_eq!(overview[1].epoch, Some(2));
+        assert_eq!(overview[1].best_score, Some(0.95));
+
+        let fleet = (0..=MAX_RUN_OVERVIEW_ROWS)
+            .map(|index| TrainingEvent::Started {
+                job: format!("job-{index}"),
+                total_trials: 1,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(training_run_overview(&fleet).len(), MAX_RUN_OVERVIEW_ROWS);
     }
 }

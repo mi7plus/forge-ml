@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.71.0`
+Current application version: `0.72.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1326,6 +1326,20 @@ Implementation notes:
 
 - Overview aggregation is derived on demand from validated retained telemetry and does not create another persisted state format.
 - Drift breach counts represent current latest-feature state rather than cumulative historical breach events.
+
+## 0.72 native multi-run training progress overview — implemented
+
+- [x] Segment sequential training telemetry into runs at each `Started` event.
+- [x] Preserve pre-boundary legacy telemetry in an explicit unscoped run.
+- [x] Derive running, completed, failed, and early-stopped status per run.
+- [x] Show trial and epoch progress, latest loss and metric, and best observed/final score.
+- [x] Order runs newest-first, cap retained overview rows at 128, and scroll horizontally in narrow panes.
+- [x] Test sequential job segmentation, terminal states, metric aggregation, newest-first order, and history bounds.
+
+Implementation notes:
+
+- The current telemetry protocol has no run identifier on every event, so the overview intentionally supports sequential rather than interleaved concurrent streams.
+- The summary is derived on demand and does not change the validated typed event stream or portable export formats.
 
 ## Known technical risks
 

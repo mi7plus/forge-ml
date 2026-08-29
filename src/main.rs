@@ -4671,6 +4671,42 @@ impl ForgeApp {
                 self.console = "Cleared live training events.".into();
             }
         });
+        let run_overview = millwright_studio::training_run_overview(&self.training_events);
+        if !run_overview.is_empty() {
+            ui.label(format!(
+                "Latest training runs ({} shown)",
+                run_overview.len()
+            ));
+            egui::ScrollArea::horizontal().show(ui, |ui| {
+                egui::Grid::new("training_run_overview")
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.strong("Job");
+                        ui.strong("Status");
+                        ui.strong("Trials");
+                        ui.strong("Epoch");
+                        ui.strong("Loss");
+                        ui.strong("Metric");
+                        ui.strong("Best");
+                        ui.end_row();
+                        for run in run_overview {
+                            ui.label(run.job);
+                            ui.label(run.status);
+                            ui.label(format!("{} / {}", run.completed_trials, run.total_trials));
+                            ui.label(match (run.epoch, run.total_epochs) {
+                                (Some(epoch), Some(total)) => format!("{epoch} / {total}"),
+                                _ => "-".into(),
+                            });
+                            for value in [run.latest_loss, run.latest_metric, run.best_score] {
+                                ui.label(
+                                    value.map_or_else(|| "-".into(), |value| format!("{value:.6}")),
+                                );
+                            }
+                            ui.end_row();
+                        }
+                    });
+            });
+        }
         egui::ScrollArea::vertical()
             .max_height(130.0)
             .show(ui, |ui| {
