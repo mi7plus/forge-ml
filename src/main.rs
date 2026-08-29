@@ -204,8 +204,12 @@ impl InspectorTab {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 enum PaneKind {
     Editor,
-    Workspace,
+    Files,
+    Outline,
+    Cells,
     Console,
+    History,
+    Python,
     DataViewer,
     Inspector(InspectorTab),
 }
@@ -214,8 +218,12 @@ impl PaneKind {
     fn title(self) -> &'static str {
         match self {
             PaneKind::Editor => "Editor",
-            PaneKind::Workspace => "Workspace",
+            PaneKind::Files => "Files",
+            PaneKind::Outline => "Outline",
+            PaneKind::Cells => "Cells",
             PaneKind::Console => "Console",
+            PaneKind::History => "History",
+            PaneKind::Python => "Python",
             PaneKind::DataViewer => "Data viewer",
             PaneKind::Inspector(tab) => tab.label(),
         }
@@ -225,8 +233,12 @@ impl PaneKind {
         use egui_phosphor_icons::icons;
         match self {
             PaneKind::Editor => icons::CODE.as_str(),
-            PaneKind::Workspace => icons::TREE_STRUCTURE.as_str(),
+            PaneKind::Files => icons::TREE_STRUCTURE.as_str(),
+            PaneKind::Outline => icons::LIST_BULLETS.as_str(),
+            PaneKind::Cells => icons::ROWS.as_str(),
             PaneKind::Console => icons::TERMINAL_WINDOW.as_str(),
+            PaneKind::History => icons::CLOCK_COUNTER_CLOCKWISE.as_str(),
+            PaneKind::Python => icons::CODE_SIMPLE.as_str(),
             PaneKind::DataViewer => icons::TABLE.as_str(),
             PaneKind::Inspector(tab) => tab.icon(),
         }
@@ -236,12 +248,6 @@ impl PaneKind {
     fn tab_label(self) -> String {
         format!("{}  {}", self.icon(), self.title())
     }
-}
-
-#[derive(Clone, Copy, PartialEq)]
-enum LeftTab {
-    Project,
-    Outline,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -444,8 +450,6 @@ struct ForgeApp {
     diagnostic_lines: Vec<String>,
     diagnostics_running: bool,
     execution_count: usize,
-    left_tab: LeftTab,
-    console_tab: ConsoleTab,
     console_input: String,
     history: Vec<String>,
     lsp: LspHandle,
@@ -748,8 +752,6 @@ impl ForgeApp {
             diagnostic_lines: vec!["Run diagnostics to check the current Cargo project.".to_owned()],
             diagnostics_running: false,
             execution_count: 0,
-            left_tab: LeftTab::Project,
-            console_tab: ConsoleTab::Console,
             console_input: String::new(),
             history: Vec::new(),
             lsp: LspHandle::spawn(),
@@ -2700,7 +2702,30 @@ impl ForgeApp {
                 }
             });
             ui.menu_button("Debug", |ui| {
-                ui.label("Debugger integration is not connected yet.");
+                if ui.button("Run code analysis (cargo check)").clicked() {
+                    self.run_diagnostics();
+                    self.inspector_tab = InspectorTab::Problems;
+                    ui.close();
+                }
+                if ui.button("Show Problems pane").clicked() {
+                    self.inspector_tab = InspectorTab::Problems;
+                    ui.close();
+                }
+                if ui.button("Inspect variables").clicked() {
+                    self.inspector_tab = InspectorTab::Variables;
+                    ui.close();
+                }
+                if ui.button("Restart Rust console").clicked() {
+                    let _ = self.runtime.reset();
+                    self.run_state = RunState::Booting;
+                    ui.close();
+                }
+                ui.separator();
+                ui.label(
+                    RichText::new("Step debugging is not available yet.")
+                        .size(10.0)
+                        .color(MUTED),
+                );
             });
             ui.menu_button("Tools", |ui| {
                 if ui
@@ -2769,14 +2794,7 @@ impl ForgeApp {
                             .size(10.0)
                             .color(MUTED),
                     );
-                    let mut kinds = vec![
-                        PaneKind::Editor,
-                        PaneKind::Workspace,
-                        PaneKind::Console,
-                        PaneKind::DataViewer,
-                    ];
-                    kinds.extend(InspectorTab::ALL.iter().map(|tab| PaneKind::Inspector(*tab)));
-                    for kind in kinds {
+                    for kind in expected_panes() {
                         let Some((mut visible, id)) = self.dock_tree.as_ref().and_then(|tree| {
                             Self::dock_tile_of(tree, kind).map(|id| (tree.tiles.is_visible(id), id))
                         }) else {
@@ -3081,59 +3099,8 @@ impl ForgeApp {
         }
     }
 
-    fn cell_navigator(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            if ui
-                .selectable_label(self.left_tab == LeftTab::Project, "Project")
-                .clicked()
-            {
-                self.left_tab = LeftTab::Project;
-            }
-            if ui
-                .selectable_label(self.left_tab == LeftTab::Outline, "Outline")
-                .clicked()
-            {
-                self.left_tab = LeftTab::Outline;
-            }
-        });
-        ui.separator();
-        let available_height = ui.available_height();
-        let max_explorer = (available_height - 110.0).max(90.0);
-        self.explorer_height = self.explorer_height.clamp(90.0, max_explorer);
-        ui.allocate_ui_with_layout(
-            egui::vec2(ui.available_width(), self.explorer_height),
-            egui::Layout::top_down(egui::Align::Min),
-            |ui| {
-                ui.set_min_width(ui.available_width());
-                if self.left_tab == LeftTab::Project {
-                    self.file_explorer(ui);
-                } else {
-                    self.outline(ui);
-                }
-            },
-        );
-
-        let (divider_rect, divider) =
-            ui.allocate_exact_size(egui::vec2(ui.available_width(), 8.0), egui::Sense::drag());
-        if divider.hovered() || divider.dragged() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
-        }
-        if divider.dragged() {
-            self.explorer_height = (self.explorer_height
-                + ui.input(|input| input.pointer.delta().y))
-            .clamp(90.0, max_explorer);
-            ui.ctx().request_repaint();
-        }
-        let divider_color = if divider.hovered() || divider.dragged() {
-            CYAN
-        } else {
-            theme_colors(self.dark_mode).border
-        };
-        ui.painter().line_segment(
-            [divider_rect.left_center(), divider_rect.right_center()],
-            Stroke::new(if divider.dragged() { 2.0 } else { 1.0 }, divider_color),
-        );
-
+    /// The notebook cell rail: status-marked cell list plus session stats.
+    fn cell_rail(&mut self, ui: &mut egui::Ui) {
         ui.label(
             RichText::new("NOTEBOOK CELLS")
                 .size(10.0)
@@ -7046,46 +7013,27 @@ impl ForgeApp {
         }
     }
 
-    fn console(&mut self, ui: &mut egui::Ui) {
+    /// Body of one console-family dock pane (Rust console / history / Python).
+    fn console_pane(&mut self, tab: ConsoleTab, ui: &mut egui::Ui) {
         ui.set_min_height(ui.available_height());
         ui.horizontal(|ui| {
-            if ui
-                .selectable_label(self.console_tab == ConsoleTab::Console, "Rust console")
-                .clicked()
-            {
-                self.console_tab = ConsoleTab::Console;
+            let (title, clear_hint) = match tab {
+                ConsoleTab::Console => ("RUST CONSOLE", "Clear the visible console output"),
+                ConsoleTab::History => ("HISTORY LOG", "Clear the command history"),
+                ConsoleTab::Python => ("PYTHON RUNTIME", "Clear Python runtime output"),
+            };
+            ui.label(RichText::new(title).size(10.0).strong().color(MUTED));
+            if tab == ConsoleTab::Console {
+                if let Some(ms) = self
+                    .cell_records
+                    .get(&self.selected_cell)
+                    .and_then(|r| r.elapsed_ms)
+                {
+                    ui.label(RichText::new(format!("{ms} ms")).size(10.0).color(CYAN));
+                }
             }
-            if ui
-                .selectable_label(self.console_tab == ConsoleTab::History, "History log")
-                .clicked()
-            {
-                self.console_tab = ConsoleTab::History;
-            }
-            if ui
-                .selectable_label(self.console_tab == ConsoleTab::Python, "Python runtime")
-                .clicked()
-            {
-                self.console_tab = ConsoleTab::Python;
-            }
-            if let Some(ms) = self
-                .cell_records
-                .get(&self.selected_cell)
-                .and_then(|r| r.elapsed_ms)
-            {
-                ui.label(RichText::new(format!("{ms} ms")).size(10.0).color(CYAN));
-            }
-            if compact_icon_button(
-                ui,
-                egui_phosphor_icons::icons::BROOM,
-                match self.console_tab {
-                    ConsoleTab::Console => "Clear the visible console output",
-                    ConsoleTab::History => "Clear the command history",
-                    ConsoleTab::Python => "Clear Python runtime output",
-                },
-            )
-            .clicked()
-            {
-                match self.console_tab {
+            if compact_icon_button(ui, egui_phosphor_icons::icons::BROOM, clear_hint).clicked() {
+                match tab {
                     ConsoleTab::Console => {
                         // Cell runs keep their output separately from the shared console.
                         // Clear both stores so the selected cell's errors do not reappear.
@@ -7104,7 +7052,7 @@ impl ForgeApp {
             }
         });
         ui.separator();
-        match self.console_tab {
+        match tab {
             ConsoleTab::Console => {
                 let shown = self
                     .cell_records
@@ -7708,8 +7656,12 @@ impl egui_tiles::Behavior<PaneKind> for ForgeApp {
         ui.add_space(2.0);
         match *pane {
             PaneKind::Editor => self.editor_pane(ui),
-            PaneKind::Workspace => self.cell_navigator(ui),
-            PaneKind::Console => self.console(ui),
+            PaneKind::Files => self.file_explorer(ui),
+            PaneKind::Outline => self.outline(ui),
+            PaneKind::Cells => self.cell_rail(ui),
+            PaneKind::Console => self.console_pane(ConsoleTab::Console, ui),
+            PaneKind::History => self.console_pane(ConsoleTab::History, ui),
+            PaneKind::Python => self.console_pane(ConsoleTab::Python, ui),
             PaneKind::DataViewer => self.dock_data_viewer(ui),
             // Inspector panes scroll as a whole; the stable id keeps each pane's
             // scroll position remembered across focus changes and restarts.
@@ -7749,23 +7701,31 @@ fn build_dock_tree() -> Tree<PaneKind> {
         .collect();
     let inspector_group = tiles.insert_tab_tile(inspector_ids);
 
-    let workspace = tiles.insert_pane(PaneKind::Workspace);
+    // Left column: Files/Outline tabs stacked over the notebook cell rail.
+    let files = tiles.insert_pane(PaneKind::Files);
+    let outline = tiles.insert_pane(PaneKind::Outline);
+    let nav_group = tiles.insert_tab_tile(vec![files, outline]);
+    let cells = tiles.insert_pane(PaneKind::Cells);
+    let mut left = Linear::new(LinearDir::Vertical, vec![nav_group, cells]);
+    left.shares.set_share(nav_group, 0.5);
+    left.shares.set_share(cells, 0.5);
+    let left = tiles.insert_container(Container::Linear(left));
 
+    // Center: editor over a console-family + data-viewer tab group.
     let editor = tiles.insert_pane(PaneKind::Editor);
     let console = tiles.insert_pane(PaneKind::Console);
+    let history = tiles.insert_pane(PaneKind::History);
+    let python = tiles.insert_pane(PaneKind::Python);
     let data_viewer = tiles.insert_pane(PaneKind::DataViewer);
-    let bottom = tiles.insert_tab_tile(vec![console, data_viewer]);
+    let bottom = tiles.insert_tab_tile(vec![console, history, python, data_viewer]);
 
     let mut center = Linear::new(LinearDir::Vertical, vec![editor, bottom]);
     center.shares.set_share(editor, 0.76);
     center.shares.set_share(bottom, 0.24);
     let center = tiles.insert_container(Container::Linear(center));
 
-    let mut root = Linear::new(
-        LinearDir::Horizontal,
-        vec![workspace, center, inspector_group],
-    );
-    root.shares.set_share(workspace, 0.17);
+    let mut root = Linear::new(LinearDir::Horizontal, vec![left, center, inspector_group]);
+    root.shares.set_share(left, 0.17);
     root.shares.set_share(center, 0.60);
     root.shares.set_share(inspector_group, 0.23);
     let root = tiles.insert_container(Container::Linear(root));
@@ -7794,8 +7754,12 @@ fn reordered_active_index(active: usize, from: usize, to: usize) -> usize {
 fn expected_panes() -> Vec<PaneKind> {
     let mut kinds = vec![
         PaneKind::Editor,
-        PaneKind::Workspace,
+        PaneKind::Files,
+        PaneKind::Outline,
+        PaneKind::Cells,
         PaneKind::Console,
+        PaneKind::History,
+        PaneKind::Python,
         PaneKind::DataViewer,
     ];
     kinds.extend(InspectorTab::ALL.iter().map(|tab| PaneKind::Inspector(*tab)));

@@ -4,9 +4,13 @@ Status: in progress (2026-08-30). Scope: interaction and layout improvements to
 the `egui`/`eframe` desktop shell, plus supporting examples, tests, and a public
 presentation site. This plan does **not** change ML/runtime semantics.
 
-**Shipped so far:** Phase 1.1 (menu hover-to-open), Phase 1.2 (dockable panes via
-`egui_tiles`), Phase 1.3 (View-menu show/hide + reset layout), and Phase 1.4
-(dock layout persisted across restarts). Phases 2–3 remain open.
+**Shipped so far:** Phase 1 (menu hover-to-open, dockable panes via
+`egui_tiles`, View-menu show/hide + reset, persisted layout), Phase 2 (tab
+icons, Ctrl+1..9, status bar, reorderable editor tabs, per-pane scroll memory),
+and Phase 3 (left/bottom dock parity — Files, Outline, Cells, Console, History,
+and Python are now individual dockable panes; the Debug menu wired to working
+analysis/inspect actions). Floating-window geometry persistence is provided by
+eframe's persistence for the one floating surface (the data viewer window).
 
 ## Context (what the code does today)
 
