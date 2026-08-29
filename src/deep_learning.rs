@@ -1,8 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use crate::millwright_studio::TrainingEvent;
 
 pub const BURN_VERSION: &str = "0.22.0-pre.3";
+static NEXT_BURN_DEMO: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Backend {
@@ -35,6 +39,64 @@ pub fn native_burn_self_test() -> String {
     let input = Tensor::<1>::from_data([1.0_f32, 2.0, 3.0], &Device::flex());
     let sum: f32 = input.sum().into_scalar();
     format!("Embedded Burn {BURN_VERSION} Flex runtime ready (tensor sum {sum:.1}).")
+}
+
+pub fn native_burn_training_demo() -> Result<Vec<TrainingEvent>, String> {
+    use burn::{
+        nn::LinearConfig,
+        optim::{GradientsParams, SgdConfig},
+        tensor::{Device, Tensor},
+    };
+
+    let device = Device::flex().autodiff();
+    device.seed(7);
+    let mut model = LinearConfig::new(1, 1).init(&device);
+    let mut optimizer = SgdConfig::new().init();
+    let input = Tensor::<2>::from_data([[-2.0_f32], [-1.0], [0.0], [1.0], [2.0]], &device);
+    let target = Tensor::<2>::from_data([[-3.0_f32], [-1.0], [1.0], [3.0], [5.0]], &device);
+    let run_id = format!(
+        "burn-native-{}",
+        NEXT_BURN_DEMO.fetch_add(1, Ordering::Relaxed)
+    );
+    let mut events = vec![
+        TrainingEvent::RunContext {
+            run_id: run_id.clone(),
+        },
+        TrainingEvent::Started {
+            job: "Embedded Burn linear regression".into(),
+            total_trials: 1,
+        },
+    ];
+    let mut final_loss = None;
+    for epoch in 1..=40 {
+        let output = model.forward(input.clone());
+        let loss = (output - target.clone()).powf_scalar(2.0).mean();
+        let loss_value = loss.clone().into_scalar::<f32>() as f64;
+        if !loss_value.is_finite() {
+            return Err("Embedded Burn training produced a non-finite loss".into());
+        }
+        let gradients = loss.backward();
+        let gradients = GradientsParams::from_grads(gradients, &model);
+        model = optimizer.step(0.05, model, gradients);
+        final_loss = Some(loss_value);
+        events.extend([
+            TrainingEvent::RunContext {
+                run_id: run_id.clone(),
+            },
+            TrainingEvent::Epoch {
+                epoch,
+                total: 40,
+                loss: loss_value,
+                metric: None,
+            },
+        ]);
+    }
+    let best_score = -final_loss.ok_or("Embedded Burn training emitted no epochs")?;
+    events.extend([
+        TrainingEvent::RunContext { run_id },
+        TrainingEvent::Completed { best_score },
+    ]);
+    Ok(events)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -194,5 +256,26 @@ mod tests {
     #[test]
     fn embedded_burn_executes_a_native_tensor() {
         assert!(native_burn_self_test().contains("tensor sum 6.0"));
+    }
+
+    #[test]
+    fn embedded_burn_trains_and_emits_typed_progress() {
+        let events = native_burn_training_demo().unwrap();
+        let losses = events
+            .iter()
+            .filter_map(|event| match event {
+                TrainingEvent::Epoch { loss, .. } => Some(*loss),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(losses.len(), 40);
+        assert!(losses.last().unwrap() < losses.first().unwrap());
+        assert!(events
+            .iter()
+            .all(crate::millwright_studio::validate_training_event));
+        assert!(matches!(
+            events.last(),
+            Some(TrainingEvent::Completed { .. })
+        ));
     }
 }

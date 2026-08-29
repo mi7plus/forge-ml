@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.77.0`
+Current application version: `0.78.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1413,6 +1413,21 @@ Implementation notes:
 
 - Schema 2 adds only a derived portable artifact; typed events and plots remain the authoritative restoration state.
 - A run-summary mismatch rejects the entire archive even when all other entries are otherwise valid.
+
+## 0.78 embedded native Burn training demo — implemented
+
+- [x] Train a real embedded Burn linear module on the portable Flex autodiff backend.
+- [x] Execute 40 native SGD update steps without a subprocess or Python runtime.
+- [x] Reject non-finite loss and verify that the deterministic demo reduces training loss.
+- [x] Emit an isolated run context plus typed started, epoch, and completed telemetry.
+- [x] Record the completed demo directly into Millwright Studio and navigate to its overview.
+- [x] Feed the native run through existing plots, reports, structured CSV, and attested bundles.
+- [x] Test epoch count, decreasing loss, event validity, and terminal completion.
+
+Implementation notes:
+
+- The demo is intentionally small and synchronous so it proves the embedded training stack without turning the UI action into a long-running trainer.
+- Production-scale Burn training remains an editable generated project or background/remote job and can emit the same scoped protocol.
 
 ## Known technical risks
 

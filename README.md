@@ -41,6 +41,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - Native Millwright 2.2 ONNX export/round-trip cells using the published crates.io API
 - Non-blocking native Millwright 2.2.1 CSV/Parquet imports normalized through Forge's bounded data pipeline
 - Always-embedded Millwright 2.2.1 plus Burn 0.22 training, metrics, Flex CPU, and WGPU runtimes
+- One-click embedded Burn Flex/autodiff linear training with native SGD and typed Forge telemetry
 - Bounded framework-neutral training event monitoring with validated JSON/CSV export
 - All-or-nothing validated training JSON import for reopening archived telemetry
 - Self-contained offline training summary and event-audit HTML reports

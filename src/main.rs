@@ -3784,6 +3784,23 @@ impl ForgeApp {
             if ui.button("Test embedded Burn").clicked() {
                 self.sql_output = deep_learning::native_burn_self_test();
             }
+            if ui.button("Run native Burn demo").clicked() {
+                self.sql_output = deep_learning::native_burn_training_demo()
+                    .map(|events| {
+                        let count = events.len();
+                        for event in events {
+                            millwright_studio::record_training_event(
+                                &mut self.training_events,
+                                event,
+                            );
+                        }
+                        self.inspector_tab = InspectorTab::Studio;
+                        format!(
+                            "Completed embedded Burn training and recorded {count} typed event(s)."
+                        )
+                    })
+                    .unwrap_or_else(|error| format!("Embedded Burn training failed: {error}"));
+            }
             ui.add(egui::DragValue::new(&mut self.early_stopping_patience).prefix("patience "));
             ui.add(
                 egui::TextEdit::singleline(&mut self.resume_checkpoint)
