@@ -523,6 +523,7 @@ pub fn training_bundle(events: &[TrainingEvent], path: &Path) -> Result<(), Stri
     }
     let event_json = millwright_studio::training_json(events)?;
     let event_csv = millwright_studio::training_csv(events)?;
+    let run_csv = millwright_studio::training_run_csv(events)?;
     let report = millwright_studio::training_report(events)?.into_bytes();
     let plots = millwright_studio::training_plots(events);
     let plot_json = if plots.is_empty() {
@@ -533,6 +534,7 @@ pub fn training_bundle(events: &[TrainingEvent], path: &Path) -> Result<(), Stri
     let artifacts = [
         ("training-events.json", event_json),
         ("training-events.csv", event_csv),
+        ("training-runs.csv", run_csv),
         ("training-report.html", report),
         ("training-plots.json", plot_json),
     ];
@@ -554,9 +556,10 @@ pub fn training_bundle(events: &[TrainingEvent], path: &Path) -> Result<(), Stri
         })
         .collect::<Vec<_>>();
     let manifest = serde_json::to_vec_pretty(&serde_json::json!({
-        "schema": 1,
+        "schema": 2,
         "forge_version": env!("CARGO_PKG_VERSION"),
         "event_count": events.len(),
+        "run_count": millwright_studio::training_run_overview(events).len(),
         "plot_count": plots.len(),
         "digest_algorithm": "sha256",
         "total_uncompressed_bytes": total,
@@ -819,14 +822,15 @@ pub fn import_training_bundle(path: &Path) -> Result<ImportedTrainingBundle, Str
     let bytes = fs::read(path).map_err(|error| error.to_string())?;
     let mut archive =
         zip::ZipArchive::new(Cursor::new(bytes)).map_err(|error| error.to_string())?;
-    const REQUIRED: [&str; 5] = [
+    const ALLOWED: [&str; 6] = [
         "training-events.json",
         "training-events.csv",
+        "training-runs.csv",
         "training-report.html",
         "training-plots.json",
         "forge-training-bundle.json",
     ];
-    if archive.len() != REQUIRED.len() {
+    if ![5, 6].contains(&archive.len()) {
         return Err("Training bundle contains an unexpected entry set".into());
     }
     let mut contents = std::collections::BTreeMap::new();
@@ -834,7 +838,7 @@ pub fn import_training_bundle(path: &Path) -> Result<ImportedTrainingBundle, Str
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index).map_err(|error| error.to_string())?;
         let name = entry.name().to_owned();
-        if !REQUIRED.contains(&name.as_str()) || contents.contains_key(&name) || entry.is_dir() {
+        if !ALLOWED.contains(&name.as_str()) || contents.contains_key(&name) || entry.is_dir() {
             return Err(format!("Unexpected training bundle entry `{name}`"));
         }
         let size = usize::try_from(entry.size()).map_err(|_| "Bundle entry is too large")?;
@@ -861,7 +865,11 @@ pub fn import_training_bundle(path: &Path) -> Result<ImportedTrainingBundle, Str
             .ok_or("Training bundle manifest is missing")?,
     )
     .map_err(|error| format!("Invalid training bundle manifest: {error}"))?;
-    if manifest.get("schema").and_then(|value| value.as_u64()) != Some(1)
+    let schema = manifest
+        .get("schema")
+        .and_then(|value| value.as_u64())
+        .ok_or("Training bundle manifest schema is missing")?;
+    if ![1, 2].contains(&schema)
         || manifest
             .get("digest_algorithm")
             .and_then(|value| value.as_str())
@@ -873,8 +881,11 @@ pub fn import_training_bundle(path: &Path) -> Result<ImportedTrainingBundle, Str
         .get("entries")
         .and_then(|value| value.as_array())
         .ok_or("Training bundle manifest entries are missing")?;
-    if manifest_entries.len() != 4 {
-        return Err("Training bundle manifest must describe four artifacts".into());
+    let expected_artifacts = if schema == 1 { 4 } else { 5 };
+    if manifest_entries.len() != expected_artifacts {
+        return Err(format!(
+            "Training bundle schema {schema} must describe {expected_artifacts} artifacts"
+        ));
     }
     let mut described = std::collections::BTreeSet::new();
     let mut described_bytes = 0u64;
@@ -908,6 +919,18 @@ pub fn import_training_bundle(path: &Path) -> Result<ImportedTrainingBundle, Str
     {
         return Err("Training bundle aggregate size does not match its manifest".into());
     }
+    let required = if schema == 1 {
+        &ALLOWED[..2]
+    } else {
+        &ALLOWED[..3]
+    };
+    if required.iter().any(|name| !contents.contains_key(*name))
+        || !contents.contains_key("training-report.html")
+        || !contents.contains_key("training-plots.json")
+        || !contents.contains_key("forge-training-bundle.json")
+    {
+        return Err("Training bundle schema does not match its artifact set".into());
+    }
     let events = millwright_studio::parse_training_json(
         contents
             .get("training-events.json")
@@ -921,6 +944,40 @@ pub fn import_training_bundle(path: &Path) -> Result<ImportedTrainingBundle, Str
     } else {
         plot::parse_json(plot_bytes)?
     };
+    if schema == 2 {
+        let run_bytes = contents
+            .get("training-runs.csv")
+            .ok_or("Training run-summary CSV is missing")?;
+        let mut reader = csv::Reader::from_reader(run_bytes.as_slice());
+        let headers = reader.headers().map_err(|error| error.to_string())?;
+        if headers.iter().collect::<Vec<_>>()
+            != [
+                "newest_index",
+                "run_id",
+                "job",
+                "status",
+                "completed_trials",
+                "total_trials",
+                "epoch",
+                "total_epochs",
+                "latest_loss",
+                "latest_metric",
+                "best_score",
+            ]
+        {
+            return Err("Training run-summary CSV has an invalid schema".into());
+        }
+        let run_count = reader
+            .records()
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?
+            .len();
+        if manifest.get("run_count").and_then(|value| value.as_u64()) != Some(run_count as u64)
+            || run_count != millwright_studio::training_run_overview(&events).len()
+        {
+            return Err("Training bundle run-summary count does not match its events".into());
+        }
+    }
     if manifest.get("event_count").and_then(|value| value.as_u64()) != Some(events.len() as u64)
         || manifest.get("plot_count").and_then(|value| value.as_u64()) != Some(plots.len() as u64)
     {
@@ -1193,16 +1250,58 @@ mod tests {
         for name in [
             "training-events.json",
             "training-events.csv",
+            "training-runs.csv",
             "training-report.html",
             "training-plots.json",
             "forge-training-bundle.json",
         ] {
             assert!(archive.by_name(name).is_ok(), "missing {name}");
         }
+        let manifest: serde_json::Value = {
+            let file = archive.by_name("forge-training-bundle.json").unwrap();
+            serde_json::from_reader(file).unwrap()
+        };
+        assert_eq!(manifest["schema"], 2);
+        assert_eq!(manifest["run_count"], 1);
         drop(archive);
         let imported = import_training_bundle(&path).unwrap();
         assert_eq!(imported.events, events);
         assert_eq!(imported.plots.len(), 2);
+
+        let mut source = zip::ZipArchive::new(File::open(&path).unwrap()).unwrap();
+        let mut files = std::collections::BTreeMap::new();
+        for index in 0..source.len() {
+            let mut entry = source.by_index(index).unwrap();
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes).unwrap();
+            files.insert(entry.name().to_owned(), bytes);
+        }
+        files.remove("training-runs.csv");
+        let mut legacy_manifest: serde_json::Value =
+            serde_json::from_slice(files.get("forge-training-bundle.json").unwrap()).unwrap();
+        legacy_manifest["schema"] = serde_json::json!(1);
+        legacy_manifest.as_object_mut().unwrap().remove("run_count");
+        let entries = legacy_manifest["entries"].as_array_mut().unwrap();
+        entries.retain(|entry| entry["path"] != "training-runs.csv");
+        legacy_manifest["total_uncompressed_bytes"] = serde_json::json!(entries
+            .iter()
+            .map(|entry| entry["bytes"].as_u64().unwrap())
+            .sum::<u64>());
+        files.insert(
+            "forge-training-bundle.json".into(),
+            serde_json::to_vec_pretty(&legacy_manifest).unwrap(),
+        );
+        let legacy_path = root.join("legacy-training.zip");
+        let mut legacy = zip::ZipWriter::new(File::create(&legacy_path).unwrap());
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        for (name, bytes) in files {
+            legacy.start_file(name, options).unwrap();
+            legacy.write_all(&bytes).unwrap();
+        }
+        legacy.finish().unwrap();
+        let legacy_import = import_training_bundle(&legacy_path).unwrap();
+        assert_eq!(legacy_import.events, events);
         let _ = fs::remove_dir_all(root);
     }
 

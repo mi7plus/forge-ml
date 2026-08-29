@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.76.0`
+Current application version: `0.77.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1397,7 +1397,22 @@ Implementation notes:
 Implementation notes:
 
 - Run tables reuse the same context-aware aggregation as the live overview and structured CSV.
-- The attested training bundle automatically includes the enhanced HTML report without changing its artifact schema.
+- At 0.76, the attested training bundle automatically included the enhanced HTML report without changing its then-current artifact schema.
+
+## 0.77 schema-2 attested training bundles with run summaries — implemented
+
+- [x] Add the structured training-run CSV to newly exported portable bundles.
+- [x] Advance the bundle manifest to schema 2 and attest event, run, and plot counts.
+- [x] Include run-summary bytes in aggregate-size limits and per-artifact SHA-256 verification.
+- [x] Validate the exact eleven-column run-summary schema and derived row count during import.
+- [x] Preserve complete schema-1 bundle import compatibility.
+- [x] Enforce the exact schema-specific archive entry set before restoring any live state.
+- [x] Test schema-2 round trips and a synthesized legacy schema-1 import.
+
+Implementation notes:
+
+- Schema 2 adds only a derived portable artifact; typed events and plots remain the authoritative restoration state.
+- A run-summary mismatch rejects the entire archive even when all other entries are otherwise valid.
 
 ## Known technical risks
 
