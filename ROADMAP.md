@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.82.0`
+Current application version: `0.83.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1489,6 +1489,23 @@ Implementation notes:
 
 - This phase implements one-feature/one-target regression. Multivariate tensors, categorical encoders, splits, and reusable preprocessing graphs remain better served by generated Burn projects or Millwright pipelines until their native contracts are designed.
 - Dataset preparation is completed before worker submission, so invalid columns and oversized inputs fail without initializing a compute device or creating partial telemetry.
+
+## 0.83 native validation and early stopping — implemented
+
+- [x] Add a validated deterministic validation holdout from zero through 50 percent.
+- [x] Keep at least one training row and one validation row when validation is enabled.
+- [x] Evaluate validation MSE after each native optimizer step.
+- [x] Emit validation loss through the typed epoch metric field for live plots and reports.
+- [x] Wire the existing patience control into native early stopping; zero disables it.
+- [x] Score completed runs by best validation loss when available.
+- [x] Record validation fraction and patience in monitored job labels.
+- [x] Reject non-finite validation settings and excessive patience before device initialization.
+- [x] Test validation telemetry and invalid evaluation configuration.
+
+Implementation notes:
+
+- The holdout uses the final prepared rows deterministically so repeated runs have directly comparable evaluation data. Randomized and stratified splits remain future pipeline-level capabilities.
+- Early-stopped runs are successful completed runs whose final epoch can be below the configured maximum; the typed epoch total continues to record that original maximum.
 
 ## Known technical risks
 

@@ -433,6 +433,7 @@ struct ForgeApp {
     burn_training_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
     burn_training_epochs: usize,
     burn_training_learning_rate: f64,
+    burn_training_validation_fraction: f64,
     burn_training_use_dataset: bool,
     burn_training_feature: String,
     burn_training_target: String,
@@ -713,6 +714,7 @@ impl ForgeApp {
             burn_training_cancel: None,
             burn_training_epochs: 40,
             burn_training_learning_rate: 0.05,
+            burn_training_validation_fraction: 0.2,
             burn_training_use_dataset: false,
             burn_training_feature: String::new(),
             burn_training_target: String::new(),
@@ -3828,6 +3830,8 @@ impl ForgeApp {
                             config: NativeTrainingConfig {
                                 epochs: self.burn_training_epochs,
                                 learning_rate: self.burn_training_learning_rate,
+                                validation_fraction: self.burn_training_validation_fraction,
+                                early_stopping_patience: self.early_stopping_patience,
                             },
                             data,
                             cancelled: Arc::clone(&cancelled),
@@ -3863,6 +3867,12 @@ impl ForgeApp {
                     .speed(0.001)
                     .prefix("lr "),
             );
+            ui.add(
+                egui::DragValue::new(&mut self.burn_training_validation_fraction)
+                    .range(0.0..=0.5)
+                    .speed(0.01)
+                    .prefix("validation "),
+            );
             ui.checkbox(&mut self.burn_training_use_dataset, "use selected dataset");
             if self.burn_training_use_dataset {
                 ui.add(
@@ -3876,7 +3886,11 @@ impl ForgeApp {
                         .hint_text("target column"),
                 );
             }
-            ui.add(egui::DragValue::new(&mut self.early_stopping_patience).prefix("patience "));
+            ui.add(
+                egui::DragValue::new(&mut self.early_stopping_patience)
+                    .range(0..=10_000)
+                    .prefix("patience "),
+            );
             ui.add(
                 egui::TextEdit::singleline(&mut self.resume_checkpoint)
                     .hint_text("checkpoint to resume"),

@@ -82,6 +82,8 @@ pub fn native_training_data(
 pub struct NativeTrainingConfig {
     pub epochs: usize,
     pub learning_rate: f64,
+    pub validation_fraction: f64,
+    pub early_stopping_patience: usize,
 }
 
 impl Default for NativeTrainingConfig {
@@ -89,6 +91,8 @@ impl Default for NativeTrainingConfig {
         Self {
             epochs: 40,
             learning_rate: 0.05,
+            validation_fraction: 0.2,
+            early_stopping_patience: 0,
         }
     }
 }
@@ -105,6 +109,15 @@ impl NativeTrainingConfig {
             return Err(
                 "Native Burn learning rate must be finite and greater than 0 through 1".into(),
             );
+        }
+        if !self.validation_fraction.is_finite() || !(0.0..=0.5).contains(&self.validation_fraction)
+        {
+            return Err("Native Burn validation fraction must be finite from 0 through 0.5".into());
+        }
+        if self.early_stopping_patience > MAX_NATIVE_EPOCHS {
+            return Err(format!(
+                "Native Burn early-stopping patience cannot exceed {MAX_NATIVE_EPOCHS}"
+            ));
         }
         Ok(self)
     }
@@ -201,11 +214,11 @@ fn native_burn_training_demo_inner(
     device.seed(7);
     let mut model = LinearConfig::new(1, 1).init(&device);
     let mut optimizer = SgdConfig::new().init();
-    let (input, target, data_label) = if let Some(data) = data {
+    let (inputs, targets, data_label) = if let Some(data) = data {
         let rows = data.inputs.len();
         (
-            Tensor::<1>::from_floats(data.inputs.as_slice(), &device).reshape([rows, 1]),
-            Tensor::<1>::from_floats(data.targets.as_slice(), &device).reshape([rows, 1]),
+            data.inputs,
+            data.targets,
             format!(
                 "{} {}→{} ({rows} rows)",
                 data.dataset, data.feature, data.target
@@ -213,11 +226,30 @@ fn native_burn_training_demo_inner(
         )
     } else {
         (
-            Tensor::<2>::from_data([[-2.0_f32], [-1.0], [0.0], [1.0], [2.0]], &device),
-            Tensor::<2>::from_data([[-3.0_f32], [-1.0], [1.0], [3.0], [5.0]], &device),
+            vec![-2.0_f32, -1.0, 0.0, 1.0, 2.0],
+            vec![-3.0_f32, -1.0, 1.0, 3.0, 5.0],
             "built-in sample".into(),
         )
     };
+    let validation_rows = if config.validation_fraction > 0.0 {
+        ((inputs.len() as f64 * config.validation_fraction).round() as usize)
+            .clamp(1, inputs.len() - 1)
+    } else {
+        0
+    };
+    let training_rows = inputs.len() - validation_rows;
+    let input =
+        Tensor::<1>::from_floats(&inputs[..training_rows], &device).reshape([training_rows, 1]);
+    let target =
+        Tensor::<1>::from_floats(&targets[..training_rows], &device).reshape([training_rows, 1]);
+    let validation = (validation_rows > 0).then(|| {
+        (
+            Tensor::<1>::from_floats(&inputs[training_rows..], &device)
+                .reshape([validation_rows, 1]),
+            Tensor::<1>::from_floats(&targets[training_rows..], &device)
+                .reshape([validation_rows, 1]),
+        )
+    });
     let run_id = format!(
         "burn-{}-{}",
         backend.feature(),
@@ -229,11 +261,13 @@ fn native_burn_training_demo_inner(
         },
         TrainingEvent::Started {
             job: format!(
-                "Embedded Burn {} linear regression · {} ({} epochs, lr {})",
+                "Embedded Burn {} linear regression · {} ({} epochs, lr {}, val {:.0}%, patience {})",
                 backend.label(),
                 data_label,
                 config.epochs,
-                config.learning_rate
+                config.learning_rate,
+                config.validation_fraction * 100.0,
+                config.early_stopping_patience
             ),
             total_trials: 1,
         },
@@ -244,6 +278,8 @@ fn native_burn_training_demo_inner(
         events.push(event);
     }
     let mut final_loss = None;
+    let mut best_validation: Option<f64> = None;
+    let mut stale_epochs = 0;
     for epoch in 1..=config.epochs {
         if cancelled() {
             return Err("Embedded Burn training was cancelled".into());
@@ -258,6 +294,23 @@ fn native_burn_training_demo_inner(
         let gradients = GradientsParams::from_grads(gradients, &model);
         model = optimizer.step(config.learning_rate, model, gradients);
         final_loss = Some(loss_value);
+        let validation_loss = validation.as_ref().map(|(input, target)| {
+            (model.forward(input.clone()) - target.clone())
+                .powf_scalar(2.0)
+                .mean()
+                .into_scalar::<f32>() as f64
+        });
+        if validation_loss.is_some_and(|value| !value.is_finite()) {
+            return Err("Embedded Burn validation produced a non-finite loss".into());
+        }
+        if let Some(value) = validation_loss {
+            if best_validation.is_none_or(|best| value < best) {
+                best_validation = Some(value);
+                stale_epochs = 0;
+            } else {
+                stale_epochs += 1;
+            }
+        }
         for event in [
             TrainingEvent::RunContext {
                 run_id: run_id.clone(),
@@ -266,14 +319,19 @@ fn native_burn_training_demo_inner(
                 epoch,
                 total: config.epochs,
                 loss: loss_value,
-                metric: None,
+                metric: validation_loss,
             },
         ] {
             on_event(event.clone());
             events.push(event);
         }
+        if config.early_stopping_patience > 0 && stale_epochs >= config.early_stopping_patience {
+            break;
+        }
     }
-    let best_score = -final_loss.ok_or("Embedded Burn training emitted no epochs")?;
+    let best_score = -best_validation
+        .or(final_loss)
+        .ok_or("Embedded Burn training emitted no epochs")?;
     for event in [
         TrainingEvent::RunContext { run_id },
         TrainingEvent::Completed { best_score },
@@ -502,6 +560,7 @@ mod tests {
             NativeTrainingConfig {
                 epochs: 3,
                 learning_rate: 0.02,
+                ..NativeTrainingConfig::default()
             },
             Some(data),
             || false,
@@ -516,6 +575,13 @@ mod tests {
                 .count(),
             3
         );
+        assert!(events
+            .iter()
+            .filter_map(|event| match event {
+                TrainingEvent::Epoch { metric, .. } => Some(metric),
+                _ => None,
+            })
+            .all(Option::is_some));
         assert!(matches!(
             &events[1],
             TrainingEvent::Started { job, .. }
@@ -527,14 +593,25 @@ mod tests {
             NativeTrainingConfig {
                 epochs: 0,
                 learning_rate: 0.05,
+                ..NativeTrainingConfig::default()
             },
             NativeTrainingConfig {
                 epochs: 1,
                 learning_rate: f64::NAN,
+                ..NativeTrainingConfig::default()
             },
             NativeTrainingConfig {
                 epochs: 1,
                 learning_rate: 0.0,
+                ..NativeTrainingConfig::default()
+            },
+            NativeTrainingConfig {
+                validation_fraction: 0.51,
+                ..NativeTrainingConfig::default()
+            },
+            NativeTrainingConfig {
+                early_stopping_patience: MAX_NATIVE_EPOCHS + 1,
+                ..NativeTrainingConfig::default()
             },
         ] {
             assert!(native_burn_training_demo_with_progress(
