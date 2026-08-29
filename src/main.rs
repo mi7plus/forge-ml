@@ -3258,6 +3258,7 @@ impl ForgeApp {
     fn editor_tabs(&mut self, ui: &mut egui::Ui) {
         let mut select = None;
         let mut close = None;
+        let mut reorder: Option<(usize, usize)> = None;
         egui::ScrollArea::horizontal()
             .id_salt("editor_tab_strip")
             .show(ui, |ui| {
@@ -3270,22 +3271,34 @@ impl ForgeApp {
                         } else {
                             tab.title.clone()
                         };
-                        if ui
-                            .selectable_label(
-                                index == self.active_tab,
-                                RichText::new(title).color(if tab.external_change_pending {
-                                    RED
-                                } else if tab.dirty {
-                                    EMBER
-                                } else {
-                                    TEXT
-                                }),
-                            )
-                            .clicked()
-                        {
+                        let color = if tab.external_change_pending {
+                            RED
+                        } else if tab.dirty {
+                            EMBER
+                        } else {
+                            TEXT
+                        };
+                        let selected = index == self.active_tab;
+                        // Each tab is a drag source (reorder) whose inner label
+                        // still reports clicks and middle-clicks (close) when not
+                        // being dragged.
+                        let dnd_id = egui::Id::new(("editor_tab_dnd", index));
+                        let inner = ui.dnd_drag_source(dnd_id, index, |ui| {
+                            ui.selectable_label(selected, RichText::new(title).color(color))
+                        });
+                        let label = inner
+                            .inner
+                            .on_hover_text("Drag to reorder · middle-click to close");
+                        if label.clicked() {
                             select = Some(index);
                         }
-                        if index == self.active_tab
+                        if label.middle_clicked() {
+                            close = Some(index);
+                        }
+                        if let Some(from) = inner.response.dnd_release_payload::<usize>() {
+                            reorder = Some((*from, index));
+                        }
+                        if selected
                             && compact_icon_button(
                                 ui,
                                 egui_phosphor_icons::icons::X,
@@ -3304,9 +3317,25 @@ impl ForgeApp {
             self.selected_cell = 0;
             self.cell_records.clear();
         }
+        if let Some((from, to)) = reorder {
+            self.move_tab(from, to);
+        }
         if let Some(index) = close {
             self.close_tab(index);
         }
+    }
+
+    /// Move an editor tab from one position to another (drag-to-reorder),
+    /// keeping `active_tab` pointed at the same logical tab.
+    fn move_tab(&mut self, from: usize, to: usize) {
+        if from == to || from >= self.tabs.len() || to >= self.tabs.len() {
+            return;
+        }
+        let active = self.active_tab;
+        let tab = self.tabs.remove(from);
+        self.tabs.insert(to, tab);
+        self.active_tab =
+            reordered_active_index(active, from, to).min(self.tabs.len().saturating_sub(1));
     }
 
     fn apply_pending_editor_history(&mut self, ui: &mut egui::Ui) {
@@ -7658,16 +7687,6 @@ impl ForgeApp {
                     output.response.request_focus();
                     ui.ctx().request_repaint();
                 }
-                let (line, column) =
-                    line_column(&self.tabs[self.active_tab].content, self.cursor_offset);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(
-                        RichText::new(format!("Ln {line}, Col {column}"))
-                            .monospace()
-                            .size(10.0)
-                            .color(MUTED),
-                    );
-                });
     }
 
     /// Find the tile hosting a given pane, if it is present in the tree.
@@ -7692,7 +7711,14 @@ impl egui_tiles::Behavior<PaneKind> for ForgeApp {
             PaneKind::Workspace => self.cell_navigator(ui),
             PaneKind::Console => self.console(ui),
             PaneKind::DataViewer => self.dock_data_viewer(ui),
-            PaneKind::Inspector(tab) => self.inspector_body(tab, ui),
+            // Inspector panes scroll as a whole; the stable id keeps each pane's
+            // scroll position remembered across focus changes and restarts.
+            PaneKind::Inspector(tab) => {
+                egui::ScrollArea::vertical()
+                    .id_salt(("dock_inspector_scroll", tab))
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| self.inspector_body(tab, ui));
+            }
         }
         egui_tiles::UiResponse::None
     }
@@ -7745,6 +7771,22 @@ fn build_dock_tree() -> Tree<PaneKind> {
     let root = tiles.insert_container(Container::Linear(root));
 
     Tree::new("forge_dock", root, tiles)
+}
+
+/// Where `active` lands after an editor tab is moved from `from` to `to`
+/// (remove-then-insert), keeping the active tab pointed at the same tab.
+fn reordered_active_index(active: usize, from: usize, to: usize) -> usize {
+    if active == from {
+        return to;
+    }
+    let mut adjusted = active;
+    if from < adjusted {
+        adjusted -= 1;
+    }
+    if to <= adjusted {
+        adjusted += 1;
+    }
+    adjusted
 }
 
 /// Every pane the workspace expects to be present, so an older or corrupt saved
@@ -9098,6 +9140,29 @@ fn configure_style(ctx: &egui::Context, dark: bool, high_contrast: bool) {
 #[cfg(test)]
 mod editor_tests {
     use super::*;
+
+    #[test]
+    fn tab_reorder_keeps_active_tab_stable() {
+        // Verify against the ground truth: apply the move to a labelled vector
+        // and check reordered_active_index points at the originally-active label.
+        for len in 2..=6usize {
+            for from in 0..len {
+                for to in 0..len {
+                    for active in 0..len {
+                        let mut v: Vec<usize> = (0..len).collect();
+                        let moved = v.remove(from);
+                        v.insert(to, moved);
+                        let expected_label = active; // labels equal their start index
+                        let new_active = reordered_active_index(active, from, to);
+                        assert_eq!(
+                            v[new_active], expected_label,
+                            "len={len} from={from} to={to} active={active}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn dock_layout_round_trips_and_recovers_from_bad_input() {
