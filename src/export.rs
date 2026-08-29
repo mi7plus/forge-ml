@@ -1387,6 +1387,9 @@ mod tests {
             observed: Some(100),
             standardized_mean_shift: Some(1.25),
             scale_ratio: Some(2.5),
+            mean_shift_threshold: Some(1.0),
+            scale_ratio_lower: Some(0.5),
+            scale_ratio_upper: Some(2.0),
         }];
         monitoring_bundle(&services, &drift, &path).unwrap();
         let mut archive = zip::ZipArchive::new(File::open(&path).unwrap()).unwrap();

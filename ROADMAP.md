@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.94.0`
+Current application version: `0.95.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1675,6 +1675,20 @@ Implementation notes:
 
 - The existing drift breach fraction still summarizes the latest event for every feature; the added columns describe the newest drift event for the model/version.
 - The health overview remains derived from bounded validated in-memory events and does not duplicate monitoring state.
+
+## 0.95 configurable native drift policy — implemented
+
+- [x] Add editable mean-shift, lower scale-ratio, and upper scale-ratio thresholds to native model inference.
+- [x] Validate policies before submitting work to the background inference worker.
+- [x] Normalize mean and bidirectional scale checks into the shared monitoring score.
+- [x] Preserve the applied thresholds in enriched drift telemetry and portable snapshots/bundles.
+- [x] Render each event's configured thresholds in explainable monitoring plots.
+- [x] Retain the 1σ and 0.5–2.0 policy as safe defaults and test custom/invalid policies.
+
+Implementation notes:
+
+- Policies must satisfy a positive mean threshold and `0 < scale lower < 1 < scale upper`.
+- The combined monitoring event remains compatible with the existing score threshold of 1.0; explainable fields retain the original measurements and policy.
 
 ## Known technical risks
 

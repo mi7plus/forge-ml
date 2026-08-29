@@ -439,6 +439,9 @@ struct ForgeApp {
     burn_training_target: String,
     native_burn_artifact: Option<deep_learning::NativeRegressionArtifact>,
     native_burn_inference_feature: f64,
+    drift_mean_shift_threshold: f64,
+    drift_scale_ratio_lower: f64,
+    drift_scale_ratio_upper: f64,
     deep_outputs: DeepOutputs,
     resource_system: sysinfo::System,
     resource_snapshot: ResourceSnapshot,
@@ -721,6 +724,9 @@ impl ForgeApp {
             burn_training_feature: String::new(),
             burn_training_target: String::new(),
             native_burn_artifact: None,
+            drift_mean_shift_threshold: 1.0,
+            drift_scale_ratio_lower: 0.5,
+            drift_scale_ratio_upper: 2.0,
             native_burn_inference_feature: 0.0,
             deep_outputs: DeepOutputs::default(),
             resource_system: sysinfo::System::new_all(),
@@ -1983,6 +1989,9 @@ impl ForgeApp {
                                 observed: Some(drift.observed),
                                 standardized_mean_shift: Some(drift.standardized_mean_shift),
                                 scale_ratio: Some(drift.scale_ratio),
+                                mean_shift_threshold: Some(drift.policy.mean_shift_threshold),
+                                scale_ratio_lower: Some(drift.policy.scale_ratio_lower),
+                                scale_ratio_upper: Some(drift.policy.scale_ratio_upper),
                             },
                         );
                         if let Some(diagnostics) = diagnostics {
@@ -3982,6 +3991,24 @@ impl ForgeApp {
         ));
         ui.label(&self.sql_output);
         if let Some(artifact) = self.native_burn_artifact.clone() {
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Drift policy");
+                ui.add(
+                    egui::DragValue::new(&mut self.drift_mean_shift_threshold)
+                        .speed(0.05)
+                        .prefix("mean σ "),
+                );
+                ui.add(
+                    egui::DragValue::new(&mut self.drift_scale_ratio_lower)
+                        .speed(0.05)
+                        .prefix("scale min "),
+                );
+                ui.add(
+                    egui::DragValue::new(&mut self.drift_scale_ratio_upper)
+                        .speed(0.05)
+                        .prefix("scale max "),
+                );
+            });
             ui.label(format!(
                 "Fitted {} = {:.6} × {} + {:.6} · best score {:.6} · {} epoch(s)",
                 artifact.target,
@@ -4031,11 +4058,18 @@ impl ForgeApp {
                                 .ok_or_else(|| "The selected dataset no longer exists".into())
                         });
                     match selected.and_then(|(dataset_name, table)| {
+                        let drift_policy = deep_learning::DriftPolicy {
+                            mean_shift_threshold: self.drift_mean_shift_threshold,
+                            scale_ratio_lower: self.drift_scale_ratio_lower,
+                            scale_ratio_upper: self.drift_scale_ratio_upper,
+                        }
+                        .validate()?;
                         self.integration_worker.submit(
                             IntegrationRequest::NativeRegressionPredict {
                                 artifact: artifact.clone(),
                                 dataset_name,
                                 table,
+                                drift_policy,
                             },
                         )
                     }) {

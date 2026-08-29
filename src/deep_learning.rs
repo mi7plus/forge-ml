@@ -129,8 +129,10 @@ pub fn native_regression_predictions(
     artifact: &NativeRegressionArtifact,
     dataset: &str,
     table: &TableData,
+    policy: DriftPolicy,
 ) -> Result<NativePredictionOutcome, String> {
     artifact.validate()?;
+    policy.validate()?;
     if table.rows.len() > MAX_NATIVE_ROWS {
         return Err(format!(
             "Native regression inference accepts at most {MAX_NATIVE_ROWS} dataset rows"
@@ -194,7 +196,7 @@ pub fn native_regression_predictions(
     let mut columns = table.columns.clone();
     columns.push(prediction_column);
     let diagnostics = RegressionDiagnostics::from_pairs(evaluated);
-    let drift = FeatureDriftDiagnostics::from_values(artifact, feature_values);
+    let drift = FeatureDriftDiagnostics::from_values(artifact, feature_values, policy);
     Ok(NativePredictionOutcome {
         name: format!("{dataset}_predictions"),
         table: TableData { columns, rows },
@@ -202,6 +204,40 @@ pub fn native_regression_predictions(
         diagnostics,
         drift,
     })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DriftPolicy {
+    pub mean_shift_threshold: f64,
+    pub scale_ratio_lower: f64,
+    pub scale_ratio_upper: f64,
+}
+
+impl Default for DriftPolicy {
+    fn default() -> Self {
+        Self {
+            mean_shift_threshold: 1.0,
+            scale_ratio_lower: 0.5,
+            scale_ratio_upper: 2.0,
+        }
+    }
+}
+
+impl DriftPolicy {
+    pub fn validate(self) -> Result<Self, String> {
+        if !self.mean_shift_threshold.is_finite() || self.mean_shift_threshold <= 0.0 {
+            return Err("Mean-shift threshold must be finite and above zero".into());
+        }
+        if !self.scale_ratio_lower.is_finite()
+            || !self.scale_ratio_upper.is_finite()
+            || self.scale_ratio_lower <= 0.0
+            || self.scale_ratio_lower >= 1.0
+            || self.scale_ratio_upper <= 1.0
+        {
+            return Err("Scale-ratio thresholds must satisfy 0 < lower < 1 < upper".into());
+        }
+        Ok(self)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -223,12 +259,17 @@ pub struct FeatureDriftDiagnostics {
     pub standard_deviation: f64,
     pub standardized_mean_shift: f64,
     pub scale_ratio: f64,
+    pub policy: DriftPolicy,
     pub score: f64,
     pub breached: bool,
 }
 
 impl FeatureDriftDiagnostics {
-    fn from_values(artifact: &NativeRegressionArtifact, values: Vec<f64>) -> Self {
+    fn from_values(
+        artifact: &NativeRegressionArtifact,
+        values: Vec<f64>,
+        policy: DriftPolicy,
+    ) -> Self {
         let observed = values.len();
         let magnitude = values.iter().map(|value| value.abs()).fold(0.0, f64::max);
         let (mean, standard_deviation) = if magnitude == 0.0 {
@@ -252,9 +293,9 @@ impl FeatureDriftDiagnostics {
         let normalized_scale_shift = if scale_ratio == 0.0 {
             2.0
         } else {
-            (scale_ratio / 2.0).max(0.5 / scale_ratio)
+            (scale_ratio / policy.scale_ratio_upper).max(policy.scale_ratio_lower / scale_ratio)
         };
-        let score = standardized_mean_shift
+        let score = (standardized_mean_shift / policy.mean_shift_threshold)
             .max(normalized_scale_shift)
             .min(f64::MAX);
         Self {
@@ -266,6 +307,7 @@ impl FeatureDriftDiagnostics {
             standard_deviation,
             standardized_mean_shift,
             scale_ratio,
+            policy,
             score,
             breached: score > 1.0,
         }
@@ -1068,8 +1110,13 @@ mod tests {
         let mut invalid_provenance = outcome.artifact.clone();
         invalid_provenance.data_sha256.clear();
         assert!(invalid_provenance.validate().is_err());
-        let predictions =
-            native_regression_predictions(&outcome.artifact, "sample", &table).unwrap();
+        let predictions = native_regression_predictions(
+            &outcome.artifact,
+            "sample",
+            &table,
+            DriftPolicy::default(),
+        )
+        .unwrap();
         assert_eq!(predictions.name, "sample_predictions");
         assert_eq!(predictions.predicted, 3);
         assert_eq!(
@@ -1089,6 +1136,29 @@ mod tests {
         assert_eq!(predictions.drift.observed, 3);
         assert!(predictions.drift.standardized_mean_shift.is_finite());
         assert!(predictions.drift.scale_ratio.is_finite());
+        assert_eq!(predictions.drift.policy, DriftPolicy::default());
+        let custom = native_regression_predictions(
+            &outcome.artifact,
+            "sample",
+            &table,
+            DriftPolicy {
+                mean_shift_threshold: 2.0,
+                scale_ratio_lower: 0.25,
+                scale_ratio_upper: 4.0,
+            },
+        )
+        .unwrap();
+        assert_eq!(custom.drift.policy.mean_shift_threshold, 2.0);
+        assert!(native_regression_predictions(
+            &outcome.artifact,
+            "sample",
+            &table,
+            DriftPolicy {
+                mean_shift_threshold: 0.0,
+                ..DriftPolicy::default()
+            },
+        )
+        .is_err());
         assert!(native_training_data("sample", &table, "feature", "feature").is_err());
         assert!(native_training_data("sample", &table, "missing", "target").is_err());
         for config in [

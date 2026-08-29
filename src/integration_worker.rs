@@ -26,6 +26,7 @@ pub enum Request {
         artifact: crate::deep_learning::NativeRegressionArtifact,
         dataset_name: String,
         table: std::sync::Arc<TableData>,
+        drift_policy: crate::deep_learning::DriftPolicy,
     },
     DataImport(PathBuf),
     MillwrightImport(PathBuf),
@@ -203,11 +204,13 @@ fn execute(request: Request, events: &Sender<ResultEvent>) -> ResultEvent {
             artifact,
             dataset_name,
             table,
+            drift_policy,
         } => {
             let result = crate::deep_learning::native_regression_predictions(
                 &artifact,
                 &dataset_name,
                 &table,
+                drift_policy,
             )
             .and_then(|outcome| {
                 prepared_dataset(outcome.table, format!("native model {}", artifact.run_id)).map(
@@ -403,6 +406,7 @@ mod tests {
                     columns: vec!["x".into()],
                     rows: vec![vec!["2".into()], vec!["missing".into()]],
                 }),
+                drift_policy: Default::default(),
             })
             .unwrap();
         match worker

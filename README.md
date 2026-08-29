@@ -50,7 +50,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - Leakage-safe native feature/target standardization with original-unit loss reporting
 - Attested schema-2 native regression artifacts with schema-1 compatibility, atomic JSON import/export, and in-IDE inference
 - Background native batch inference into Arrow-backed prediction datasets
-- Native batch feature-drift diagnostics with mean-shift and scale-ratio monitoring plots and portable reports
+- Configurable native batch feature-drift policy with mean-shift and scale-ratio monitoring plots
 - Immutable model-registry versioning and integrity-verified loading for native regression artifacts
 - Standalone generated Rust inference services for registered native regression models
 - Native batch evaluation with MAE, RMSE, R², actual-vs-predicted, and residual plots

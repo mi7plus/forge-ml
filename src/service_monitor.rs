@@ -33,6 +33,12 @@ pub struct DriftEvent {
     pub standardized_mean_shift: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scale_ratio: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mean_shift_threshold: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale_ratio_lower: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale_ratio_upper: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -86,6 +92,15 @@ pub fn valid_drift(event: &DriftEvent) -> bool {
         && event
             .scale_ratio
             .is_none_or(|value| value.is_finite() && value >= 0.0)
+        && event
+            .mean_shift_threshold
+            .is_none_or(|value| value.is_finite() && value > 0.0)
+        && event
+            .scale_ratio_lower
+            .is_none_or(|value| value.is_finite() && value > 0.0 && value < 1.0)
+        && event
+            .scale_ratio_upper
+            .is_none_or(|value| value.is_finite() && value > 1.0)
 }
 
 pub fn record_service(events: &mut Vec<ServiceEvent>, event: ServiceEvent) {
@@ -293,7 +308,7 @@ pub fn monitoring_plots(
             mean_thresholds
                 .entry(format!("{name} 1σ boundary"))
                 .or_default()
-                .push([index as f64, 1.0]);
+                .push([index as f64, event.mean_shift_threshold.unwrap_or(1.0)]);
         }
         if let Some(value) = event.scale_ratio {
             scale_ratio
@@ -303,11 +318,11 @@ pub fn monitoring_plots(
             scale_thresholds
                 .entry(format!("{name} lower boundary"))
                 .or_default()
-                .push([index as f64, 0.5]);
+                .push([index as f64, event.scale_ratio_lower.unwrap_or(0.5)]);
             scale_thresholds
                 .entry(format!("{name} upper boundary"))
                 .or_default()
-                .push([index as f64, 2.0]);
+                .push([index as f64, event.scale_ratio_upper.unwrap_or(2.0)]);
         }
     }
     let mut plots = Vec::new();
@@ -707,6 +722,7 @@ mod tests {
             observed: Some(0),
             standardized_mean_shift: Some(f64::NAN),
             scale_ratio: Some(1.0),
+            ..Default::default()
         }));
     }
 
@@ -737,6 +753,9 @@ mod tests {
             observed: Some(100),
             standardized_mean_shift: Some(1.25),
             scale_ratio: Some(2.5),
+            mean_shift_threshold: Some(1.5),
+            scale_ratio_lower: Some(0.25),
+            scale_ratio_upper: Some(3.0),
             ..drift[0].clone()
         }];
         let plots = monitoring_plots(&services, &enriched);
@@ -746,6 +765,16 @@ mod tests {
         assert_eq!(plots[4].series.len(), 2);
         assert_eq!(plots[5].name, "Feature scale ratio");
         assert_eq!(plots[5].series.len(), 3);
+        assert!(plots[4]
+            .series
+            .iter()
+            .any(|series| { series.name.ends_with("1σ boundary") && series.points[0][1] == 1.5 }));
+        assert!(plots[5].series.iter().any(|series| {
+            series.name.ends_with("lower boundary") && series.points[0][1] == 0.25
+        }));
+        assert!(plots[5].series.iter().any(|series| {
+            series.name.ends_with("upper boundary") && series.points[0][1] == 3.0
+        }));
     }
 
     #[test]
@@ -784,6 +813,7 @@ mod tests {
                 observed: Some(75),
                 standardized_mean_shift: Some(0.4),
                 scale_ratio: Some(1.2),
+                ..Default::default()
             },
             DriftEvent {
                 model: "drift-only".into(),
@@ -838,6 +868,7 @@ mod tests {
             observed: Some(42),
             standardized_mean_shift: Some(1.25),
             scale_ratio: Some(2.5),
+            ..Default::default()
         }];
         let output = monitoring_csv(&services, &drift).unwrap();
         let mut reader = csv::Reader::from_reader(output.as_slice());
@@ -878,6 +909,7 @@ mod tests {
             observed: Some(42),
             standardized_mean_shift: Some(1.25),
             scale_ratio: Some(2.5),
+            ..Default::default()
         }];
         let report = monitoring_report(&services, &drift).unwrap();
         assert!(report.contains("5.000%"));
@@ -910,6 +942,7 @@ mod tests {
             observed: Some(42),
             standardized_mean_shift: Some(1.25),
             scale_ratio: Some(2.5),
+            ..Default::default()
         }];
         let lines = monitoring_pdf_lines(&services, &drift).unwrap();
         assert!(lines.iter().any(|line| line == "Latest error rate: 5.000%"));
