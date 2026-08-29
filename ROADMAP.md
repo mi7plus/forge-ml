@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.65.0`
+Current application version: `0.66.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1242,6 +1242,20 @@ Implementation notes:
 
 - Service and drift X coordinates use retained event sequence because protocol events contain cumulative counters but no mandatory timestamp.
 - Generated dashboards are ordinary `PlotSpec` objects and inherit persistence, series controls, log transforms, reordering, duplication, and every portable export format.
+
+## 0.66 offline deployment monitoring reports — implemented
+
+- [x] Export a self-contained offline HTML report from retained deployment telemetry.
+- [x] Summarize service and drift event counts, latest requests, error rate, p95 latency, and drift-breach count.
+- [x] Include the newest 500 service events and newest 500 drift events in bounded tables.
+- [x] Escape model, version, and feature values before rendering them into HTML.
+- [x] Apply a restrictive content-security policy with no scripts or remote resources.
+- [x] Test bounded output, hostile telemetry escaping, offline behavior, and summary calculations.
+
+Implementation notes:
+
+- The report summarizes live or imported monitoring state without mutating it.
+- Individual text fields are already limited to 256 bytes and all events pass the same validation used by monitoring snapshots.
 
 ## Known technical risks
 

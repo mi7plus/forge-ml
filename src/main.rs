@@ -3598,6 +3598,24 @@ impl ForgeApp {
                 self.console = format!("Opened {count} native monitoring plot(s).");
             }
             if (!self.service_events.is_empty() || !self.drift_events.is_empty())
+                && ui.button("HTML report").clicked()
+            {
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_file_name("forge-deployment-monitoring.html")
+                    .save_file()
+                {
+                    self.registry_output = service_monitor::monitoring_report(
+                        &self.service_events,
+                        &self.drift_events,
+                    )
+                    .and_then(|report| {
+                        std::fs::write(&path, report).map_err(|error| error.to_string())
+                    })
+                    .map(|()| format!("Exported monitoring report to {}", path.display()))
+                    .unwrap_or_else(|error| format!("Monitoring report failed: {error}"));
+                }
+            }
+            if (!self.service_events.is_empty() || !self.drift_events.is_empty())
                 && ui.button("Clear monitoring").clicked()
             {
                 self.service_events.clear();

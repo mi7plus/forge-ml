@@ -5,6 +5,7 @@ pub const MAX_MONITOR_EVENTS: usize = 10_000;
 const MAX_MONITOR_TEXT_BYTES: usize = 256;
 const MAX_MONITOR_JSON_BYTES: usize = 16 * 1024 * 1024;
 const MONITOR_SCHEMA: u16 = 1;
+const MAX_REPORT_EVENTS_PER_STREAM: usize = 500;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ServiceEvent {
@@ -176,6 +177,86 @@ pub fn monitoring_plots(
     plots
 }
 
+pub fn monitoring_report(
+    service_events: &[ServiceEvent],
+    drift_events: &[DriftEvent],
+) -> Result<String, String> {
+    if service_events.is_empty() && drift_events.is_empty() {
+        return Err("No deployment monitoring events are available for a report".into());
+    }
+    if service_events.iter().any(|event| !valid_service(event))
+        || drift_events.iter().any(|event| !valid_drift(event))
+    {
+        return Err("Deployment monitoring report contains invalid events".into());
+    }
+    let latest = service_events.last();
+    let error_rate = latest.map_or(0.0, |event| {
+        if event.requests == 0 {
+            0.0
+        } else {
+            event.errors as f64 * 100.0 / event.requests as f64
+        }
+    });
+    let breaches = drift_events
+        .iter()
+        .filter(|event| event.score > event.threshold)
+        .count();
+    let service_rows = service_events
+        .iter()
+        .enumerate()
+        .rev()
+        .take(MAX_REPORT_EVENTS_PER_STREAM)
+        .map(|(index, event)| {
+            format!(
+                "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+                index + 1,
+                html_escape(&event.model),
+                html_escape(&event.version),
+                event.requests,
+                event.errors,
+                event
+                    .p95_ms
+                    .map_or_else(|| "—".into(), |value| format!("{value:.3}"))
+            )
+        })
+        .collect::<String>();
+    let drift_rows = drift_events
+        .iter()
+        .enumerate()
+        .rev()
+        .take(MAX_REPORT_EVENTS_PER_STREAM)
+        .map(|(index, event)| {
+            format!(
+                "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{:.6}</td><td>{:.6}</td><td>{}</td></tr>",
+                index + 1,
+                html_escape(&event.model),
+                html_escape(&event.version),
+                html_escape(&event.feature),
+                event.score,
+                event.threshold,
+                if event.score > event.threshold { "breach" } else { "ok" }
+            )
+        })
+        .collect::<String>();
+    Ok(format!(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'\"><title>Forge ML deployment monitoring report</title><style>body{{font:14px system-ui,sans-serif;max-width:1100px;margin:32px auto;padding:0 16px;color:#20242b}}.cards{{display:flex;gap:10px;flex-wrap:wrap}}.card{{border:1px solid #ccd2da;border-radius:6px;padding:10px;min-width:130px}}table{{border-collapse:collapse;width:100%;margin:12px 0 24px}}th,td{{border:1px solid #ccd2da;padding:6px;text-align:left}}</style></head><body><h1>Deployment monitoring report</h1><div class=\"cards\"><div class=\"card\"><strong>Service events</strong><br>{}</div><div class=\"card\"><strong>Drift events</strong><br>{}</div><div class=\"card\"><strong>Latest requests</strong><br>{}</div><div class=\"card\"><strong>Latest error rate</strong><br>{error_rate:.3}%</div><div class=\"card\"><strong>Latest p95</strong><br>{}</div><div class=\"card\"><strong>Drift breaches</strong><br>{breaches}</div></div><h2>Recent service health</h2><p>Newest {} events shown.</p><table><tr><th>#</th><th>Model</th><th>Version</th><th>Requests</th><th>Errors</th><th>p95 ms</th></tr>{service_rows}</table><h2>Recent feature drift</h2><p>Newest {} events shown.</p><table><tr><th>#</th><th>Model</th><th>Version</th><th>Feature</th><th>Score</th><th>Threshold</th><th>Status</th></tr>{drift_rows}</table></body></html>",
+        service_events.len(),
+        drift_events.len(),
+        latest.map_or(0, |event| event.requests),
+        latest.and_then(|event| event.p95_ms).map_or_else(|| "—".into(), |value| format!("{value:.3} ms")),
+        service_events.len().min(MAX_REPORT_EVENTS_PER_STREAM),
+        drift_events.len().min(MAX_REPORT_EVENTS_PER_STREAM),
+    ))
+}
+
+fn html_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 fn push_plot(
     plots: &mut Vec<PlotSpec>,
     name: &str,
@@ -294,5 +375,38 @@ mod tests {
         assert!(plots.iter().all(|plot| plot.validate().is_ok()));
         assert_eq!(plots[1].series[0].points[0][1], 2.0);
         assert_eq!(plots[3].series.len(), 2);
+    }
+
+    #[test]
+    fn monitoring_report_is_bounded_offline_and_escaped() {
+        let mut services = vec![ServiceEvent {
+            model: "<model>".into(),
+            version: "1".into(),
+            requests: 100,
+            errors: 5,
+            p95_ms: Some(4.5),
+        }];
+        services.extend((0..MAX_REPORT_EVENTS_PER_STREAM).map(|_| ServiceEvent {
+            model: "model".into(),
+            version: "1".into(),
+            requests: 100,
+            errors: 5,
+            p95_ms: Some(4.5),
+        }));
+        let drift = vec![DriftEvent {
+            model: "model".into(),
+            version: "1".into(),
+            feature: "<script>".into(),
+            score: 0.3,
+            threshold: 0.2,
+        }];
+        let report = monitoring_report(&services, &drift).unwrap();
+        assert!(report.contains("5.000%"));
+        assert!(report.contains("Drift breaches</strong><br>1"));
+        assert!(report.contains("&lt;script&gt;"));
+        assert!(report.contains("Newest 500 events shown."));
+        assert!(!report.contains("&lt;model&gt;"));
+        assert!(!report.contains("<script>"));
+        assert!(!report.contains("https://"));
     }
 }
