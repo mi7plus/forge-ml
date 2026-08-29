@@ -1957,6 +1957,20 @@ impl ForgeApp {
                         })
                         .unwrap_or_else(|error| format!("Embedded Burn training failed: {error}"));
                 }
+                ResultEvent::NativeRegressionPredicted(result) => match result {
+                    Ok((name, dataset, predicted)) => {
+                        let rows = dataset.rows.len();
+                        self.data.insert_dataset(name.clone(), dataset);
+                        self.open_dataset = Some(format!("table:{name}"));
+                        self.inspector_tab = InspectorTab::Data;
+                        self.sql_output = format!(
+                            "Predicted {predicted} of {rows} row(s) into dataset `{name}`."
+                        );
+                    }
+                    Err(error) => {
+                        self.sql_output = format!("Native batch inference failed: {error}")
+                    }
+                },
                 ResultEvent::DataImportProgress { path, rows } => {
                     self.console = format!("Importing {}… {rows} rows decoded", path.display());
                 }
@@ -3907,7 +3921,7 @@ impl ForgeApp {
             deep_learning::BURN_VERSION
         ));
         ui.label(&self.sql_output);
-        if let Some(artifact) = &self.native_burn_artifact {
+        if let Some(artifact) = self.native_burn_artifact.clone() {
             ui.label(format!(
                 "Fitted {} = {:.6} × {} + {:.6} · best score {:.6} · {} epoch(s)",
                 artifact.target,
@@ -3935,9 +3949,41 @@ impl ForgeApp {
                         .add_filter("JSON", &["json"])
                         .save_file()
                     {
-                        self.sql_output = export::native_regression_artifact(artifact, &path)
+                        self.sql_output = export::native_regression_artifact(&artifact, &path)
                             .map(|()| format!("Exported native model to {}", path.display()))
                             .unwrap_or_else(|error| format!("Model export failed: {error}"));
+                    }
+                }
+                if ui.button("Predict selected dataset").clicked() {
+                    let selected = self
+                        .selected_dataset_info()
+                        .ok_or_else(|| "Select a table dataset in the Data viewer first".to_owned())
+                        .and_then(|(name, is_table)| {
+                            if !is_table {
+                                return Err(
+                                    "Native batch inference requires a table dataset".into()
+                                );
+                            }
+                            self.data
+                                .tables
+                                .get(&name)
+                                .map(|dataset| (name, Arc::clone(&dataset.table)))
+                                .ok_or_else(|| "The selected dataset no longer exists".into())
+                        });
+                    match selected.and_then(|(dataset_name, table)| {
+                        self.integration_worker.submit(
+                            IntegrationRequest::NativeRegressionPredict {
+                                artifact: artifact.clone(),
+                                dataset_name,
+                                table,
+                            },
+                        )
+                    }) {
+                        Ok(()) => {
+                            self.integration_pending += 1;
+                            self.sql_output = "Running native batch inference…".into();
+                        }
+                        Err(error) => self.sql_output = error,
                     }
                 }
             });

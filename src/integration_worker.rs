@@ -22,6 +22,11 @@ pub enum Request {
         data: Option<crate::deep_learning::NativeTrainingData>,
         cancelled: Arc<AtomicBool>,
     },
+    NativeRegressionPredict {
+        artifact: crate::deep_learning::NativeRegressionArtifact,
+        dataset_name: String,
+        table: std::sync::Arc<TableData>,
+    },
     DataImport(PathBuf),
     MillwrightImport(PathBuf),
     DataExport {
@@ -73,6 +78,7 @@ pub enum Request {
 pub enum ResultEvent {
     BurnTrainingProgress(crate::millwright_studio::TrainingEvent),
     BurnTrainingFinished(Result<crate::deep_learning::NativeTrainingOutcome, String>),
+    NativeRegressionPredicted(Result<(String, Dataset, usize), String>),
     DataImportProgress {
         path: PathBuf,
         rows: usize,
@@ -181,6 +187,22 @@ fn execute(request: Request, events: &Sender<ResultEvent>) -> ResultEvent {
                 },
             );
             ResultEvent::BurnTrainingFinished(result)
+        }
+        Request::NativeRegressionPredict {
+            artifact,
+            dataset_name,
+            table,
+        } => {
+            let result = crate::deep_learning::native_regression_predictions(
+                &artifact,
+                &dataset_name,
+                &table,
+            )
+            .and_then(|(name, table, predicted)| {
+                prepared_dataset(table, format!("native model {}", artifact.run_id))
+                    .map(|dataset| (name, dataset, predicted))
+            });
+            ResultEvent::NativeRegressionPredicted(result)
         }
         Request::DataImport(path) => {
             let progress_path = path.clone();
@@ -332,6 +354,48 @@ mod tests {
             }
         }
         assert_eq!(progress, 84);
+    }
+
+    #[test]
+    fn worker_materializes_native_regression_predictions() {
+        let worker = IntegrationWorker::new();
+        let artifact = crate::deep_learning::NativeRegressionArtifact {
+            schema: 1,
+            run_id: "burn-flex-worker".into(),
+            dataset: "source".into(),
+            feature: "x".into(),
+            target: "y".into(),
+            slope: 2.0,
+            intercept: 1.0,
+            feature_mean: 0.0,
+            feature_scale: 1.0,
+            target_mean: 0.0,
+            target_scale: 1.0,
+            best_score: -0.1,
+            epochs_completed: 2,
+        };
+        worker
+            .submit(Request::NativeRegressionPredict {
+                artifact,
+                dataset_name: "source".into(),
+                table: Arc::new(TableData {
+                    columns: vec!["x".into()],
+                    rows: vec![vec!["2".into()], vec!["missing".into()]],
+                }),
+            })
+            .unwrap();
+        match worker
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("prediction worker result")
+        {
+            ResultEvent::NativeRegressionPredicted(Ok((name, dataset, predicted))) => {
+                assert_eq!(name, "source_predictions");
+                assert_eq!(predicted, 1);
+                assert_eq!(dataset.rows[0][1], "5");
+                assert_eq!(dataset.rows[1][1], "");
+            }
+            _ => panic!("unexpected worker result"),
+        }
     }
 
     #[test]

@@ -87,6 +87,61 @@ impl NativeRegressionArtifact {
     }
 }
 
+pub fn native_regression_predictions(
+    artifact: &NativeRegressionArtifact,
+    dataset: &str,
+    table: &TableData,
+) -> Result<(String, TableData, usize), String> {
+    artifact.validate()?;
+    if table.rows.len() > MAX_NATIVE_ROWS {
+        return Err(format!(
+            "Native regression inference accepts at most {MAX_NATIVE_ROWS} dataset rows"
+        ));
+    }
+    let feature_index = table
+        .columns
+        .iter()
+        .position(|column| column == &artifact.feature)
+        .ok_or_else(|| format!("Feature column `{}` was not found", artifact.feature))?;
+    let base_column = format!("{}_prediction", artifact.target);
+    let mut prediction_column = base_column.clone();
+    let mut suffix = 2;
+    while table.columns.contains(&prediction_column) {
+        prediction_column = format!("{base_column}_{suffix}");
+        suffix += 1;
+    }
+    let mut predicted = 0;
+    let rows = table
+        .rows
+        .iter()
+        .map(|row| {
+            let mut output = row.clone();
+            let prediction = row
+                .get(feature_index)
+                .and_then(|value| value.parse::<f64>().ok())
+                .filter(|value| value.is_finite())
+                .and_then(|value| artifact.predict(value).ok());
+            if let Some(prediction) = prediction {
+                predicted += 1;
+                output.push(prediction.to_string());
+            } else {
+                output.push(String::new());
+            }
+            output
+        })
+        .collect::<Vec<_>>();
+    if predicted == 0 {
+        return Err("Selected dataset contains no finite numeric inference values".into());
+    }
+    let mut columns = table.columns.clone();
+    columns.push(prediction_column);
+    Ok((
+        format!("{dataset}_predictions"),
+        TableData { columns, rows },
+        predicted,
+    ))
+}
+
 #[derive(Debug, Clone)]
 pub struct NativeTrainingOutcome {
     pub events: Vec<TrainingEvent>,
@@ -766,6 +821,12 @@ mod tests {
         let prediction = outcome.artifact.predict(2.0).unwrap();
         assert!(prediction.is_finite());
         assert_eq!(outcome.artifact.schema, 1);
+        let (name, predictions, predicted) =
+            native_regression_predictions(&outcome.artifact, "sample", &table).unwrap();
+        assert_eq!(name, "sample_predictions");
+        assert_eq!(predicted, 3);
+        assert_eq!(predictions.columns.last().unwrap(), "target_prediction");
+        assert_eq!(predictions.rows[2].last().unwrap(), "");
         assert!(native_training_data("sample", &table, "feature", "feature").is_err());
         assert!(native_training_data("sample", &table, "missing", "target").is_err());
         for config in [

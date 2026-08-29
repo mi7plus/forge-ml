@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.85.0`
+Current application version: `0.86.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1538,6 +1538,22 @@ Implementation notes:
 
 - The artifact stores the original-unit equation for portable univariate inference while retaining fitted preprocessing values for auditability.
 - This compact artifact is separate from a general Burn record/checkpoint, which will be needed for arbitrary multivariate and deep architectures.
+
+## 0.86 background native batch inference — implemented
+
+- [x] Apply the active native regression artifact to the table selected in the Data viewer.
+- [x] Submit immutable table/model snapshots to the background integration worker.
+- [x] Bound inference inputs at 100,000 rows and validate the artifact before scoring.
+- [x] Preserve every source row and leave predictions blank for missing or nonnumeric features.
+- [x] Generate a collision-free `<target>_prediction` column name.
+- [x] Materialize results through the standard Arrow-backed dataset preparation path.
+- [x] Publish and open `<source>_predictions` only after the complete result succeeds.
+- [x] Test direct row semantics and worker-side Arrow materialization.
+
+Implementation notes:
+
+- Batch inference uses the artifact's original-unit equation, so it requires neither Python nor a Burn device after training.
+- Prediction datasets remain ordinary Forge datasets and can immediately use sorting, filtering, quality analysis, plots, and every supported export.
 
 ## Known technical risks
 

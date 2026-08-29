@@ -49,6 +49,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - Deterministic native validation holdouts, validation-loss telemetry, and patience-based early stopping
 - Leakage-safe native feature/target standardization with original-unit loss reporting
 - Portable schema-1 native regression artifacts with atomic JSON import/export and in-IDE inference
+- Background native batch inference into Arrow-backed prediction datasets
 - Bounded framework-neutral training event monitoring with validated JSON/CSV export
 - All-or-nothing validated training JSON import for reopening archived telemetry
 - Self-contained offline training summary and event-audit HTML reports
