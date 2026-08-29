@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.90.0`
+Current application version: `0.91.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1619,6 +1619,20 @@ Implementation notes:
 
 - The data digest covers canonical little-endian `f32` pairs after numeric admission but before splitting or standardization, making it independent of JSON formatting and table-only columns.
 - Schema 1 remains intentionally lenient because those artifacts predate structured training provenance; registry SHA-256 still protects their stored bytes.
+
+## 0.91 native inference feature-drift monitoring — implemented
+
+- [x] Compute the finite scored feature batch's mean and population standard deviation in the background inference worker.
+- [x] Compare inference statistics with the artifact's frozen training mean and feature scale.
+- [x] Report standardized mean shift and scale ratio after every successful native batch inference.
+- [x] Treat mean shifts above 1σ and scale ratios outside 0.5–2.0 as threshold breaches.
+- [x] Record a bounded native drift event through the existing deployment-monitoring pipeline.
+- [x] Cover target-less, constant-batch, and evaluated inference paths with automated tests.
+
+Implementation notes:
+
+- The monitoring score normalizes the bidirectional scale-ratio check and mean-shift check to the existing threshold of 1.0.
+- Drift uses only finite feature values that actually produced predictions, so invalid source cells cannot distort the comparison.
 
 ## Known technical risks
 

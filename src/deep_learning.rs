@@ -154,6 +154,7 @@ pub fn native_regression_predictions(
         .iter()
         .position(|column| column == &artifact.target);
     let mut evaluated = Vec::new();
+    let mut feature_values = Vec::new();
     let rows = table
         .rows
         .iter()
@@ -166,6 +167,13 @@ pub fn native_regression_predictions(
                 .and_then(|value| artifact.predict(value).ok());
             if let Some(prediction) = prediction {
                 predicted += 1;
+                if let Some(feature) = row
+                    .get(feature_index)
+                    .and_then(|value| value.parse::<f64>().ok())
+                    .filter(|value| value.is_finite())
+                {
+                    feature_values.push(feature);
+                }
                 if let Some(actual) = target_index
                     .and_then(|index| row.get(index))
                     .and_then(|value| value.parse::<f64>().ok())
@@ -186,11 +194,13 @@ pub fn native_regression_predictions(
     let mut columns = table.columns.clone();
     columns.push(prediction_column);
     let diagnostics = RegressionDiagnostics::from_pairs(evaluated);
+    let drift = FeatureDriftDiagnostics::from_values(artifact, feature_values);
     Ok(NativePredictionOutcome {
         name: format!("{dataset}_predictions"),
         table: TableData { columns, rows },
         predicted,
         diagnostics,
+        drift,
     })
 }
 
@@ -200,6 +210,66 @@ pub struct NativePredictionOutcome {
     pub table: TableData,
     pub predicted: usize,
     pub diagnostics: Option<RegressionDiagnostics>,
+    pub drift: FeatureDriftDiagnostics,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FeatureDriftDiagnostics {
+    pub model: String,
+    pub version: String,
+    pub feature: String,
+    pub observed: usize,
+    pub mean: f64,
+    pub standard_deviation: f64,
+    pub standardized_mean_shift: f64,
+    pub scale_ratio: f64,
+    pub score: f64,
+    pub breached: bool,
+}
+
+impl FeatureDriftDiagnostics {
+    fn from_values(artifact: &NativeRegressionArtifact, values: Vec<f64>) -> Self {
+        let observed = values.len();
+        let magnitude = values.iter().map(|value| value.abs()).fold(0.0, f64::max);
+        let (mean, standard_deviation) = if magnitude == 0.0 {
+            (0.0, 0.0)
+        } else {
+            let normalized_mean =
+                values.iter().map(|value| value / magnitude).sum::<f64>() / observed as f64;
+            let normalized_variance = values
+                .iter()
+                .map(|value| (value / magnitude - normalized_mean).powi(2))
+                .sum::<f64>()
+                / observed as f64;
+            (
+                normalized_mean * magnitude,
+                normalized_variance.sqrt() * magnitude,
+            )
+        };
+        let standardized_mean_shift =
+            ((mean - artifact.feature_mean).abs() / artifact.feature_scale).min(f64::MAX);
+        let scale_ratio = (standard_deviation / artifact.feature_scale).min(f64::MAX);
+        let normalized_scale_shift = if scale_ratio == 0.0 {
+            2.0
+        } else {
+            (scale_ratio / 2.0).max(0.5 / scale_ratio)
+        };
+        let score = standardized_mean_shift
+            .max(normalized_scale_shift)
+            .min(f64::MAX);
+        Self {
+            model: artifact.run_id.clone(),
+            version: format!("native-regression-schema-{}", artifact.schema),
+            feature: artifact.feature.clone(),
+            observed,
+            mean,
+            standard_deviation,
+            standardized_mean_shift,
+            scale_ratio,
+            score,
+            breached: score > 1.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1016,6 +1086,9 @@ mod tests {
             .plots("sample")
             .iter()
             .all(|plot| plot.validate().is_ok()));
+        assert_eq!(predictions.drift.observed, 3);
+        assert!(predictions.drift.standardized_mean_shift.is_finite());
+        assert!(predictions.drift.scale_ratio.is_finite());
         assert!(native_training_data("sample", &table, "feature", "feature").is_err());
         assert!(native_training_data("sample", &table, "missing", "target").is_err());
         for config in [

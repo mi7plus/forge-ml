@@ -1958,12 +1958,29 @@ impl ForgeApp {
                         .unwrap_or_else(|error| format!("Embedded Burn training failed: {error}"));
                 }
                 ResultEvent::NativeRegressionPredicted(result) => match result {
-                    Ok((name, dataset, predicted, diagnostics)) => {
+                    Ok((name, dataset, predicted, diagnostics, drift)) => {
                         let rows = dataset.rows.len();
                         self.data.insert_dataset(name.clone(), dataset);
                         self.open_dataset = Some(format!("table:{name}"));
                         let mut message = format!(
                             "Predicted {predicted} of {rows} row(s) into dataset `{name}`."
+                        );
+                        message.push_str(&format!(
+                            " Feature drift over {} value(s): mean shift {:.3}σ, scale ratio {:.3}{}.",
+                            drift.observed,
+                            drift.standardized_mean_shift,
+                            drift.scale_ratio,
+                            if drift.breached { " (threshold breached)" } else { "" }
+                        ));
+                        service_monitor::record_drift(
+                            &mut self.drift_events,
+                            DriftEvent {
+                                model: drift.model,
+                                version: drift.version,
+                                feature: drift.feature,
+                                score: drift.score,
+                                threshold: 1.0,
+                            },
                         );
                         if let Some(diagnostics) = diagnostics {
                             message.push_str(&format!(

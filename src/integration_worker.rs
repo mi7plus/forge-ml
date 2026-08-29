@@ -85,6 +85,7 @@ pub enum ResultEvent {
                 Dataset,
                 usize,
                 Option<crate::deep_learning::RegressionDiagnostics>,
+                crate::deep_learning::FeatureDriftDiagnostics,
             ),
             String,
         >,
@@ -216,6 +217,7 @@ fn execute(request: Request, events: &Sender<ResultEvent>) -> ResultEvent {
                             dataset,
                             outcome.predicted,
                             outcome.diagnostics,
+                            outcome.drift,
                         )
                     },
                 )
@@ -407,10 +409,18 @@ mod tests {
             .recv_timeout(std::time::Duration::from_secs(2))
             .expect("prediction worker result")
         {
-            ResultEvent::NativeRegressionPredicted(Ok((name, dataset, predicted, diagnostics))) => {
+            ResultEvent::NativeRegressionPredicted(Ok((
+                name,
+                dataset,
+                predicted,
+                diagnostics,
+                drift,
+            ))) => {
                 assert_eq!(name, "source_predictions");
                 assert_eq!(predicted, 1);
                 assert!(diagnostics.is_none());
+                assert_eq!(drift.observed, 1);
+                assert!(drift.breached);
                 assert_eq!(dataset.rows[0][1], "5");
                 assert_eq!(dataset.rows[1][1], "");
             }
