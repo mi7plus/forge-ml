@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.68.0`
+Current application version: `0.69.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1283,6 +1283,21 @@ Implementation notes:
 
 - Bundles contain operational counters and feature labels, but no credentials, request bodies, prediction payloads, or model binaries.
 - The snapshot and report reuse their existing validation and retention limits before any archive is written.
+
+## 0.69 integrity-verified deployment monitoring bundle import — implemented
+
+- [x] Import deployment-monitoring bundles with a 64 MiB compressed-file limit.
+- [x] Enforce the exact archive entry set and a bounded aggregate expanded size before materialization.
+- [x] Validate manifest schema, digest algorithm, unique artifact paths, sizes, and aggregate size.
+- [x] Verify every artifact SHA-256 digest before parsing snapshot or plot data.
+- [x] Revalidate snapshot events, native plot specifications, and manifest event/plot counts.
+- [x] Replace live monitoring state and refresh same-name plots only after complete validation.
+- [x] Test successful round trips and rejection of a one-byte artifact modification.
+
+Implementation notes:
+
+- Failed imports leave service events, drift events, and structured plot history unchanged.
+- The HTML report is attested as a portable audit artifact but is never executed during import.
 
 ## Known technical risks
 

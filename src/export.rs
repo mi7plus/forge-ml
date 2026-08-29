@@ -25,6 +25,7 @@ static NEXT_EXPORT_TEMP: AtomicU64 = AtomicU64::new(1);
 const MAX_TRAINING_BUNDLE_BYTES: usize = 192 * 1024 * 1024;
 const MAX_TRAINING_BUNDLE_FILE_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_MONITORING_BUNDLE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_MONITORING_BUNDLE_FILE_BYTES: u64 = 64 * 1024 * 1024;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum DataFormat {
@@ -657,6 +658,140 @@ pub fn monitoring_bundle(
     atomic_bytes(path, &bytes)
 }
 
+pub struct ImportedMonitoringBundle {
+    pub snapshot: service_monitor::MonitoringSnapshot,
+    pub plots: Vec<plot::PlotSpec>,
+}
+
+pub fn import_monitoring_bundle(path: &Path) -> Result<ImportedMonitoringBundle, String> {
+    let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
+    if metadata.len() > MAX_MONITORING_BUNDLE_FILE_BYTES {
+        return Err("Deployment monitoring bundle exceeds the 64 MiB file limit".into());
+    }
+    let bytes = fs::read(path).map_err(|error| error.to_string())?;
+    let mut archive =
+        zip::ZipArchive::new(Cursor::new(bytes)).map_err(|error| error.to_string())?;
+    const REQUIRED: [&str; 4] = [
+        "monitoring-snapshot.json",
+        "monitoring-report.html",
+        "monitoring-plots.json",
+        "forge-monitoring-bundle.json",
+    ];
+    if archive.len() != REQUIRED.len() {
+        return Err("Deployment monitoring bundle contains an unexpected entry set".into());
+    }
+    let mut contents = std::collections::BTreeMap::new();
+    let mut total = 0usize;
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).map_err(|error| error.to_string())?;
+        let name = entry.name().to_owned();
+        if !REQUIRED.contains(&name.as_str()) || contents.contains_key(&name) || entry.is_dir() {
+            return Err(format!("Unexpected monitoring bundle entry `{name}`"));
+        }
+        let size = usize::try_from(entry.size()).map_err(|_| "Bundle entry is too large")?;
+        total = total
+            .checked_add(size)
+            .ok_or("Deployment monitoring bundle size overflow")?;
+        if total > MAX_MONITORING_BUNDLE_BYTES + 1024 * 1024 {
+            return Err(
+                "Deployment monitoring bundle exceeds the uncompressed safety limit".into(),
+            );
+        }
+        let mut value = Vec::with_capacity(size.min(1024 * 1024));
+        entry
+            .read_to_end(&mut value)
+            .map_err(|error| error.to_string())?;
+        if value.len() != size {
+            return Err(format!(
+                "Monitoring bundle entry `{name}` has an invalid size"
+            ));
+        }
+        contents.insert(name, value);
+    }
+    let manifest: serde_json::Value = serde_json::from_slice(
+        contents
+            .get("forge-monitoring-bundle.json")
+            .ok_or("Deployment monitoring bundle manifest is missing")?,
+    )
+    .map_err(|error| format!("Invalid deployment monitoring bundle manifest: {error}"))?;
+    if manifest.get("schema").and_then(|value| value.as_u64()) != Some(1)
+        || manifest
+            .get("digest_algorithm")
+            .and_then(|value| value.as_str())
+            != Some("sha256")
+    {
+        return Err("Unsupported deployment monitoring bundle manifest".into());
+    }
+    let manifest_entries = manifest
+        .get("entries")
+        .and_then(|value| value.as_array())
+        .ok_or("Deployment monitoring bundle manifest entries are missing")?;
+    if manifest_entries.len() != 3 {
+        return Err("Deployment monitoring bundle manifest must describe three artifacts".into());
+    }
+    let mut described = std::collections::BTreeSet::new();
+    let mut described_bytes = 0u64;
+    for item in manifest_entries {
+        let name = item
+            .get("path")
+            .and_then(|value| value.as_str())
+            .ok_or("Deployment monitoring bundle manifest entry path is missing")?;
+        if name == "forge-monitoring-bundle.json" || !described.insert(name) {
+            return Err(
+                "Deployment monitoring bundle manifest contains duplicate or invalid paths".into(),
+            );
+        }
+        let value = contents
+            .get(name)
+            .ok_or_else(|| format!("Monitoring bundle artifact `{name}` is missing"))?;
+        let digest = crate::experiment::stable_digest(value);
+        described_bytes = described_bytes
+            .checked_add(value.len() as u64)
+            .ok_or("Deployment monitoring bundle manifest size overflow")?;
+        if item.get("bytes").and_then(|value| value.as_u64()) != Some(value.len() as u64)
+            || item.get("sha256").and_then(|value| value.as_str()) != Some(digest.as_str())
+        {
+            return Err(format!(
+                "Monitoring bundle artifact `{name}` failed integrity validation"
+            ));
+        }
+    }
+    if manifest
+        .get("total_uncompressed_bytes")
+        .and_then(|value| value.as_u64())
+        != Some(described_bytes)
+    {
+        return Err(
+            "Deployment monitoring bundle aggregate size does not match its manifest".into(),
+        );
+    }
+    let snapshot = service_monitor::parse_snapshot(
+        contents
+            .get("monitoring-snapshot.json")
+            .ok_or("Monitoring snapshot is missing")?,
+    )?;
+    let plots = plot::parse_json(
+        contents
+            .get("monitoring-plots.json")
+            .ok_or("Monitoring plot JSON is missing")?,
+    )?;
+    if manifest
+        .get("service_event_count")
+        .and_then(|value| value.as_u64())
+        != Some(snapshot.service_events.len() as u64)
+        || manifest
+            .get("drift_event_count")
+            .and_then(|value| value.as_u64())
+            != Some(snapshot.drift_events.len() as u64)
+        || manifest.get("plot_count").and_then(|value| value.as_u64()) != Some(plots.len() as u64)
+    {
+        return Err(
+            "Deployment monitoring bundle manifest counts do not match its artifacts".into(),
+        );
+    }
+    Ok(ImportedMonitoringBundle { snapshot, plots })
+}
+
 pub struct ImportedTrainingBundle {
     pub events: Vec<TrainingEvent>,
     pub plots: Vec<plot::PlotSpec>,
@@ -1099,6 +1234,29 @@ mod tests {
         }
         assert!(monitoring_bundle(&[], &[], &path).is_err());
         drop(archive);
+        let imported = import_monitoring_bundle(&path).unwrap();
+        assert_eq!(imported.snapshot.service_events, services);
+        assert_eq!(imported.snapshot.drift_events, drift);
+        assert_eq!(imported.plots.len(), 4);
+
+        let tampered_path = root.join("tampered.zip");
+        let mut source = zip::ZipArchive::new(File::open(&path).unwrap()).unwrap();
+        let mut tampered = zip::ZipWriter::new(File::create(&tampered_path).unwrap());
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        for index in 0..source.len() {
+            let mut entry = source.by_index(index).unwrap();
+            let name = entry.name().to_owned();
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes).unwrap();
+            if name == "monitoring-report.html" {
+                bytes.push(b'!');
+            }
+            tampered.start_file(name, options).unwrap();
+            tampered.write_all(&bytes).unwrap();
+        }
+        tampered.finish().unwrap();
+        assert!(import_monitoring_bundle(&tampered_path).is_err());
         let _ = fs::remove_dir_all(root);
     }
 }

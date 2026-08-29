@@ -3644,6 +3644,39 @@ impl ForgeApp {
                             .unwrap_or_else(|error| format!("Monitoring bundle failed: {error}"));
                 }
             }
+            if ui.button("Import bundle").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Forge monitoring bundle", &["zip"])
+                    .pick_file()
+                {
+                    self.registry_output = export::import_monitoring_bundle(&path)
+                        .map(|bundle| {
+                            let services = bundle.snapshot.service_events.len();
+                            let drift = bundle.snapshot.drift_events.len();
+                            let plots = bundle.plots.len();
+                            self.service_events = bundle.snapshot.service_events;
+                            self.drift_events = bundle.snapshot.drift_events;
+                            for spec in bundle.plots {
+                                if let Some(existing) = self
+                                    .structured_plots
+                                    .iter_mut()
+                                    .find(|existing| existing.name == spec.name)
+                                {
+                                    *existing = spec;
+                                } else {
+                                    self.structured_plots.push(spec);
+                                }
+                            }
+                            format!(
+                                "Imported {services} service event(s), {drift} drift event(s), and {plots} plot(s) from {}",
+                                path.display()
+                            )
+                        })
+                        .unwrap_or_else(|error| {
+                            format!("Monitoring bundle import failed: {error}")
+                        });
+                }
+            }
             if (!self.service_events.is_empty() || !self.drift_events.is_empty())
                 && ui.button("Clear monitoring").clicked()
             {
