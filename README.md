@@ -2,12 +2,18 @@
 
 Forge ML is an experimental desktop compute studio for interactive Rust machine-learning work.
 
-Its workspace follows the scientific-IDE model popularized by Spyder: an editor-centered layout surrounded by project, outline, variable, plot, help, diagnostics, console, and history panes.
+Its workspace follows the scientific-IDE model popularized by Spyder — an editor surrounded by project, outline, variable, plot, help, diagnostics, console, and history panes — but every surface is a fully dockable pane. Split, drag between regions, tab together, reorder, or hide any pane; the arrangement is remembered across restarts.
+
+A browsable feature site lives under [`site/`](site/) (homepage plus a detailed guide), deployed to GitHub Pages by [`.github/workflows/pages.yml`](.github/workflows/pages.yml).
 
 See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [development plan](DEVELOPMENT_PLAN.md), [roadmap](ROADMAP.md), [event protocol](docs/PROTOCOL.md), [extension guide](docs/EXTENSIONS.md), and [contributor guide](CONTRIBUTING.md).
 
 ## Current prototype
 
+- Fully dockable `egui_tiles` workspace: split, drag between regions, tab, reorder, or hide any pane, with the layout persisted across restarts and a **View → Panes** menu to toggle visibility
+- Every tool surface is a first-class pane — editor, files, outline, notebook cells, console, history, Python, data viewer, and all inspector panes
+- Bottom status bar with runtime state, active file, pending background tasks, cursor position, and language-server status
+- Icon-labeled pane tabs, `Ctrl+1`–`Ctrl+9` inspector jumps, `F6` pane cycling, and drag-to-reorder / middle-click-close editor tabs
 - Persistent Evcxr session running away from the UI thread
 - Notebook cells separated with `//# %% <name>`
 - Selectable cell navigator and active execution state
@@ -17,15 +23,15 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - Live Evcxr variable names and Rust types after every successful cell
 - Multiple editor tabs with independent unsaved-state protection
 - Run Cell, Run Above, and Run All execution flows with per-cell status/output
-- Restored project, open files, active file, window, and panel layout across launches
+- Restored project, open files, active file, window, and dockable pane layout across launches
 - Recent-project history with safe unsaved-change handling
 - Persistent appearance settings for theme, editor font size, and caret blinking
 - Background Cargo diagnostics in the Problems inspector
 - Telemetry-driven line charts and vector bar visualizations
-- Spyder-style dataset viewer in an adjustable bottom-right pane, with undocking, row filtering, and two-dimensional tables
+- Dataset viewer as a dockable pane (or a floating window), with row filtering and two-dimensional tables
 - Deletable live datasets and plots, with experiment snapshots and comparison settings persisted across launches
 - SHA-256 experiment provenance for datasets, source identities, Cargo lockfiles, environments, and project bundles
-- Project and Outline navigation tabs
+- Files and Outline navigation panes, plus a dedicated notebook-cell rail pane
 - Project-wide search with clickable line and column results
 - Clickable source outline for functions, structs, enums, traits, implementations, and modules
 - Spyder-style Variable Explorer table and Plots/Help/Problems tool panes
@@ -122,7 +128,8 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - `Ctrl+Space`: request and open rust-analyzer completions at the caret
 - `Ctrl+Shift+P`: open the command palette
 - `F6`: cycle through inspector panes
-- `Ctrl+1`: open the Variables pane
+- `Ctrl+1`–`Ctrl+9`: jump to the first nine inspector panes (`Ctrl+1` is Variables)
+- Drag an editor tab to reorder it; middle-click a tab to close it
 
 Cells can publish visualization data through stdout:
 
