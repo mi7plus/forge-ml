@@ -174,6 +174,28 @@ impl InspectorTab {
             InspectorTab::Storage => "Storage",
         }
     }
+
+    fn icon(self) -> &'static str {
+        use egui_phosphor_icons::icons;
+        match self {
+            InspectorTab::Variables => icons::CUBE,
+            InspectorTab::Data => icons::GRID_FOUR,
+            InspectorTab::Charts => icons::CHART_LINE,
+            InspectorTab::Experiments => icons::FLASK,
+            InspectorTab::Search => icons::MAGNIFYING_GLASS,
+            InspectorTab::Help => icons::QUESTION,
+            InspectorTab::Problems => icons::BUG,
+            InspectorTab::Git => icons::GIT_BRANCH,
+            InspectorTab::Packages => icons::PACKAGE,
+            InspectorTab::GitHub => icons::GITHUB_LOGO,
+            InspectorTab::Studio => icons::FLOW_ARROW,
+            InspectorTab::Database => icons::DATABASE,
+            InspectorTab::DeepLearning => icons::BRAIN,
+            InspectorTab::Deploy => icons::ROCKET_LAUNCH,
+            InspectorTab::Storage => icons::CLOUD,
+        }
+        .as_str()
+    }
 }
 
 /// A dockable surface in the [`egui_tiles`] workspace tree. Each pane maps to an
@@ -197,6 +219,22 @@ impl PaneKind {
             PaneKind::DataViewer => "Data viewer",
             PaneKind::Inspector(tab) => tab.label(),
         }
+    }
+
+    fn icon(self) -> &'static str {
+        use egui_phosphor_icons::icons;
+        match self {
+            PaneKind::Editor => icons::CODE.as_str(),
+            PaneKind::Workspace => icons::TREE_STRUCTURE.as_str(),
+            PaneKind::Console => icons::TERMINAL_WINDOW.as_str(),
+            PaneKind::DataViewer => icons::TABLE.as_str(),
+            PaneKind::Inspector(tab) => tab.icon(),
+        }
+    }
+
+    /// Tab label as shown in the dock: icon glyph followed by the pane name.
+    fn tab_label(self) -> String {
+        format!("{}  {}", self.icon(), self.title())
     }
 }
 
@@ -871,6 +909,69 @@ impl ForgeApp {
     }
     fn active_mut(&mut self) -> &mut EditorTab {
         &mut self.tabs[self.active_tab]
+    }
+
+    /// A compact bottom strip summarizing runtime, file, and language-server
+    /// state so those signals live in one predictable place.
+    fn status_bar(&mut self, ui: &mut egui::Ui) {
+        use egui_phosphor_icons::icons;
+        ui.horizontal(|ui| {
+            let (glyph, text, color) = match self.run_state {
+                RunState::Booting => (icons::CIRCLE_DASHED.as_str(), "Booting".to_owned(), EMBER),
+                RunState::Ready => (icons::CHECK_CIRCLE.as_str(), "Ready".to_owned(), GREEN),
+                RunState::Running(cell) => (
+                    icons::CIRCLE_NOTCH.as_str(),
+                    format!("Running cell {}", cell + 1),
+                    CYAN,
+                ),
+                RunState::Failed => (icons::X_CIRCLE.as_str(), "Runtime failed".to_owned(), RED),
+            };
+            ui.label(
+                RichText::new(format!("{glyph}  {text}"))
+                    .color(color)
+                    .size(11.0),
+            );
+            ui.separator();
+
+            let dirty = self.active().dirty;
+            let name = self
+                .active()
+                .path
+                .as_ref()
+                .map(|path| file_title(path))
+                .unwrap_or_else(|| "untitled".to_owned());
+            ui.label(
+                RichText::new(format!("{}  {}{}", icons::FILE_CODE.as_str(), name, if dirty { " •" } else { "" }))
+                    .color(if dirty { EMBER } else { MUTED })
+                    .size(11.0),
+            );
+
+            if self.integration_pending > 0 {
+                ui.separator();
+                ui.label(
+                    RichText::new(format!("{}  {} background task(s)", icons::HOURGLASS_MEDIUM.as_str(), self.integration_pending))
+                        .color(CYAN)
+                        .size(11.0),
+                );
+            }
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let (line, column) =
+                    line_column(&self.active().content, self.cursor_offset);
+                ui.label(
+                    RichText::new(format!("Ln {line}, Col {column}"))
+                        .monospace()
+                        .size(11.0)
+                        .color(MUTED),
+                );
+                ui.separator();
+                let mut lsp = self.lsp_status.replace('\n', " ");
+                if lsp.chars().count() > 60 {
+                    lsp = format!("{}…", lsp.chars().take(59).collect::<String>());
+                }
+                ui.label(RichText::new(lsp).size(11.0).color(MUTED));
+            });
+        });
     }
 
     fn cells(&self) -> Vec<(String, String)> {
@@ -7242,28 +7343,27 @@ impl ForgeApp {
             self.command_query.clear();
             self.command_selection = 0;
         }
-        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Num1)) {
-            self.inspector_tab = InspectorTab::Variables;
-            self.status_announcement = "Variables pane selected".into();
+        // Ctrl+1..=9 jump straight to the first nine inspector panes.
+        const NUM_KEYS: [egui::Key; 9] = [
+            egui::Key::Num1,
+            egui::Key::Num2,
+            egui::Key::Num3,
+            egui::Key::Num4,
+            egui::Key::Num5,
+            egui::Key::Num6,
+            egui::Key::Num7,
+            egui::Key::Num8,
+            egui::Key::Num9,
+        ];
+        for (index, key) in NUM_KEYS.iter().enumerate() {
+            if ctx.input(|i| i.modifiers.command && i.key_pressed(*key)) {
+                let tab = InspectorTab::ALL[index];
+                self.inspector_tab = tab;
+                self.status_announcement = format!("{} pane selected", tab.label());
+            }
         }
         if ctx.input(|i| i.key_pressed(egui::Key::F6)) {
-            let tabs = [
-                InspectorTab::Variables,
-                InspectorTab::Data,
-                InspectorTab::Charts,
-                InspectorTab::Experiments,
-                InspectorTab::Search,
-                InspectorTab::Help,
-                InspectorTab::Problems,
-                InspectorTab::Git,
-                InspectorTab::Packages,
-                InspectorTab::GitHub,
-                InspectorTab::Studio,
-                InspectorTab::Database,
-                InspectorTab::DeepLearning,
-                InspectorTab::Deploy,
-                InspectorTab::Storage,
-            ];
+            let tabs = InspectorTab::ALL;
             let index = tabs
                 .iter()
                 .position(|tab| *tab == self.inspector_tab)
@@ -7598,7 +7698,7 @@ impl egui_tiles::Behavior<PaneKind> for ForgeApp {
     }
 
     fn tab_title_for_pane(&mut self, pane: &PaneKind) -> egui::WidgetText {
-        pane.title().into()
+        pane.tab_label().into()
     }
 
     fn simplification_options(&self) -> SimplificationOptions {
@@ -7746,6 +7846,14 @@ impl eframe::App for ForgeApp {
                 self.dark_mode,
             ))
             .show(ui, |ui| self.top_bar(ui));
+        Panel::bottom("status_bar")
+            .resizable(false)
+            .default_size(24.0)
+            .frame(compact_panel_frame(
+                theme_colors(self.dark_mode).surface,
+                self.dark_mode,
+            ))
+            .show(ui, |ui| self.status_bar(ui));
         let dock_frame =
             panel_frame(theme_colors(self.dark_mode).background, self.dark_mode);
         egui::CentralPanel::default()
