@@ -7,11 +7,19 @@ use arrow::record_batch::RecordBatch;
 use forge_protocol::TableData;
 use std::{
     path::PathBuf,
-    sync::mpsc::{self, Receiver, Sender},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, Receiver, Sender},
+        Arc,
+    },
     thread,
 };
 
 pub enum Request {
+    BurnTraining {
+        backend: crate::deep_learning::Backend,
+        cancelled: Arc<AtomicBool>,
+    },
     DataImport(PathBuf),
     MillwrightImport(PathBuf),
     DataExport {
@@ -61,6 +69,8 @@ pub enum Request {
 }
 
 pub enum ResultEvent {
+    BurnTrainingProgress(crate::millwright_studio::TrainingEvent),
+    BurnTrainingFinished(Result<usize, String>),
     DataImportProgress {
         path: PathBuf,
         rows: usize,
@@ -153,6 +163,17 @@ impl IntegrationWorker {
 
 fn execute(request: Request, events: &Sender<ResultEvent>) -> ResultEvent {
     match request {
+        Request::BurnTraining { backend, cancelled } => {
+            let result = crate::deep_learning::native_burn_training_demo_with_progress(
+                backend,
+                || cancelled.load(Ordering::Relaxed),
+                |event| {
+                    let _ = events.send(ResultEvent::BurnTrainingProgress(event));
+                },
+            )
+            .map(|events| events.len());
+            ResultEvent::BurnTrainingFinished(result)
+        }
         Request::DataImport(path) => {
             let progress_path = path.clone();
             let result = crate::data::load_table_with_progress(&path, |rows| {
@@ -276,6 +297,32 @@ fn prepared_dataset(table: TableData, source: String) -> Result<Dataset, String>
 mod tests {
     use super::*;
     use crate::database::ConnectionKind;
+
+    #[test]
+    fn worker_streams_and_completes_embedded_burn_training() {
+        let worker = IntegrationWorker::new();
+        worker
+            .submit(Request::BurnTraining {
+                backend: crate::deep_learning::Backend::Cpu,
+                cancelled: Arc::new(AtomicBool::new(false)),
+            })
+            .unwrap();
+        let mut progress = 0;
+        loop {
+            match worker
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .expect("Burn worker result")
+            {
+                ResultEvent::BurnTrainingProgress(_) => progress += 1,
+                ResultEvent::BurnTrainingFinished(result) => {
+                    assert_eq!(result.unwrap(), progress);
+                    break;
+                }
+                _ => panic!("unexpected worker result"),
+            }
+        }
+        assert_eq!(progress, 84);
+    }
 
     #[test]
     fn worker_imports_csv_without_mutating_the_workspace() {

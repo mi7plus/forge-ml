@@ -430,6 +430,7 @@ struct ForgeApp {
     sql_output: String,
     sql_history: Vec<String>,
     deep_backend: DeepBackend,
+    burn_training_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
     deep_outputs: DeepOutputs,
     resource_system: sysinfo::System,
     resource_snapshot: ResourceSnapshot,
@@ -704,6 +705,7 @@ impl ForgeApp {
             sql_output: String::new(),
             sql_history,
             deep_backend: DeepBackend::Cpu,
+            burn_training_cancel: None,
             deep_outputs: DeepOutputs::default(),
             resource_system: sysinfo::System::new_all(),
             resource_snapshot: ResourceSnapshot::default(),
@@ -1916,11 +1918,27 @@ impl ForgeApp {
         while let Some(event) = self.integration_worker.try_recv() {
             if !matches!(
                 &event,
-                ResultEvent::RemoteInputRequested { .. } | ResultEvent::DataImportProgress { .. }
+                ResultEvent::RemoteInputRequested { .. }
+                    | ResultEvent::DataImportProgress { .. }
+                    | ResultEvent::BurnTrainingProgress(_)
             ) {
                 self.integration_pending = self.integration_pending.saturating_sub(1);
             }
             match event {
+                ResultEvent::BurnTrainingProgress(event) => {
+                    millwright_studio::record_training_event(&mut self.training_events, event);
+                    self.inspector_tab = InspectorTab::Studio;
+                }
+                ResultEvent::BurnTrainingFinished(result) => {
+                    self.burn_training_cancel = None;
+                    self.sql_output = result
+                        .map(|count| {
+                            format!(
+                                "Completed embedded Burn training and recorded {count} typed event(s)."
+                            )
+                        })
+                        .unwrap_or_else(|error| format!("Embedded Burn training failed: {error}"));
+                }
                 ResultEvent::DataImportProgress { path, rows } => {
                     self.console = format!("Importing {}… {rows} rows decoded", path.display());
                 }
@@ -3784,22 +3802,32 @@ impl ForgeApp {
             if ui.button("Test embedded Burn").clicked() {
                 self.sql_output = deep_learning::native_burn_self_test();
             }
-            if ui.button("Run native Burn demo").clicked() {
-                self.sql_output = deep_learning::native_burn_training_demo(self.deep_backend)
-                    .map(|events| {
-                        let count = events.len();
-                        for event in events {
-                            millwright_studio::record_training_event(
-                                &mut self.training_events,
-                                event,
-                            );
-                        }
-                        self.inspector_tab = InspectorTab::Studio;
-                        format!(
-                            "Completed embedded Burn training and recorded {count} typed event(s)."
-                        )
-                    })
-                    .unwrap_or_else(|error| format!("Embedded Burn training failed: {error}"));
+            if self.burn_training_cancel.is_none() && ui.button("Run native Burn demo").clicked() {
+                let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+                match self
+                    .integration_worker
+                    .submit(IntegrationRequest::BurnTraining {
+                        backend: self.deep_backend,
+                        cancelled: Arc::clone(&cancelled),
+                    }) {
+                    Ok(()) => {
+                        self.burn_training_cancel = Some(cancelled);
+                        self.integration_pending += 1;
+                        self.sql_output = format!(
+                            "Running embedded Burn training on {} in the background…",
+                            self.deep_backend.label()
+                        );
+                    }
+                    Err(error) => {
+                        self.sql_output = format!("Could not start Burn training: {error}")
+                    }
+                }
+            }
+            if let Some(cancelled) = &self.burn_training_cancel {
+                if ui.button("Cancel native training").clicked() {
+                    cancelled.store(true, std::sync::atomic::Ordering::Relaxed);
+                    self.sql_output = "Cancelling embedded Burn training…".into();
+                }
             }
             ui.add(egui::DragValue::new(&mut self.early_stopping_patience).prefix("patience "));
             ui.add(

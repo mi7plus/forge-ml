@@ -41,14 +41,26 @@ pub fn native_burn_self_test() -> String {
     format!("Embedded Burn {BURN_VERSION} Flex runtime ready (tensor sum {sum:.1}).")
 }
 
+#[cfg(test)]
 pub fn native_burn_training_demo(backend: Backend) -> Result<Vec<TrainingEvent>, String> {
+    native_burn_training_demo_with_progress(backend, || false, |_| {})
+}
+
+pub fn native_burn_training_demo_with_progress(
+    backend: Backend,
+    cancelled: impl Fn() -> bool,
+    on_event: impl FnMut(TrainingEvent),
+) -> Result<Vec<TrainingEvent>, String> {
     if matches!(backend, Backend::Cuda | Backend::Rocm) {
         return Err(format!(
             "{} is available for generated or remote Burn projects, not the embedded runtime",
             backend.label()
         ));
     }
-    std::panic::catch_unwind(|| native_burn_training_demo_inner(backend)).map_err(|_| {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        native_burn_training_demo_inner(backend, cancelled, on_event)
+    }))
+    .map_err(|_| {
         format!(
             "The embedded {} Burn device could not be initialized",
             backend.label()
@@ -56,7 +68,11 @@ pub fn native_burn_training_demo(backend: Backend) -> Result<Vec<TrainingEvent>,
     })?
 }
 
-fn native_burn_training_demo_inner(backend: Backend) -> Result<Vec<TrainingEvent>, String> {
+fn native_burn_training_demo_inner(
+    backend: Backend,
+    cancelled: impl Fn() -> bool,
+    mut on_event: impl FnMut(TrainingEvent),
+) -> Result<Vec<TrainingEvent>, String> {
     use burn::{
         nn::LinearConfig,
         optim::{GradientsParams, SgdConfig},
@@ -79,7 +95,7 @@ fn native_burn_training_demo_inner(backend: Backend) -> Result<Vec<TrainingEvent
         backend.feature(),
         NEXT_BURN_DEMO.fetch_add(1, Ordering::Relaxed)
     );
-    let mut events = vec![
+    let initial_events = [
         TrainingEvent::RunContext {
             run_id: run_id.clone(),
         },
@@ -88,8 +104,16 @@ fn native_burn_training_demo_inner(backend: Backend) -> Result<Vec<TrainingEvent
             total_trials: 1,
         },
     ];
+    let mut events = Vec::with_capacity(83);
+    for event in initial_events {
+        on_event(event.clone());
+        events.push(event);
+    }
     let mut final_loss = None;
     for epoch in 1..=40 {
+        if cancelled() {
+            return Err("Embedded Burn training was cancelled".into());
+        }
         let output = model.forward(input.clone());
         let loss = (output - target.clone()).powf_scalar(2.0).mean();
         let loss_value = loss.clone().into_scalar::<f32>() as f64;
@@ -100,7 +124,7 @@ fn native_burn_training_demo_inner(backend: Backend) -> Result<Vec<TrainingEvent
         let gradients = GradientsParams::from_grads(gradients, &model);
         model = optimizer.step(0.05, model, gradients);
         final_loss = Some(loss_value);
-        events.extend([
+        for event in [
             TrainingEvent::RunContext {
                 run_id: run_id.clone(),
             },
@@ -110,13 +134,19 @@ fn native_burn_training_demo_inner(backend: Backend) -> Result<Vec<TrainingEvent
                 loss: loss_value,
                 metric: None,
             },
-        ]);
+        ] {
+            on_event(event.clone());
+            events.push(event);
+        }
     }
     let best_score = -final_loss.ok_or("Embedded Burn training emitted no epochs")?;
-    events.extend([
+    for event in [
         TrainingEvent::RunContext { run_id },
         TrainingEvent::Completed { best_score },
-    ]);
+    ] {
+        on_event(event.clone());
+        events.push(event);
+    }
     Ok(events)
 }
 
@@ -300,5 +330,20 @@ mod tests {
         ));
         assert!(native_burn_training_demo(Backend::Cuda).is_err());
         assert!(native_burn_training_demo(Backend::Rocm).is_err());
+    }
+
+    #[test]
+    fn embedded_burn_training_honors_cancellation_without_completion() {
+        let mut emitted = Vec::new();
+        let result = native_burn_training_demo_with_progress(
+            Backend::Cpu,
+            || true,
+            |event| emitted.push(event),
+        );
+        assert_eq!(result.unwrap_err(), "Embedded Burn training was cancelled");
+        assert_eq!(emitted.len(), 2);
+        assert!(!emitted
+            .iter()
+            .any(|event| matches!(event, TrainingEvent::Completed { .. })));
     }
 }

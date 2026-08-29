@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.79.0`
+Current application version: `0.80.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1442,6 +1442,21 @@ Implementation notes:
 
 - WGPU execution is opt-in through the existing selector and may depend on local adapter/driver availability.
 - The deterministic CI test remains on Flex CPU; compilation still type-checks the embedded WGPU training path.
+
+## 0.80 non-blocking native Burn training — implemented
+
+- [x] Move embedded Burn optimization off the egui update thread onto the integration worker.
+- [x] Stream each typed run-context and lifecycle event into Millwright Studio as it is produced.
+- [x] Keep the IDE responsive and repaint promptly while native training is active.
+- [x] Add cooperative cancellation from the Deep Learning pane.
+- [x] Preserve observed progress on cancellation without emitting a false completed event.
+- [x] Prevent concurrent embedded demo submissions from the same IDE session.
+- [x] Test worker streaming, terminal event counts, and cancellation semantics on Flex CPU.
+
+Implementation notes:
+
+- Cancellation is checked between optimizer steps; an in-flight device operation completes before the worker stops.
+- The existing integration worker serializes native training with other data integration requests, keeping background resource use bounded.
 
 ## Known technical risks
 
