@@ -3702,48 +3702,55 @@ impl ForgeApp {
                 self.registry_output = "Cleared live monitoring events.".into();
             }
         });
-        if let Some(event) = self.service_events.last() {
-            let error_rate = if event.requests == 0 {
-                0.0
-            } else {
-                event.errors as f64 * 100.0 / event.requests as f64
-            };
-            ui.horizontal_wrapped(|ui| {
-                ui.label(format!("{} {}", event.model, event.version));
-                ui.label(format!("{} requests", event.requests));
-                ui.label(format!("{error_rate:.2}% errors"));
-                if let Some(p95) = event.p95_ms {
-                    ui.label(format!("p95 {p95:.1} ms"));
-                }
-            });
-        } else {
+        let overview =
+            service_monitor::deployment_overview(&self.service_events, &self.drift_events);
+        if overview.is_empty() {
             ui.label(
                 RichText::new("Run or stream forge_service JSON lines to populate request health.")
                     .color(MUTED),
             );
-        }
-        if !self.drift_events.is_empty() {
-            egui::Grid::new("model_drift_events")
-                .striped(true)
-                .show(ui, |ui| {
-                    ui.strong("Feature");
-                    ui.strong("Drift");
-                    ui.strong("Threshold");
-                    ui.end_row();
-                    for event in self.drift_events.iter().rev().take(20) {
-                        ui.label(&event.feature);
-                        ui.colored_label(
-                            if event.score > event.threshold {
-                                Color32::from_rgb(214, 126, 44)
-                            } else {
-                                GREEN
-                            },
-                            format!("{:.3}", event.score),
-                        );
-                        ui.label(format!("{:.3}", event.threshold));
+        } else {
+            ui.label(format!("Latest model health ({} shown)", overview.len()));
+            egui::ScrollArea::horizontal().show(ui, |ui| {
+                egui::Grid::new("deployment_health_overview")
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.strong("Model");
+                        ui.strong("Version");
+                        ui.strong("Requests");
+                        ui.strong("Errors");
+                        ui.strong("p95 ms");
+                        ui.strong("Drift");
                         ui.end_row();
-                    }
-                });
+                        for health in overview {
+                            ui.label(health.model);
+                            ui.label(health.version);
+                            ui.label(
+                                health
+                                    .requests
+                                    .map_or_else(|| "-".into(), |value| value.to_string()),
+                            );
+                            ui.label(health.error_rate.map_or_else(
+                                || "-".into(),
+                                |value| format!("{value:.2}% ({})", health.errors.unwrap_or(0)),
+                            ));
+                            ui.label(
+                                health
+                                    .p95_ms
+                                    .map_or_else(|| "-".into(), |value| format!("{value:.1}")),
+                            );
+                            ui.colored_label(
+                                if health.drift_breaches > 0 {
+                                    Color32::from_rgb(214, 126, 44)
+                                } else {
+                                    GREEN
+                                },
+                                format!("{} / {}", health.drift_breaches, health.drift_features),
+                            );
+                            ui.end_row();
+                        }
+                    });
+            });
         }
         ui.separator();
         ui.code(&self.registry_output);

@@ -6,6 +6,7 @@ const MAX_MONITOR_TEXT_BYTES: usize = 256;
 const MAX_MONITOR_JSON_BYTES: usize = 16 * 1024 * 1024;
 const MONITOR_SCHEMA: u16 = 1;
 const MAX_REPORT_EVENTS_PER_STREAM: usize = 500;
+const MAX_OVERVIEW_ROWS: usize = 128;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ServiceEvent {
@@ -33,6 +34,18 @@ pub struct MonitoringSnapshot {
     pub schema: u16,
     pub service_events: Vec<ServiceEvent>,
     pub drift_events: Vec<DriftEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeploymentHealth {
+    pub model: String,
+    pub version: String,
+    pub requests: Option<u64>,
+    pub errors: Option<u64>,
+    pub error_rate: Option<f64>,
+    pub p95_ms: Option<f64>,
+    pub drift_features: usize,
+    pub drift_breaches: usize,
 }
 
 fn safe_text(value: &str) -> bool {
@@ -253,6 +266,64 @@ pub fn monitoring_plots(
     drift.extend(thresholds);
     push_plot(&mut plots, "Feature drift", "event", "score", drift);
     plots
+}
+
+pub fn deployment_overview(
+    service_events: &[ServiceEvent],
+    drift_events: &[DriftEvent],
+) -> Vec<DeploymentHealth> {
+    let mut services = std::collections::BTreeMap::new();
+    for event in service_events.iter().filter(|event| valid_service(event)) {
+        services.insert((event.model.clone(), event.version.clone()), event);
+    }
+    let mut latest_drift = std::collections::BTreeMap::new();
+    for event in drift_events.iter().filter(|event| valid_drift(event)) {
+        latest_drift.insert(
+            (
+                event.model.clone(),
+                event.version.clone(),
+                event.feature.clone(),
+            ),
+            event,
+        );
+    }
+    let mut drift_counts = std::collections::BTreeMap::<(String, String), (usize, usize)>::new();
+    for ((model, version, _), event) in latest_drift {
+        let counts = drift_counts.entry((model, version)).or_default();
+        counts.0 += 1;
+        counts.1 += usize::from(event.score > event.threshold);
+    }
+    let keys = services
+        .keys()
+        .chain(drift_counts.keys())
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    keys.into_iter()
+        .take(MAX_OVERVIEW_ROWS)
+        .map(|(model, version)| {
+            let service = services.get(&(model.clone(), version.clone())).copied();
+            let (drift_features, drift_breaches) = drift_counts
+                .get(&(model.clone(), version.clone()))
+                .copied()
+                .unwrap_or_default();
+            DeploymentHealth {
+                model,
+                version,
+                requests: service.map(|event| event.requests),
+                errors: service.map(|event| event.errors),
+                error_rate: service.map(|event| {
+                    if event.requests == 0 {
+                        0.0
+                    } else {
+                        event.errors as f64 * 100.0 / event.requests as f64
+                    }
+                }),
+                p95_ms: service.and_then(|event| event.p95_ms),
+                drift_features,
+                drift_breaches,
+            }
+        })
+        .collect()
 }
 
 pub fn monitoring_report(
@@ -554,6 +625,69 @@ mod tests {
         assert!(plots.iter().all(|plot| plot.validate().is_ok()));
         assert_eq!(plots[1].series[0].points[0][1], 2.0);
         assert_eq!(plots[3].series.len(), 2);
+    }
+
+    #[test]
+    fn deployment_overview_uses_latest_deterministic_model_health() {
+        let services = vec![
+            ServiceEvent {
+                model: "iris".into(),
+                version: "1".into(),
+                requests: 10,
+                errors: 2,
+                p95_ms: None,
+            },
+            ServiceEvent {
+                model: "iris".into(),
+                version: "1".into(),
+                requests: 100,
+                errors: 5,
+                p95_ms: Some(4.0),
+            },
+        ];
+        let drift = vec![
+            DriftEvent {
+                model: "iris".into(),
+                version: "1".into(),
+                feature: "width".into(),
+                score: 0.4,
+                threshold: 0.2,
+            },
+            DriftEvent {
+                model: "iris".into(),
+                version: "1".into(),
+                feature: "width".into(),
+                score: 0.1,
+                threshold: 0.2,
+            },
+            DriftEvent {
+                model: "drift-only".into(),
+                version: "2".into(),
+                feature: "age".into(),
+                score: 0.3,
+                threshold: 0.2,
+            },
+        ];
+        let overview = deployment_overview(&services, &drift);
+        assert_eq!(overview.len(), 2);
+        assert_eq!(overview[0].model, "drift-only");
+        assert_eq!(overview[0].requests, None);
+        assert_eq!(overview[0].drift_breaches, 1);
+        assert_eq!(overview[1].requests, Some(100));
+        assert_eq!(overview[1].error_rate, Some(5.0));
+        assert_eq!(overview[1].drift_features, 1);
+        assert_eq!(overview[1].drift_breaches, 0);
+
+        let fleet = (0..=MAX_OVERVIEW_ROWS)
+            .map(|index| ServiceEvent {
+                model: format!("model-{index:03}"),
+                version: "1".into(),
+                requests: 1,
+                errors: 0,
+                p95_ms: None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(deployment_overview(&fleet, &[]).len(), MAX_OVERVIEW_ROWS);
     }
 
     #[test]

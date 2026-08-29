@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.70.0`
+Current application version: `0.71.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1312,6 +1312,20 @@ Implementation notes:
 
 - Stream-specific fields remain blank rather than overloading sentinel values, which keeps downstream type inference predictable.
 - CSV export is intentionally one-way; the versioned JSON snapshot and verified bundle remain the state-restoration formats.
+
+## 0.71 native multi-model deployment health overview — implemented
+
+- [x] Summarize the latest service health independently for every model/version pair.
+- [x] Reduce drift history to the latest state per model/version/feature before calculating breach totals.
+- [x] Include drift-only deployments without inventing service counters or latency values.
+- [x] Show requests, error percentage/count, p95 latency, and drift breach/feature counts in one native table.
+- [x] Sort model rows deterministically, cap the overview at 128 deployments, and scroll horizontally in narrow panes.
+- [x] Test latest-event selection, latest-feature drift semantics, deterministic order, drift-only state, and fleet bounds.
+
+Implementation notes:
+
+- Overview aggregation is derived on demand from validated retained telemetry and does not create another persisted state format.
+- Drift breach counts represent current latest-feature state rather than cumulative historical breach events.
 
 ## Known technical risks
 
