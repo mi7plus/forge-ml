@@ -20,6 +20,55 @@ pub struct NativeTrainingData {
     targets: Vec<f32>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Standardization {
+    feature_mean: f32,
+    feature_scale: f32,
+    target_mean: f32,
+    target_scale: f32,
+}
+
+fn standardize(
+    inputs: &mut [f32],
+    targets: &mut [f32],
+    training_rows: usize,
+) -> Result<Standardization, String> {
+    let mean = |values: &[f32]| values.iter().sum::<f32>() / values.len() as f32;
+    let scale = |values: &[f32], mean: f32| {
+        (values
+            .iter()
+            .map(|value| (value - mean).powi(2))
+            .sum::<f32>()
+            / values.len() as f32)
+            .sqrt()
+    };
+    let feature_mean = mean(&inputs[..training_rows]);
+    let feature_scale = scale(&inputs[..training_rows], feature_mean);
+    if !feature_scale.is_finite() || feature_scale <= f32::EPSILON {
+        return Err("Native Burn feature column must vary in the training partition".into());
+    }
+    let target_mean = mean(&targets[..training_rows]);
+    let measured_target_scale = scale(&targets[..training_rows], target_mean);
+    let target_scale = if measured_target_scale.is_finite() && measured_target_scale > f32::EPSILON
+    {
+        measured_target_scale
+    } else {
+        1.0
+    };
+    for value in inputs {
+        *value = (*value - feature_mean) / feature_scale;
+    }
+    for value in targets {
+        *value = (*value - target_mean) / target_scale;
+    }
+    Ok(Standardization {
+        feature_mean,
+        feature_scale,
+        target_mean,
+        target_scale,
+    })
+}
+
 pub fn native_training_data(
     dataset: &str,
     table: &TableData,
@@ -214,7 +263,7 @@ fn native_burn_training_demo_inner(
     device.seed(7);
     let mut model = LinearConfig::new(1, 1).init(&device);
     let mut optimizer = SgdConfig::new().init();
-    let (inputs, targets, data_label) = if let Some(data) = data {
+    let (mut inputs, mut targets, mut data_label) = if let Some(data) = data {
         let rows = data.inputs.len();
         (
             data.inputs,
@@ -238,6 +287,14 @@ fn native_burn_training_demo_inner(
         0
     };
     let training_rows = inputs.len() - validation_rows;
+    let standardization = standardize(&mut inputs, &mut targets, training_rows)?;
+    data_label.push_str(&format!(
+        " · x μ={:.4} σ={:.4}, y μ={:.4} σ={:.4}",
+        standardization.feature_mean,
+        standardization.feature_scale,
+        standardization.target_mean,
+        standardization.target_scale
+    ));
     let input =
         Tensor::<1>::from_floats(&inputs[..training_rows], &device).reshape([training_rows, 1]);
     let target =
@@ -261,7 +318,7 @@ fn native_burn_training_demo_inner(
         },
         TrainingEvent::Started {
             job: format!(
-                "Embedded Burn {} linear regression · {} ({} epochs, lr {}, val {:.0}%, patience {})",
+                "Embedded Burn {} linear regression · {} ({} epochs, lr {}, val {:.0}%, patience {}, standardized)",
                 backend.label(),
                 data_label,
                 config.epochs,
@@ -286,7 +343,8 @@ fn native_burn_training_demo_inner(
         }
         let output = model.forward(input.clone());
         let loss = (output - target.clone()).powf_scalar(2.0).mean();
-        let loss_value = loss.clone().into_scalar::<f32>() as f64;
+        let loss_value = loss.clone().into_scalar::<f32>() as f64
+            * f64::from(standardization.target_scale).powi(2);
         if !loss_value.is_finite() {
             return Err("Embedded Burn training produced a non-finite loss".into());
         }
@@ -295,10 +353,11 @@ fn native_burn_training_demo_inner(
         model = optimizer.step(config.learning_rate, model, gradients);
         final_loss = Some(loss_value);
         let validation_loss = validation.as_ref().map(|(input, target)| {
-            (model.forward(input.clone()) - target.clone())
+            ((model.forward(input.clone()) - target.clone())
                 .powf_scalar(2.0)
                 .mean()
-                .into_scalar::<f32>() as f64
+                .into_scalar::<f32>() as f64)
+                * f64::from(standardization.target_scale).powi(2)
         });
         if validation_loss.is_some_and(|value| !value.is_finite()) {
             return Err("Embedded Burn validation produced a non-finite loss".into());
@@ -623,5 +682,24 @@ mod tests {
             )
             .is_err());
         }
+    }
+
+    #[test]
+    fn native_standardization_uses_training_partition_only() {
+        let mut inputs = vec![1_000.0, 2_000.0, 30_000.0];
+        let mut targets = vec![10_000.0, 20_000.0, 300_000.0];
+        let stats = standardize(&mut inputs, &mut targets, 2).unwrap();
+        assert_eq!(stats.feature_mean, 1_500.0);
+        assert_eq!(stats.feature_scale, 500.0);
+        assert_eq!(stats.target_mean, 15_000.0);
+        assert_eq!(stats.target_scale, 5_000.0);
+        assert_eq!(&inputs[..2], &[-1.0, 1.0]);
+        assert_eq!(&targets[..2], &[-1.0, 1.0]);
+        assert_eq!(inputs[2], 57.0);
+        assert_eq!(targets[2], 57.0);
+
+        let mut constant = vec![3.0, 3.0];
+        let mut target = vec![1.0, 2.0];
+        assert!(standardize(&mut constant, &mut target, 2).is_err());
     }
 }

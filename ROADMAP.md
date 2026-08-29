@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.83.0`
+Current application version: `0.84.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1506,6 +1506,22 @@ Implementation notes:
 
 - The holdout uses the final prepared rows deterministically so repeated runs have directly comparable evaluation data. Randomized and stratified splits remain future pipeline-level capabilities.
 - Early-stopped runs are successful completed runs whose final epoch can be below the configured maximum; the typed epoch total continues to record that original maximum.
+
+## 0.84 leakage-safe native standardization — implemented
+
+- [x] Compute feature and target means/scales from the training partition only.
+- [x] Apply the frozen training transform to both optimization and validation tensors.
+- [x] Reject zero-variance or non-finite training features before optimization.
+- [x] Support constant targets through a stable unit-scale fallback.
+- [x] Convert training and validation MSE back into original target units for telemetry.
+- [x] Include fitted scaling statistics in the monitored run provenance label.
+- [x] Preserve best-validation scoring and patience behavior in original units.
+- [x] Test exact training-only statistics, transformed holdout values, and constant-feature rejection.
+
+Implementation notes:
+
+- Standardization makes the embedded SGD defaults useful across ordinary column magnitudes without allowing holdout values to influence preprocessing.
+- Scaling parameters are currently provenance rather than a separately registered inference artifact; native model persistence is a subsequent milestone.
 
 ## Known technical risks
 
