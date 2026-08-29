@@ -52,6 +52,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - Background native batch inference into Arrow-backed prediction datasets
 - Configurable native batch feature-drift policy with mean-shift and scale-ratio monitoring plots
 - Restart-safe active native model, inference value, and drift-policy session state
+- Restart-safe embedded Burn backend, optimizer, validation, early-stopping, and dataset-column setup
 - Immutable model-registry versioning and integrity-verified loading for native regression artifacts
 - Standalone generated Rust inference services for registered native regression models
 - Native batch evaluation with MAE, RMSE, R², actual-vs-predicted, and residual plots

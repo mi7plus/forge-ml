@@ -39,6 +39,26 @@ fn default_drift_scale_ratio_upper() -> f64 {
     2.0
 }
 
+fn default_training_backend() -> crate::deep_learning::Backend {
+    crate::deep_learning::Backend::Cpu
+}
+
+fn default_training_epochs() -> usize {
+    40
+}
+
+fn default_training_learning_rate() -> f64 {
+    0.05
+}
+
+fn default_training_validation_fraction() -> f64 {
+    0.2
+}
+
+fn default_training_patience() -> usize {
+    5
+}
+
 const MAX_SESSION_PLOTS: usize = 128;
 const MAX_SESSION_PLOT_BYTES: usize = 16 * 1024 * 1024;
 
@@ -110,6 +130,22 @@ pub struct SessionState {
     pub drift_scale_ratio_lower: f64,
     #[serde(default = "default_drift_scale_ratio_upper")]
     pub drift_scale_ratio_upper: f64,
+    #[serde(default = "default_training_backend")]
+    pub native_training_backend: crate::deep_learning::Backend,
+    #[serde(default = "default_training_epochs")]
+    pub native_training_epochs: usize,
+    #[serde(default = "default_training_learning_rate")]
+    pub native_training_learning_rate: f64,
+    #[serde(default = "default_training_validation_fraction")]
+    pub native_training_validation_fraction: f64,
+    #[serde(default = "default_training_patience")]
+    pub native_training_patience: usize,
+    #[serde(default)]
+    pub native_training_use_dataset: bool,
+    #[serde(default)]
+    pub native_training_feature: String,
+    #[serde(default)]
+    pub native_training_target: String,
 }
 
 impl SessionState {
@@ -129,6 +165,34 @@ impl SessionState {
         }
         .validate()
         .unwrap_or_default()
+    }
+
+    pub fn validated_native_training_config(&self) -> crate::deep_learning::NativeTrainingConfig {
+        crate::deep_learning::NativeTrainingConfig {
+            epochs: self.native_training_epochs,
+            learning_rate: self.native_training_learning_rate,
+            validation_fraction: self.native_training_validation_fraction,
+            early_stopping_patience: self.native_training_patience,
+        }
+        .validate()
+        .unwrap_or(crate::deep_learning::NativeTrainingConfig {
+            early_stopping_patience: default_training_patience(),
+            ..Default::default()
+        })
+    }
+
+    pub fn validated_training_columns(&self) -> (String, String) {
+        fn safe(value: &str) -> String {
+            if value.len() <= 128 && !value.contains('\0') {
+                value.to_owned()
+            } else {
+                String::new()
+            }
+        }
+        (
+            safe(&self.native_training_feature),
+            safe(&self.native_training_target),
+        )
     }
 }
 
@@ -160,6 +224,14 @@ impl Default for SessionState {
             drift_mean_shift_threshold: default_drift_mean_shift_threshold(),
             drift_scale_ratio_lower: default_drift_scale_ratio_lower(),
             drift_scale_ratio_upper: default_drift_scale_ratio_upper(),
+            native_training_backend: default_training_backend(),
+            native_training_epochs: default_training_epochs(),
+            native_training_learning_rate: default_training_learning_rate(),
+            native_training_validation_fraction: default_training_validation_fraction(),
+            native_training_patience: default_training_patience(),
+            native_training_use_dataset: false,
+            native_training_feature: String::new(),
+            native_training_target: String::new(),
         }
     }
 }
@@ -182,6 +254,7 @@ mod tests {
         assert!(!state.diagnostics_opt_in);
         assert!(state.native_regression_artifact.is_none());
         assert_eq!(state.validated_drift_policy(), Default::default());
+        assert_eq!(state.validated_native_training_config().epochs, 40);
     }
 
     #[test]
@@ -249,6 +322,14 @@ mod tests {
             drift_mean_shift_threshold: 1.5,
             drift_scale_ratio_lower: 0.25,
             drift_scale_ratio_upper: 3.0,
+            native_training_backend: crate::deep_learning::Backend::Wgpu,
+            native_training_epochs: 250,
+            native_training_learning_rate: 0.01,
+            native_training_validation_fraction: 0.3,
+            native_training_patience: 12,
+            native_training_use_dataset: true,
+            native_training_feature: "temperature".into(),
+            native_training_target: "demand".into(),
             ..Default::default()
         };
         let restored: SessionState =
@@ -256,6 +337,22 @@ mod tests {
         assert_eq!(restored.validated_native_artifact(), Some(artifact));
         assert_eq!(restored.native_inference_feature, 4.5);
         assert_eq!(restored.validated_drift_policy().mean_shift_threshold, 1.5);
+        assert_eq!(
+            restored.native_training_backend,
+            crate::deep_learning::Backend::Wgpu
+        );
+        assert_eq!(restored.validated_native_training_config().epochs, 250);
+        assert_eq!(
+            restored
+                .validated_native_training_config()
+                .early_stopping_patience,
+            12
+        );
+        assert!(restored.native_training_use_dataset);
+        assert_eq!(
+            restored.validated_training_columns(),
+            ("temperature".into(), "demand".into())
+        );
 
         let invalid = SessionState {
             native_regression_artifact: Some(crate::deep_learning::NativeRegressionArtifact {
@@ -263,9 +360,17 @@ mod tests {
                 ..Default::default()
             }),
             drift_mean_shift_threshold: 0.0,
+            native_training_epochs: 0,
+            native_training_feature: "x".repeat(129),
+            native_training_target: "bad\0target".into(),
             ..Default::default()
         };
         assert!(invalid.validated_native_artifact().is_none());
         assert_eq!(invalid.validated_drift_policy(), Default::default());
+        assert_eq!(invalid.validated_native_training_config().epochs, 40);
+        assert_eq!(
+            invalid.validated_training_columns(),
+            (String::new(), String::new())
+        );
     }
 }

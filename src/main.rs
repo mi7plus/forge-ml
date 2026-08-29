@@ -606,6 +606,9 @@ impl ForgeApp {
         } else {
             0.0
         };
+        let native_training_config = session.validated_native_training_config();
+        let (native_training_feature, native_training_target) =
+            session.validated_training_columns();
         Self {
             tabs,
             active_tab,
@@ -722,14 +725,14 @@ impl ForgeApp {
             sql_editor: "SELECT 1 AS value;".into(),
             sql_output: String::new(),
             sql_history,
-            deep_backend: DeepBackend::Cpu,
+            deep_backend: session.native_training_backend,
             burn_training_cancel: None,
-            burn_training_epochs: 40,
-            burn_training_learning_rate: 0.05,
-            burn_training_validation_fraction: 0.2,
-            burn_training_use_dataset: false,
-            burn_training_feature: String::new(),
-            burn_training_target: String::new(),
+            burn_training_epochs: native_training_config.epochs,
+            burn_training_learning_rate: native_training_config.learning_rate,
+            burn_training_validation_fraction: native_training_config.validation_fraction,
+            burn_training_use_dataset: session.native_training_use_dataset,
+            burn_training_feature: native_training_feature,
+            burn_training_target: native_training_target,
             native_burn_artifact,
             drift_mean_shift_threshold: drift_policy.mean_shift_threshold,
             drift_scale_ratio_lower: drift_policy.scale_ratio_lower,
@@ -739,7 +742,7 @@ impl ForgeApp {
             resource_system: sysinfo::System::new_all(),
             resource_snapshot: ResourceSnapshot::default(),
             last_resource_poll: Instant::now(),
-            early_stopping_patience: 5,
+            early_stopping_patience: native_training_config.early_stopping_patience,
             resume_checkpoint: String::new(),
             remote_profiles,
             remote_name: "remote".into(),
@@ -7589,6 +7592,14 @@ impl eframe::App for ForgeApp {
             drift_mean_shift_threshold: self.drift_mean_shift_threshold,
             drift_scale_ratio_lower: self.drift_scale_ratio_lower,
             drift_scale_ratio_upper: self.drift_scale_ratio_upper,
+            native_training_backend: self.deep_backend,
+            native_training_epochs: self.burn_training_epochs,
+            native_training_learning_rate: self.burn_training_learning_rate,
+            native_training_validation_fraction: self.burn_training_validation_fraction,
+            native_training_patience: self.early_stopping_patience,
+            native_training_use_dataset: self.burn_training_use_dataset,
+            native_training_feature: self.burn_training_feature.clone(),
+            native_training_target: self.burn_training_target.clone(),
         };
         eframe::set_value(storage, STORAGE_KEY, &state);
     }

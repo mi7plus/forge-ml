@@ -542,7 +542,7 @@ impl Default for NativeTrainingConfig {
 }
 
 impl NativeTrainingConfig {
-    fn validate(self) -> Result<Self, String> {
+    pub fn validate(self) -> Result<Self, String> {
         if !(1..=MAX_NATIVE_EPOCHS).contains(&self.epochs) {
             return Err(format!(
                 "Native Burn epochs must be between 1 and {MAX_NATIVE_EPOCHS}"

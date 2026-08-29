@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.96.0`
+Current application version: `0.97.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1704,6 +1704,21 @@ Implementation notes:
 
 - Session restoration applies the same artifact and policy validators used by import and live inference.
 - Training data and dataset contents are not copied into application session storage; only the small fitted artifact and controls persist.
+
+## 0.97 durable native Burn training setup — implemented
+
+- [x] Persist the selected Burn backend across clean IDE restarts.
+- [x] Persist epochs, learning rate, validation fraction, and early-stopping patience.
+- [x] Persist selected-dataset mode plus feature and target column names.
+- [x] Validate restored optimization settings through the native trainer's shared validator.
+- [x] Bound and sanitize restored column names before displaying or using them.
+- [x] Restore safe training defaults when saved numeric configuration is invalid.
+- [x] Test valid round trips, legacy defaults, and invalid configuration fallback.
+
+Implementation notes:
+
+- The session stores training configuration only; selected dataset contents remain in the workspace data layer.
+- CUDA and ROCm selections can persist for generated projects, while embedded training continues to reject unsupported bundled backends explicitly.
 
 ## Known technical risks
 
