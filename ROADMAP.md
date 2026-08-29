@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.74.0`
+Current application version: `0.75.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1369,6 +1369,20 @@ Implementation notes:
 
 - Published Millwright telemetry remains compatible; run contexts are a Forge extension usable by Millwright, Burn, or custom producers.
 - A context event and its payload count as two retained typed events, keeping association explicit in portable audit artifacts.
+
+## 0.75 run-aware native concurrent training plots — implemented
+
+- [x] Route epoch loss/metric, batch loss/throughput, and trial scores through one-event run contexts.
+- [x] Keep interleaved jobs in distinct deterministic series labeled with job and run ID.
+- [x] Give sequential jobs unique run-number series and preserve an explicit unscoped legacy series.
+- [x] Cap every generated training plot at 128 deterministic series.
+- [x] Preserve same-name plot refresh, durable history, controls, and every existing visual export.
+- [x] Test separated interleaved loss/metric values, stable labels, plot counts, and plot validation.
+
+Implementation notes:
+
+- Batch-series X coordinates remain retained event positions because batch counters restart across epochs and runs.
+- Scoped `Started` events establish display names; a scoped metric received first falls back to its run ID.
 
 ## Known technical risks
 

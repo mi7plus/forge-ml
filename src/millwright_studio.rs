@@ -513,12 +513,38 @@ fn html_escape(value: &str) -> String {
 }
 
 pub fn training_plots(events: &[TrainingEvent]) -> Vec<PlotSpec> {
-    let mut epoch_loss = Vec::new();
-    let mut epoch_metric = Vec::new();
-    let mut batch_loss = Vec::new();
-    let mut throughput = Vec::new();
-    let mut trial_scores = Vec::new();
+    let mut epoch_loss = std::collections::BTreeMap::<String, Vec<[f64; 2]>>::new();
+    let mut epoch_metric = std::collections::BTreeMap::<String, Vec<[f64; 2]>>::new();
+    let mut batch_loss = std::collections::BTreeMap::<String, Vec<[f64; 2]>>::new();
+    let mut throughput = std::collections::BTreeMap::<String, Vec<[f64; 2]>>::new();
+    let mut trial_scores = std::collections::BTreeMap::<String, Vec<[f64; 2]>>::new();
+    let mut run_names = std::collections::BTreeMap::<String, String>::new();
+    let mut pending_context = None;
+    let mut sequential_run = 0usize;
+    let mut sequential_label = "Unscoped telemetry".to_owned();
     for (index, event) in events.iter().enumerate() {
+        if let TrainingEvent::RunContext { run_id } = event {
+            pending_context = Some(run_id.clone());
+            continue;
+        }
+        let context = pending_context.take();
+        if let TrainingEvent::Started { job, .. } = event {
+            if let Some(run_id) = context {
+                run_names.insert(run_id, job.clone());
+            } else {
+                sequential_run += 1;
+                sequential_label = format!("{job} #{sequential_run}");
+            }
+            continue;
+        }
+        let label = context.map_or_else(
+            || sequential_label.clone(),
+            |run_id| {
+                run_names
+                    .get(&run_id)
+                    .map_or_else(|| run_id.clone(), |job| format!("{job} [{run_id}]"))
+            },
+        );
         match event {
             TrainingEvent::Epoch {
                 epoch,
@@ -526,9 +552,15 @@ pub fn training_plots(events: &[TrainingEvent]) -> Vec<PlotSpec> {
                 metric,
                 ..
             } => {
-                epoch_loss.push([*epoch as f64, *loss]);
+                epoch_loss
+                    .entry(label.clone())
+                    .or_default()
+                    .push([*epoch as f64, *loss]);
                 if let Some(metric) = metric {
-                    epoch_metric.push([*epoch as f64, *metric]);
+                    epoch_metric
+                        .entry(label)
+                        .or_default()
+                        .push([*epoch as f64, *metric]);
                 }
             }
             TrainingEvent::Batch {
@@ -536,26 +568,37 @@ pub fn training_plots(events: &[TrainingEvent]) -> Vec<PlotSpec> {
                 samples_per_second,
                 ..
             } => {
-                batch_loss.push([index as f64, *loss]);
-                throughput.push([index as f64, *samples_per_second]);
+                batch_loss
+                    .entry(label.clone())
+                    .or_default()
+                    .push([index as f64, *loss]);
+                throughput
+                    .entry(label)
+                    .or_default()
+                    .push([index as f64, *samples_per_second]);
             }
             TrainingEvent::TrialCompleted { trial, score } => {
-                trial_scores.push([*trial as f64, *score]);
+                trial_scores
+                    .entry(label)
+                    .or_default()
+                    .push([*trial as f64, *score]);
             }
             _ => {}
         }
     }
     let mut plots = Vec::new();
-    let loss_series = [("epoch loss", epoch_loss), ("batch loss", batch_loss)]
-        .into_iter()
-        .filter(|(_, points)| !points.is_empty())
-        .map(|(name, points)| PlotSeries {
-            name: name.into(),
-            points,
-            values: Vec::new(),
-            visible: true,
-        })
-        .collect::<Vec<_>>();
+    let mut loss = std::collections::BTreeMap::new();
+    loss.extend(
+        epoch_loss
+            .into_iter()
+            .map(|(name, points)| (format!("{name} · epoch"), points)),
+    );
+    loss.extend(
+        batch_loss
+            .into_iter()
+            .map(|(name, points)| (format!("{name} · batch"), points)),
+    );
+    let loss_series = training_series(loss);
     if !loss_series.is_empty() {
         plots.push(training_plot("Training loss", "step", "loss", loss_series));
     }
@@ -564,12 +607,7 @@ pub fn training_plots(events: &[TrainingEvent]) -> Vec<PlotSpec> {
             "Training metric",
             "epoch",
             "metric",
-            vec![PlotSeries {
-                name: "metric".into(),
-                points: epoch_metric,
-                values: Vec::new(),
-                visible: true,
-            }],
+            training_series(epoch_metric),
         ));
     }
     if !trial_scores.is_empty() {
@@ -577,12 +615,7 @@ pub fn training_plots(events: &[TrainingEvent]) -> Vec<PlotSpec> {
             "Trial scores",
             "trial",
             "score",
-            vec![PlotSeries {
-                name: "score".into(),
-                points: trial_scores,
-                values: Vec::new(),
-                visible: true,
-            }],
+            training_series(trial_scores),
         ));
     }
     if !throughput.is_empty() {
@@ -590,15 +623,23 @@ pub fn training_plots(events: &[TrainingEvent]) -> Vec<PlotSpec> {
             "Training throughput",
             "batch event",
             "samples/s",
-            vec![PlotSeries {
-                name: "throughput".into(),
-                points: throughput,
-                values: Vec::new(),
-                visible: true,
-            }],
+            training_series(throughput),
         ));
     }
     plots
+}
+
+fn training_series(series: std::collections::BTreeMap<String, Vec<[f64; 2]>>) -> Vec<PlotSeries> {
+    series
+        .into_iter()
+        .take(128)
+        .map(|(name, points)| PlotSeries {
+            name,
+            points,
+            values: Vec::new(),
+            visible: true,
+        })
+        .collect()
 }
 
 fn training_plot(name: &str, x_label: &str, y_label: &str, series: Vec<PlotSeries>) -> PlotSpec {
@@ -866,6 +907,45 @@ mod tests {
         assert_eq!(plots.len(), 4);
         assert!(plots.iter().all(|plot| plot.validate().is_ok()));
         assert_eq!(plots[0].series.len(), 2);
+    }
+
+    #[test]
+    fn interleaved_training_plots_keep_run_series_separate() {
+        let events = vec![
+            TrainingEvent::RunContext { run_id: "a".into() },
+            TrainingEvent::Started {
+                job: "alpha".into(),
+                total_trials: 1,
+            },
+            TrainingEvent::RunContext { run_id: "b".into() },
+            TrainingEvent::Started {
+                job: "beta".into(),
+                total_trials: 1,
+            },
+            TrainingEvent::RunContext { run_id: "a".into() },
+            TrainingEvent::Epoch {
+                epoch: 1,
+                total: 2,
+                loss: 0.8,
+                metric: Some(0.7),
+            },
+            TrainingEvent::RunContext { run_id: "b".into() },
+            TrainingEvent::Epoch {
+                epoch: 1,
+                total: 2,
+                loss: 0.4,
+                metric: Some(0.9),
+            },
+        ];
+        let plots = training_plots(&events);
+        assert_eq!(plots.len(), 2);
+        assert_eq!(plots[0].series.len(), 2);
+        assert_eq!(plots[1].series.len(), 2);
+        assert_eq!(plots[0].series[0].name, "alpha [a] · epoch");
+        assert_eq!(plots[0].series[0].points[0][1], 0.8);
+        assert_eq!(plots[0].series[1].name, "beta [b] · epoch");
+        assert_eq!(plots[0].series[1].points[0][1], 0.4);
+        assert!(plots.iter().all(|plot| plot.validate().is_ok()));
     }
 
     #[test]
