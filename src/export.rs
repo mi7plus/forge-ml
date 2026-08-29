@@ -658,6 +658,15 @@ pub fn monitoring_bundle(
     atomic_bytes(path, &bytes)
 }
 
+pub fn monitoring_csv(
+    service_events: &[ServiceEvent],
+    drift_events: &[DriftEvent],
+    path: &Path,
+) -> Result<(), String> {
+    let bytes = service_monitor::monitoring_csv(service_events, drift_events)?;
+    atomic_bytes(path, &bytes)
+}
+
 pub struct ImportedMonitoringBundle {
     pub snapshot: service_monitor::MonitoringSnapshot,
     pub plots: Vec<plot::PlotSpec>,

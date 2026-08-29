@@ -3561,6 +3561,23 @@ impl ForgeApp {
                             .unwrap_or_else(|error| format!("Monitoring export failed: {error}"));
                 }
             }
+            if (!self.service_events.is_empty() || !self.drift_events.is_empty())
+                && ui.button("Export CSV").clicked()
+            {
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_file_name("forge-deployment-monitoring.csv")
+                    .save_file()
+                {
+                    self.registry_output =
+                        export::monitoring_csv(&self.service_events, &self.drift_events, &path)
+                            .map(|()| {
+                                format!("Exported monitoring CSV to {}", path.display())
+                            })
+                            .unwrap_or_else(|error| {
+                                format!("Monitoring CSV export failed: {error}")
+                            });
+                }
+            }
             if ui.button("Import snapshot").clicked() {
                 if let Some(path) = rfd::FileDialog::new()
                     .add_filter("Forge monitoring JSON", &["json"])

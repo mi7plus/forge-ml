@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.69.0`
+Current application version: `0.70.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1298,6 +1298,20 @@ Implementation notes:
 
 - Failed imports leave service events, drift events, and structured plot history unchanged.
 - The HTML report is attested as a portable audit artifact but is never executed during import.
+
+## 0.70 portable deployment monitoring CSV audit — implemented
+
+- [x] Export service-health and feature-drift events in one stable tabular schema.
+- [x] Preserve source stream, event index, model/version, counters, latency, feature, score, threshold, and breach status.
+- [x] Apply standards-compliant quoting for commas, quotes, and embedded newlines.
+- [x] Revalidate event counts and contents before export and cap output at 16 MiB.
+- [x] Publish the CSV atomically so a failed write cannot replace an existing export.
+- [x] Test the exported schema and values by parsing the generated CSV.
+
+Implementation notes:
+
+- Stream-specific fields remain blank rather than overloading sentinel values, which keeps downstream type inference predictable.
+- CSV export is intentionally one-way; the versioned JSON snapshot and verified bundle remain the state-restoration formats.
 
 ## Known technical risks
 

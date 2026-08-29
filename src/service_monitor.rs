@@ -117,6 +117,84 @@ pub fn parse_snapshot(bytes: &[u8]) -> Result<MonitoringSnapshot, String> {
     Ok(snapshot)
 }
 
+pub fn monitoring_csv(
+    service_events: &[ServiceEvent],
+    drift_events: &[DriftEvent],
+) -> Result<Vec<u8>, String> {
+    if service_events.is_empty() && drift_events.is_empty() {
+        return Err("No deployment monitoring events are available for CSV export".into());
+    }
+    if service_events.len() > MAX_MONITOR_EVENTS
+        || drift_events.len() > MAX_MONITOR_EVENTS
+        || service_events.iter().any(|event| !valid_service(event))
+        || drift_events.iter().any(|event| !valid_drift(event))
+    {
+        return Err("Deployment monitoring CSV contains invalid or excessive events".into());
+    }
+    let mut writer = csv::Writer::from_writer(Vec::new());
+    writer
+        .write_record([
+            "stream",
+            "index",
+            "model",
+            "version",
+            "requests",
+            "errors",
+            "p95_ms",
+            "feature",
+            "score",
+            "threshold",
+            "status",
+        ])
+        .map_err(|error| error.to_string())?;
+    for (index, event) in service_events.iter().enumerate() {
+        writer
+            .write_record([
+                "service".into(),
+                (index + 1).to_string(),
+                event.model.clone(),
+                event.version.clone(),
+                event.requests.to_string(),
+                event.errors.to_string(),
+                event
+                    .p95_ms
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+            ])
+            .map_err(|error| error.to_string())?;
+    }
+    for (index, event) in drift_events.iter().enumerate() {
+        writer
+            .write_record([
+                "drift".into(),
+                (index + 1).to_string(),
+                event.model.clone(),
+                event.version.clone(),
+                String::new(),
+                String::new(),
+                String::new(),
+                event.feature.clone(),
+                event.score.to_string(),
+                event.threshold.to_string(),
+                if event.score > event.threshold {
+                    "breach".into()
+                } else {
+                    "ok".into()
+                },
+            ])
+            .map_err(|error| error.to_string())?;
+    }
+    let output = writer.into_inner().map_err(|error| error.to_string())?;
+    if output.len() > MAX_MONITOR_JSON_BYTES {
+        return Err("Deployment monitoring CSV exceeds the 16 MiB export limit".into());
+    }
+    Ok(output)
+}
+
 pub fn monitoring_plots(
     service_events: &[ServiceEvent],
     drift_events: &[DriftEvent],
@@ -476,6 +554,33 @@ mod tests {
         assert!(plots.iter().all(|plot| plot.validate().is_ok()));
         assert_eq!(plots[1].series[0].points[0][1], 2.0);
         assert_eq!(plots[3].series.len(), 2);
+    }
+
+    #[test]
+    fn monitoring_csv_is_structured_escaped_and_validated() {
+        let services = vec![ServiceEvent {
+            model: "iris, \"wide\"".into(),
+            version: "1".into(),
+            requests: 100,
+            errors: 2,
+            p95_ms: Some(4.0),
+        }];
+        let drift = vec![DriftEvent {
+            model: "iris".into(),
+            version: "1".into(),
+            feature: "petal\nwidth".into(),
+            score: 0.3,
+            threshold: 0.2,
+        }];
+        let output = monitoring_csv(&services, &drift).unwrap();
+        let mut reader = csv::Reader::from_reader(output.as_slice());
+        assert_eq!(reader.headers().unwrap().len(), 11);
+        let rows = reader.records().collect::<Result<Vec<_>, _>>().unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(&rows[0][2], "iris, \"wide\"");
+        assert_eq!(&rows[1][7], "petal\nwidth");
+        assert_eq!(&rows[1][10], "breach");
+        assert!(monitoring_csv(&[], &[]).is_err());
     }
 
     #[test]
