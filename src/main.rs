@@ -4028,6 +4028,26 @@ impl ForgeApp {
                 artifact.best_score,
                 artifact.epochs_completed
             ));
+            ui.label(format!(
+                "Schema {} · backend {} · rows {} (train {}, validation {}) · data SHA {}",
+                artifact.schema,
+                if artifact.backend.is_empty() {
+                    "legacy"
+                } else {
+                    &artifact.backend
+                },
+                artifact.rows,
+                artifact.training_rows,
+                artifact.validation_rows,
+                if artifact.data_sha256.is_empty() {
+                    "unavailable"
+                } else {
+                    artifact
+                        .data_sha256
+                        .get(..12)
+                        .unwrap_or(&artifact.data_sha256)
+                }
+            ));
             ui.horizontal(|ui| {
                 ui.add(
                     egui::DragValue::new(&mut self.native_burn_inference_feature)
@@ -4049,6 +4069,27 @@ impl ForgeApp {
                         self.sql_output = export::native_regression_artifact(&artifact, &path)
                             .map(|()| format!("Exported native model to {}", path.display()))
                             .unwrap_or_else(|error| format!("Model export failed: {error}"));
+                    }
+                }
+                if ui.button("Export model card…").clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .set_file_name("native-burn-model-card.html")
+                        .add_filter("HTML", &["html"])
+                        .save_file()
+                    {
+                        let policy = deep_learning::DriftPolicy {
+                            mean_shift_threshold: self.drift_mean_shift_threshold,
+                            scale_ratio_lower: self.drift_scale_ratio_lower,
+                            scale_ratio_upper: self.drift_scale_ratio_upper,
+                        };
+                        self.sql_output =
+                            export::native_regression_model_card(&artifact, policy, &path)
+                                .map(|()| {
+                                    format!("Exported native model card to {}", path.display())
+                                })
+                                .unwrap_or_else(|error| {
+                                    format!("Model-card export failed: {error}")
+                                });
                     }
                 }
                 if ui.button("Predict selected dataset").clicked() {

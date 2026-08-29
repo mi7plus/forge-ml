@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.97.0`
+Current application version: `0.98.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1719,6 +1719,21 @@ Implementation notes:
 
 - The session stores training configuration only; selected dataset contents remain in the workspace data layer.
 - CUDA and ROCm selections can persist for generated projects, while embedded training continues to reject unsupported bundled backends explicitly.
+
+## 0.98 native regression model cards — implemented
+
+- [x] Show artifact schema, backend, row split, and digest summary beside the active model.
+- [x] Export a self-contained offline HTML model card from the Deep Learning pane.
+- [x] Document the fitted equation, evaluation score, epochs, preprocessing, and optimizer settings.
+- [x] Include dataset provenance, admitted/train/validation rows, and exact data SHA-256 when available.
+- [x] Record the current native inference drift policy without embedding dataset values.
+- [x] Validate the artifact and policy before atomic model-card publication.
+- [x] Test offline output, HTML escaping, and atomic export behavior.
+
+Implementation notes:
+
+- Legacy schema-1 artifacts produce cards with unavailable provenance fields rather than invented values.
+- Model cards are capped at 512 KiB and contain no scripts, remote resources, training vectors, or dataset records.
 
 ## Known technical risks
 

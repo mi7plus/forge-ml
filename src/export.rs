@@ -1122,6 +1122,60 @@ pub fn native_regression_artifact(
     atomic_bytes(path, &bytes)
 }
 
+pub fn native_regression_model_card(
+    artifact: &crate::deep_learning::NativeRegressionArtifact,
+    policy: crate::deep_learning::DriftPolicy,
+    path: &Path,
+) -> Result<(), String> {
+    artifact.validate()?;
+    let policy = policy.validate()?;
+    let value = |text: &str| {
+        if text.is_empty() {
+            "—".to_owned()
+        } else {
+            escape(text)
+        }
+    };
+    let report = html(
+        "Native regression model card",
+        &format!(
+            "<h1>Native regression model card</h1><p><strong>{}</strong> predicts <strong>{}</strong> from <strong>{}</strong>.</p><h2>Model</h2><table><tr><th>Run</th><td>{}</td></tr><tr><th>Artifact schema</th><td>{}</td></tr><tr><th>Backend</th><td>{}</td></tr><tr><th>Equation</th><td>{} = {:.8} × {} + {:.8}</td></tr><tr><th>Best score</th><td>{:.8}</td></tr><tr><th>Completed epochs</th><td>{}</td></tr></table><h2>Data provenance</h2><table><tr><th>Dataset</th><td>{}</td></tr><tr><th>Admitted rows</th><td>{}</td></tr><tr><th>Training rows</th><td>{}</td></tr><tr><th>Validation rows</th><td>{}</td></tr><tr><th>Data SHA-256</th><td><code>{}</code></td></tr></table><h2>Preprocessing and optimization</h2><table><tr><th>Feature mean / scale</th><td>{:.8} / {:.8}</td></tr><tr><th>Target mean / scale</th><td>{:.8} / {:.8}</td></tr><tr><th>Learning rate</th><td>{:.8}</td></tr><tr><th>Configured epochs</th><td>{}</td></tr><tr><th>Validation fraction</th><td>{:.4}</td></tr><tr><th>Early-stopping patience</th><td>{}</td></tr></table><h2>Inference drift policy</h2><table><tr><th>Mean-shift threshold</th><td>{:.4}σ</td></tr><tr><th>Scale-ratio range</th><td>{:.4}–{:.4}</td></tr></table><p>This card describes the fitted artifact and current IDE inference policy. It does not embed training records or dataset values.</p>",
+            value(&artifact.run_id),
+            value(&artifact.target),
+            value(&artifact.feature),
+            value(&artifact.run_id),
+            artifact.schema,
+            value(&artifact.backend),
+            value(&artifact.target),
+            artifact.slope,
+            value(&artifact.feature),
+            artifact.intercept,
+            artifact.best_score,
+            artifact.epochs_completed,
+            value(&artifact.dataset),
+            artifact.rows,
+            artifact.training_rows,
+            artifact.validation_rows,
+            value(&artifact.data_sha256),
+            artifact.feature_mean,
+            artifact.feature_scale,
+            artifact.target_mean,
+            artifact.target_scale,
+            artifact.learning_rate,
+            artifact.configured_epochs,
+            artifact.validation_fraction,
+            artifact.early_stopping_patience,
+            policy.mean_shift_threshold,
+            policy.scale_ratio_lower,
+            policy.scale_ratio_upper,
+        ),
+    );
+    if report.len() > 512 * 1024 {
+        return Err("Native regression model card exceeds the 512 KiB limit".into());
+    }
+    atomic_bytes(path, report.as_bytes())
+}
+
 pub fn import_native_regression_artifact(
     path: &Path,
 ) -> Result<crate::deep_learning::NativeRegressionArtifact, String> {
@@ -1187,6 +1241,41 @@ mod tests {
         invalid.schema = 99;
         assert!(native_regression_artifact(&invalid, &root).is_err());
         let _ = fs::remove_file(root);
+    }
+
+    #[test]
+    fn native_regression_model_card_is_offline_escaped_and_atomic() {
+        let path = std::env::temp_dir().join(format!(
+            "forge-native-model-card-{}.html",
+            std::process::id()
+        ));
+        let artifact = crate::deep_learning::NativeRegressionArtifact {
+            schema: 1,
+            run_id: "<unsafe-run>".into(),
+            dataset: "sample".into(),
+            feature: "x".into(),
+            target: "y".into(),
+            slope: 2.0,
+            intercept: 1.0,
+            feature_scale: 1.0,
+            target_scale: 1.0,
+            best_score: 0.1,
+            epochs_completed: 3,
+            ..Default::default()
+        };
+        native_regression_model_card(
+            &artifact,
+            crate::deep_learning::DriftPolicy::default(),
+            &path,
+        )
+        .unwrap();
+        let report = fs::read_to_string(&path).unwrap();
+        assert!(report.contains("Native regression model card"));
+        assert!(report.contains("&lt;unsafe-run&gt;"));
+        assert!(!report.contains("<unsafe-run>"));
+        assert!(!report.contains("https://"));
+        assert!(report.contains("1.0000σ"));
+        let _ = fs::remove_file(path);
     }
 
     #[test]
