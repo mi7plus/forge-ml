@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.87.0`
+Current application version: `0.88.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1570,6 +1570,22 @@ Implementation notes:
 
 - Native artifacts share the project-local `.forge/models` registry and therefore participate in the same version listing, alias promotion, and tamper detection as ONNX and adapter artifacts.
 - Registry loading is all-or-nothing: an integrity, format, or schema failure leaves the currently active native model unchanged.
+
+## 0.88 executable native regression services — implemented
+
+- [x] Recognize registered `forge-native-regression` artifacts during Rust service generation.
+- [x] Validate artifact integrity and schema before creating any service directory.
+- [x] Load and reverify the bundled immutable model during service startup.
+- [x] Implement original-unit `POST /predict` inference instead of adapter pass-through.
+- [x] Bound request bodies at 1 MiB and feature vectors at 10,000 finite values.
+- [x] Reject non-finite outputs and expose health, readiness, metadata, and request telemetry.
+- [x] Retain generated Docker, Compose, Kubernetes, and SHA-256 operational contracts.
+- [x] Compile the generated standalone Cargo project in automated tests.
+
+Implementation notes:
+
+- Native generated services need only Axum, Tokio, Serde, Serde JSON, and SHA-256; neither Python nor Burn is required for original-unit linear inference.
+- The generic adapter scaffold remains explicit for other non-ONNX formats, while native regression and ONNX now both generate executable inference handlers.
 
 ## Known technical risks
 

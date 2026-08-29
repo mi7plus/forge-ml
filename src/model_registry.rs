@@ -302,6 +302,10 @@ pub fn generate_inference_service(
     model_path: &Path,
 ) -> Result<PathBuf, String> {
     validate(crate_name)?;
+    let native_regression = version.format == "forge-native-regression";
+    if native_regression {
+        crate::export::import_native_regression_artifact(model_path)?;
+    }
     let destination = root.join(format!("{crate_name}-service"));
     if destination.exists() {
         return Err(format!("{} already exists", destination.display()));
@@ -318,6 +322,77 @@ pub fn generate_inference_service(
     fs::copy(model_path, &bundled_model).map_err(|e| e.to_string())?;
     let (service_sha256, service_size_bytes) = artifact_identity(&bundled_model)?;
     let onnx = version.format.eq_ignore_ascii_case("onnx");
+    let cargo = if onnx {
+        format!("[package]\nname = \"{crate_name}-service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\naxum = \"0.8\"\ntokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\", \"net\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nsha2 = \"0.10\"\nmillwright = {{ version = \"2.2.1\", default-features = false, features = [\"serve\"] }}\n")
+    } else if native_regression {
+        format!(
+            r#"use axum::{{extract::{{DefaultBodyLimit, State}}, http::StatusCode, routing::{{get, post}}, Json, Router}};
+use serde::{{Deserialize, Serialize}};
+use sha2::{{Digest, Sha256}};
+use std::io::Read;
+use std::sync::{{atomic::{{AtomicU64, Ordering}}, Arc}};
+const MODEL_PATH: &str = "models/model.{extension}";
+const MODEL: &str = {model:?};
+const VERSION: &str = {version_number:?};
+const SHA256: &str = {sha256:?};
+const SIZE_BYTES: u64 = {size_bytes};
+static REQUESTS: AtomicU64 = AtomicU64::new(0);
+#[derive(Deserialize)] struct NativeModel {{ schema: u32, slope: f64, intercept: f64, feature: String, target: String }}
+#[derive(Deserialize)] struct Request {{ values: Vec<f64> }}
+#[derive(Serialize)] struct Response {{ values: Vec<f64>, model: &'static str, version: &'static str }}
+#[derive(Serialize)] struct Metadata {{ model: &'static str, version: &'static str, format: &'static str, artifact: &'static str, feature: String, target: String, requests: u64, sha256: &'static str, size_bytes: u64 }}
+fn integrity_ok() -> bool {{
+    let Ok(mut file) = std::fs::File::open(MODEL_PATH) else {{ return false }};
+    let mut hasher = Sha256::new();
+    let mut size = 0_u64;
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {{
+        let Ok(read) = file.read(&mut buffer) else {{ return false }};
+        if read == 0 {{ break }}
+        hasher.update(&buffer[..read]);
+        size = size.saturating_add(read as u64);
+    }}
+    size == SIZE_BYTES && format!("{{:x}}", hasher.finalize()) == SHA256
+}}
+fn load_model() -> Result<NativeModel, Box<dyn std::error::Error>> {{
+    if !integrity_ok() {{ return Err("model integrity check failed".into()) }}
+    let model: NativeModel = serde_json::from_slice(&std::fs::read(MODEL_PATH)?)?;
+    if model.schema != 1 || !model.slope.is_finite() || !model.intercept.is_finite() {{ return Err("invalid native regression artifact".into()) }}
+    Ok(model)
+}}
+async fn health() -> &'static str {{ "ok" }}
+async fn ready() -> Result<&'static str, (StatusCode, &'static str)> {{
+    integrity_ok().then_some("ready").ok_or((StatusCode::SERVICE_UNAVAILABLE, "model integrity check failed"))
+}}
+async fn metadata(State(model): State<Arc<NativeModel>>) -> Json<Metadata> {{
+    Json(Metadata {{ model: MODEL, version: VERSION, format: "forge-native-regression", artifact: MODEL_PATH, feature: model.feature.clone(), target: model.target.clone(), requests: REQUESTS.load(Ordering::Relaxed), sha256: SHA256, size_bytes: SIZE_BYTES }})
+}}
+async fn predict(State(model): State<Arc<NativeModel>>, Json(input): Json<Request>) -> Result<Json<Response>, (StatusCode, &'static str)> {{
+    if input.values.len() > 10_000 || input.values.iter().any(|value| !value.is_finite()) {{ return Err((StatusCode::BAD_REQUEST, "values must contain at most 10000 finite numbers")) }}
+    let values = input.values.into_iter().map(|value| model.slope.mul_add(value, model.intercept)).collect::<Vec<_>>();
+    if values.iter().any(|value| !value.is_finite()) {{ return Err((StatusCode::UNPROCESSABLE_ENTITY, "prediction produced a non-finite value")) }}
+    let requests = REQUESTS.fetch_add(1, Ordering::Relaxed) + 1;
+    println!("forge_service:{{}}", serde_json::json!({{"model": MODEL, "version": VERSION, "requests": requests, "errors": 0}}));
+    Ok(Json(Response {{ values, model: MODEL, version: VERSION }}))
+}}
+#[tokio::main] async fn main() -> Result<(), Box<dyn std::error::Error>> {{
+    if std::env::args().any(|arg| arg == "--healthcheck") {{ std::process::exit(if integrity_ok() {{ 0 }} else {{ 1 }}); }}
+    let model = Arc::new(load_model()?);
+    let app = Router::new().route("/health", get(health)).route("/ready", get(ready)).route("/metadata", get(metadata)).route("/predict", post(predict)).layer(DefaultBodyLimit::max(1024 * 1024)).with_state(model);
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
+    axum::serve(listener, app).await?;
+    Ok(())
+}}
+"#,
+            model = version.model,
+            version_number = version.version,
+            sha256 = service_sha256,
+            size_bytes = service_size_bytes,
+        )
+    } else {
+        format!("[package]\nname = \"{crate_name}-service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\naxum = \"0.8\"\ntokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\", \"net\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nserde_json = \"1\"\nsha2 = \"0.10\"\n")
+    };
+    let native_main = native_regression.then(|| cargo.clone());
     let cargo = if onnx {
         format!("[package]\nname = \"{crate_name}-service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\naxum = \"0.8\"\ntokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\", \"net\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nsha2 = \"0.10\"\nmillwright = {{ version = \"2.2.1\", default-features = false, features = [\"serve\"] }}\n")
     } else {
@@ -375,6 +450,8 @@ async fn metadata() -> Json<Metadata> {{ Json(Metadata {{ model: MODEL, version:
             sha256 = service_sha256,
             size_bytes = service_size_bytes,
         )
+    } else if let Some(native_main) = native_main {
+        native_main
     } else {
         format!(
             r#"use axum::{{routing::{{get, post}}, Json, Router}};
@@ -437,6 +514,8 @@ async fn predict(Json(input): Json<Request>) -> Json<Response> {{
     fs::write(destination.join("compose.yaml"), "services:\n  model:\n    build: .\n    ports: [\"3000:3000\"]\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD\", \"/usr/local/bin/model-service\", \"--healthcheck\"]\n      interval: 10s\n      timeout: 3s\n      retries: 3\n").map_err(|e| e.to_string())?;
     let prediction_note = if onnx {
         "`POST /predict` accepts `{\"rows\":[[...], ...]}` and performs bounded, timeout-protected inference through the published Millwright 2.2.1 ONNX runtime."
+    } else if native_regression {
+        "`POST /predict` accepts `{\"values\":[...]}` with at most 10,000 finite feature values and returns original-unit native regression predictions."
     } else {
         "The generated `POST /predict` handler is integration scaffolding; replace its pass-through body with the tensor adapter for the selected model format before production use."
     };
@@ -594,6 +673,48 @@ mod tests {
         assert!(cargo.contains("millwright = { version = \"2.2.1\""));
         assert!(service.join("deployment.yaml").is_file());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn generated_native_regression_service_executes_bounded_equation() {
+        let root =
+            std::env::temp_dir().join(format!("forge-native-service-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let artifact_path = root.join("native.json");
+        crate::export::native_regression_artifact(&native_artifact(2.0), &artifact_path).unwrap();
+        let (sha256, size_bytes) = artifact_identity(&artifact_path).unwrap();
+        let version = ModelVersion {
+            model: "linear".into(),
+            version: "1.0.0".into(),
+            format: "forge-native-regression".into(),
+            artifact: "unused".into(),
+            created_at_unix: 0,
+            tags: vec!["native-burn".into()],
+            sha256,
+            size_bytes,
+        };
+        let service =
+            generate_inference_service(&root, "native-linear", &version, &artifact_path).unwrap();
+        let source = fs::read_to_string(service.join("src/main.rs")).unwrap();
+        assert!(source.contains("model.slope.mul_add(value, model.intercept)"));
+        assert!(source.contains("input.values.len() > 10_000"));
+        assert!(source.contains("DefaultBodyLimit::max(1024 * 1024)"));
+        assert!(source.contains("load_model()?"));
+        let readme = fs::read_to_string(service.join("README.md")).unwrap();
+        assert!(readme.contains("original-unit native regression predictions"));
+        assert!(!readme.contains("integration scaffolding"));
+        let status = std::process::Command::new("cargo")
+            .args(["check", "--quiet"])
+            .current_dir(&service)
+            .env(
+                "CARGO_TARGET_DIR",
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("target/generated-native-service-check"),
+            )
+            .status()
+            .unwrap();
+        let _ = fs::remove_dir_all(root);
+        assert!(status.success());
     }
 
     #[test]
