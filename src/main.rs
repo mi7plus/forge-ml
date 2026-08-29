@@ -599,6 +599,13 @@ impl ForgeApp {
                     .position(|tab| tab.path.as_ref() == Some(&active))
             })
             .unwrap_or(0);
+        let native_burn_artifact = session.validated_native_artifact();
+        let drift_policy = session.validated_drift_policy();
+        let native_burn_inference_feature = if session.native_inference_feature.is_finite() {
+            session.native_inference_feature
+        } else {
+            0.0
+        };
         Self {
             tabs,
             active_tab,
@@ -723,11 +730,11 @@ impl ForgeApp {
             burn_training_use_dataset: false,
             burn_training_feature: String::new(),
             burn_training_target: String::new(),
-            native_burn_artifact: None,
-            drift_mean_shift_threshold: 1.0,
-            drift_scale_ratio_lower: 0.5,
-            drift_scale_ratio_upper: 2.0,
-            native_burn_inference_feature: 0.0,
+            native_burn_artifact,
+            drift_mean_shift_threshold: drift_policy.mean_shift_threshold,
+            drift_scale_ratio_lower: drift_policy.scale_ratio_lower,
+            drift_scale_ratio_upper: drift_policy.scale_ratio_upper,
+            native_burn_inference_feature,
             deep_outputs: DeepOutputs::default(),
             resource_system: sysinfo::System::new_all(),
             resource_snapshot: ResourceSnapshot::default(),
@@ -7577,6 +7584,11 @@ impl eframe::App for ForgeApp {
             selected_jupyter_kernel: self.selected_jupyter_kernel.clone(),
             python_environment_fingerprint: self.python_environment_fingerprint.clone(),
             structured_plots: session::bounded_plots(&self.structured_plots),
+            native_regression_artifact: self.native_burn_artifact.clone(),
+            native_inference_feature: self.native_burn_inference_feature,
+            drift_mean_shift_threshold: self.drift_mean_shift_threshold,
+            drift_scale_ratio_lower: self.drift_scale_ratio_lower,
+            drift_scale_ratio_upper: self.drift_scale_ratio_upper,
         };
         eframe::set_value(storage, STORAGE_KEY, &state);
     }

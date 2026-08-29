@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.95.0`
+Current application version: `0.96.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1689,6 +1689,21 @@ Implementation notes:
 
 - Policies must satisfy a positive mean threshold and `0 < scale lower < 1 < scale upper`.
 - The combined monitoring event remains compatible with the existing score threshold of 1.0; explainable fields retain the original measurements and policy.
+
+## 0.96 durable native ML session state — implemented
+
+- [x] Persist the active native regression artifact across clean IDE restarts.
+- [x] Persist the scalar inference value and configurable drift policy.
+- [x] Validate restored artifacts before exposing inference, registry, or deployment actions.
+- [x] Reject invalid persisted policy values and restore safe defaults.
+- [x] Ignore non-finite persisted scalar inference values.
+- [x] Preserve backward compatibility for sessions created before native ML state existed.
+- [x] Test valid round trips plus invalid artifact and policy fallback behavior.
+
+Implementation notes:
+
+- Session restoration applies the same artifact and policy validators used by import and live inference.
+- Training data and dataset contents are not copied into application session storage; only the small fitted artifact and controls persist.
 
 ## Known technical risks
 

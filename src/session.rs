@@ -27,6 +27,18 @@ fn default_comparison_metric() -> String {
     "loss".to_owned()
 }
 
+fn default_drift_mean_shift_threshold() -> f64 {
+    1.0
+}
+
+fn default_drift_scale_ratio_lower() -> f64 {
+    0.5
+}
+
+fn default_drift_scale_ratio_upper() -> f64 {
+    2.0
+}
+
 const MAX_SESSION_PLOTS: usize = 128;
 const MAX_SESSION_PLOT_BYTES: usize = 16 * 1024 * 1024;
 
@@ -88,6 +100,36 @@ pub struct SessionState {
     pub python_environment_fingerprint: String,
     #[serde(default)]
     pub structured_plots: Vec<PlotSpec>,
+    #[serde(default)]
+    pub native_regression_artifact: Option<crate::deep_learning::NativeRegressionArtifact>,
+    #[serde(default)]
+    pub native_inference_feature: f64,
+    #[serde(default = "default_drift_mean_shift_threshold")]
+    pub drift_mean_shift_threshold: f64,
+    #[serde(default = "default_drift_scale_ratio_lower")]
+    pub drift_scale_ratio_lower: f64,
+    #[serde(default = "default_drift_scale_ratio_upper")]
+    pub drift_scale_ratio_upper: f64,
+}
+
+impl SessionState {
+    pub fn validated_native_artifact(
+        &self,
+    ) -> Option<crate::deep_learning::NativeRegressionArtifact> {
+        self.native_regression_artifact
+            .clone()
+            .filter(|artifact| artifact.validate().is_ok())
+    }
+
+    pub fn validated_drift_policy(&self) -> crate::deep_learning::DriftPolicy {
+        crate::deep_learning::DriftPolicy {
+            mean_shift_threshold: self.drift_mean_shift_threshold,
+            scale_ratio_lower: self.drift_scale_ratio_lower,
+            scale_ratio_upper: self.drift_scale_ratio_upper,
+        }
+        .validate()
+        .unwrap_or_default()
+    }
 }
 
 impl Default for SessionState {
@@ -113,6 +155,11 @@ impl Default for SessionState {
             selected_jupyter_kernel: String::new(),
             python_environment_fingerprint: String::new(),
             structured_plots: Vec::new(),
+            native_regression_artifact: None,
+            native_inference_feature: 0.0,
+            drift_mean_shift_threshold: default_drift_mean_shift_threshold(),
+            drift_scale_ratio_lower: default_drift_scale_ratio_lower(),
+            drift_scale_ratio_upper: default_drift_scale_ratio_upper(),
         }
     }
 }
@@ -133,6 +180,8 @@ mod tests {
         assert!(!state.high_contrast);
         assert!(!state.reduced_motion);
         assert!(!state.diagnostics_opt_in);
+        assert!(state.native_regression_artifact.is_none());
+        assert_eq!(state.validated_drift_policy(), Default::default());
     }
 
     #[test]
@@ -176,5 +225,47 @@ mod tests {
             bounded_plots(&restored.structured_plots).len(),
             MAX_SESSION_PLOTS
         );
+    }
+
+    #[test]
+    fn native_model_and_drift_policy_round_trip_safely() {
+        let artifact = crate::deep_learning::NativeRegressionArtifact {
+            schema: 1,
+            run_id: "burn-flex-session".into(),
+            dataset: "sample".into(),
+            feature: "x".into(),
+            target: "y".into(),
+            slope: 2.0,
+            intercept: 1.0,
+            feature_scale: 1.0,
+            target_scale: 1.0,
+            best_score: 0.1,
+            epochs_completed: 2,
+            ..Default::default()
+        };
+        let state = SessionState {
+            native_regression_artifact: Some(artifact.clone()),
+            native_inference_feature: 4.5,
+            drift_mean_shift_threshold: 1.5,
+            drift_scale_ratio_lower: 0.25,
+            drift_scale_ratio_upper: 3.0,
+            ..Default::default()
+        };
+        let restored: SessionState =
+            serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+        assert_eq!(restored.validated_native_artifact(), Some(artifact));
+        assert_eq!(restored.native_inference_feature, 4.5);
+        assert_eq!(restored.validated_drift_policy().mean_shift_threshold, 1.5);
+
+        let invalid = SessionState {
+            native_regression_artifact: Some(crate::deep_learning::NativeRegressionArtifact {
+                schema: 99,
+                ..Default::default()
+            }),
+            drift_mean_shift_threshold: 0.0,
+            ..Default::default()
+        };
+        assert!(invalid.validated_native_artifact().is_none());
+        assert_eq!(invalid.validated_drift_policy(), Default::default());
     }
 }

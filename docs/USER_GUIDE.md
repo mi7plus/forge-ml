@@ -95,3 +95,5 @@ When enriched drift events are available, **Open monitoring plots** additionally
 The deployment health table shows the newest drift feature, observation count, standardized mean shift, and scale ratio for each model/version next to its breach fraction. Older external events remain visible with placeholders for diagnostics they did not provide.
 
 The Deep Learning pane exposes the native batch-inference drift policy beside the active model. Set a positive mean-shift threshold and scale thresholds satisfying `0 < minimum < 1 < maximum`; invalid policies are rejected before background work starts. Defaults remain 1σ and 0.5–2.0. Forge normalizes the configured checks to the monitoring score threshold of 1.0 and preserves the applied policy in snapshots, bundles, and plot boundary histories.
+
+Forge restores the active native regression artifact, scalar inference value, and drift policy after a clean application restart. Restored artifacts and policies pass the same validation as imported models and live inference; invalid saved values are discarded or reset to safe defaults. Dataset contents and training vectors are not embedded in application session storage.
