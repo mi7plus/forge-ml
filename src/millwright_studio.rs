@@ -392,8 +392,30 @@ pub fn training_report(events: &[TrainingEvent]) -> Result<String, String> {
             )
         })
         .collect::<String>();
+    let runs = training_run_overview(events);
+    let run_count = runs.len();
+    let run_rows = runs
+        .iter()
+        .map(|run| {
+            format!(
+                "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}/{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+                html_escape(&run.job),
+                html_escape(run.run_id.as_deref().unwrap_or("—")),
+                html_escape(&run.status),
+                run.completed_trials,
+                run.total_trials,
+                match (run.epoch, run.total_epochs) {
+                    (Some(epoch), Some(total)) => format!("{epoch}/{total}"),
+                    _ => "—".into(),
+                },
+                report_number(run.latest_loss),
+                report_number(run.latest_metric),
+                report_number(run.best_score),
+            )
+        })
+        .collect::<String>();
     Ok(format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'\"><title>Forge ML training report</title><style>body{{font:14px system-ui,sans-serif;max-width:1100px;margin:32px auto;padding:0 16px;color:#20242b}}.cards{{display:flex;gap:10px;flex-wrap:wrap}}.card{{border:1px solid #ccd2da;border-radius:6px;padding:10px;min-width:120px}}table{{border-collapse:collapse;width:100%;margin-top:16px}}th,td{{border:1px solid #ccd2da;padding:6px;text-align:left;vertical-align:top}}code{{white-space:pre-wrap;word-break:break-word}}</style></head><body><h1>Forge ML training report</h1><p>{} retained events; the audit table shows the newest {}.</p><div class=\"cards\"><div class=\"card\"><strong>Epoch events</strong><br>{epochs}</div><div class=\"card\"><strong>Batch events</strong><br>{batches}</div><div class=\"card\"><strong>Completed trials</strong><br>{trials}</div><div class=\"card\"><strong>Failures</strong><br>{failures}</div><div class=\"card\"><strong>Latest loss</strong><br>{}</div><div class=\"card\"><strong>Latest metric</strong><br>{}</div><div class=\"card\"><strong>Best score</strong><br>{}</div></div><h2>Recent event audit</h2><table><thead><tr><th>#</th><th>Type</th><th>Event</th></tr></thead><tbody>{rows}</tbody></table></body></html>",
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'\"><title>Forge ML training report</title><style>body{{font:14px system-ui,sans-serif;max-width:1100px;margin:32px auto;padding:0 16px;color:#20242b}}.cards{{display:flex;gap:10px;flex-wrap:wrap}}.card{{border:1px solid #ccd2da;border-radius:6px;padding:10px;min-width:120px}}table{{border-collapse:collapse;width:100%;margin-top:16px}}th,td{{border:1px solid #ccd2da;padding:6px;text-align:left;vertical-align:top}}code{{white-space:pre-wrap;word-break:break-word}}</style></head><body><h1>Forge ML training report</h1><p>{} retained events; the audit table shows the newest {}.</p><div class=\"cards\"><div class=\"card\"><strong>Epoch events</strong><br>{epochs}</div><div class=\"card\"><strong>Batch events</strong><br>{batches}</div><div class=\"card\"><strong>Completed trials</strong><br>{trials}</div><div class=\"card\"><strong>Failures</strong><br>{failures}</div><div class=\"card\"><strong>Latest loss</strong><br>{}</div><div class=\"card\"><strong>Latest metric</strong><br>{}</div><div class=\"card\"><strong>Best score</strong><br>{}</div></div><h2>Training runs</h2><p>Newest {run_count} runs shown.</p><table><thead><tr><th>Job</th><th>Run ID</th><th>Status</th><th>Trials</th><th>Epoch</th><th>Loss</th><th>Metric</th><th>Best</th></tr></thead><tbody>{run_rows}</tbody></table><h2>Recent event audit</h2><table><thead><tr><th>#</th><th>Type</th><th>Event</th></tr></thead><tbody>{rows}</tbody></table></body></html>",
         events.len(),
         events.len().min(MAX_REPORT_EVENTS),
         report_number(latest_loss),
@@ -461,11 +483,38 @@ pub fn training_pdf_lines(events: &[TrainingEvent]) -> Result<Vec<String>, Strin
         format!("Best score: {}", report_number(best_score)),
         String::new(),
         format!(
+            "Training runs (newest {})",
+            training_run_overview(events).len()
+        ),
+    ];
+    lines.extend(training_run_overview(events).into_iter().map(|run| {
+        format!(
+            "{} | run {} | {} | trials {}/{} | epoch {} | loss {} | metric {} | best {}",
+            run.job,
+            run.run_id.as_deref().unwrap_or("-"),
+            run.status,
+            run.completed_trials,
+            run.total_trials,
+            match (run.epoch, run.total_epochs) {
+                (Some(epoch), Some(total)) => format!("{epoch}/{total}"),
+                _ => "-".into(),
+            },
+            report_number(run.latest_loss),
+            report_number(run.latest_metric),
+            report_number(run.best_score),
+        )
+        .chars()
+        .take(MAX_PDF_EVENT_CHARS)
+        .collect::<String>()
+    }));
+    lines.extend([
+        String::new(),
+        format!(
             "Recent event audit (newest {} of {})",
             events.len().min(MAX_PDF_REPORT_EVENTS),
             events.len()
         ),
-    ];
+    ]);
     lines.extend(
         events
             .iter()
@@ -951,6 +1000,16 @@ mod tests {
     #[test]
     fn training_report_summarizes_and_escapes_events() {
         let events = vec![
+            TrainingEvent::RunContext {
+                run_id: "run&1".into(),
+            },
+            TrainingEvent::Started {
+                job: "<job>".into(),
+                total_trials: 1,
+            },
+            TrainingEvent::RunContext {
+                run_id: "run&1".into(),
+            },
             TrainingEvent::Epoch {
                 epoch: 1,
                 total: 1,
@@ -968,12 +1027,16 @@ mod tests {
         let report = training_report(&events).unwrap();
         assert!(report.contains("0.250000"));
         assert!(report.contains("0.910000"));
+        assert!(report.contains("&lt;job&gt;"));
+        assert!(report.contains("run&amp;1"));
+        assert!(report.contains("<h2>Training runs</h2>"));
         assert!(report.contains("&lt;script&gt;"));
         assert!(!report.contains("<script>"));
         assert!(!report.contains("https://"));
         let lines = training_pdf_lines(&events).unwrap();
         assert!(lines.iter().any(|line| line == "Failures: 1"));
         assert!(lines.iter().any(|line| line == "Best score: 0.910000"));
+        assert!(lines.iter().any(|line| line.contains("run run&1")));
     }
 
     #[test]

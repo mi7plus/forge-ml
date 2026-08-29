@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.75.0`
+Current application version: `0.76.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1383,6 +1383,21 @@ Implementation notes:
 
 - Batch-series X coordinates remain retained event positions because batch counters restart across epochs and runs.
 - Scoped `Started` events establish display names; a scoped metric received first falls back to its run ID.
+
+## 0.76 run-aware offline and native PDF training reports — implemented
+
+- [x] Add a newest-128 per-run summary table to the self-contained HTML training report.
+- [x] Include job, run ID, status, trial/epoch progress, latest loss/metric, and best score.
+- [x] Escape all run labels and retain the restrictive offline content-security policy.
+- [x] Add the same run summary ahead of the native PDF event audit.
+- [x] Limit each PDF run summary to 512 characters before pagination.
+- [x] Preserve the global summary and newest-1,000 HTML/newest-500 PDF event audits.
+- [x] Test hostile run labels, scoped IDs, run-section presence, and PDF summary content.
+
+Implementation notes:
+
+- Run tables reuse the same context-aware aggregation as the live overview and structured CSV.
+- The attested training bundle automatically includes the enhanced HTML report without changing its artifact schema.
 
 ## Known technical risks
 
