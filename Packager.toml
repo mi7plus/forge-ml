@@ -1,6 +1,6 @@
 productName = "Forge ML"
 identifier = "dev.forgeml.ide"
-version = "0.81.0"
+version = "0.82.0"
 authors = ["Forge ML contributors"]
 description = "A scientific Rust IDE for interactive machine-learning development"
 category = "DeveloperTool"

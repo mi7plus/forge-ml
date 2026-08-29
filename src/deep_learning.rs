@@ -4,10 +4,79 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::millwright_studio::TrainingEvent;
+use forge_protocol::TableData;
 
 pub const BURN_VERSION: &str = "0.22.0-pre.3";
 static NEXT_BURN_DEMO: AtomicU64 = AtomicU64::new(1);
 const MAX_NATIVE_EPOCHS: usize = 10_000;
+const MAX_NATIVE_ROWS: usize = 100_000;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct NativeTrainingData {
+    pub dataset: String,
+    pub feature: String,
+    pub target: String,
+    inputs: Vec<f32>,
+    targets: Vec<f32>,
+}
+
+pub fn native_training_data(
+    dataset: &str,
+    table: &TableData,
+    feature: &str,
+    target: &str,
+) -> Result<NativeTrainingData, String> {
+    for (kind, value) in [
+        ("Dataset", dataset),
+        ("Feature column", feature),
+        ("Target column", target),
+    ] {
+        if value.trim().is_empty() || value.len() > 128 {
+            return Err(format!("{kind} name must contain 1 through 128 bytes"));
+        }
+    }
+    if table.rows.len() > MAX_NATIVE_ROWS {
+        return Err(format!(
+            "Native Burn training accepts at most {MAX_NATIVE_ROWS} dataset rows"
+        ));
+    }
+    let feature_index = table
+        .columns
+        .iter()
+        .position(|column| column == feature)
+        .ok_or_else(|| format!("Feature column `{feature}` was not found"))?;
+    let target_index = table
+        .columns
+        .iter()
+        .position(|column| column == target)
+        .ok_or_else(|| format!("Target column `{target}` was not found"))?;
+    if feature_index == target_index {
+        return Err("Feature and target columns must be different".into());
+    }
+    let mut inputs = Vec::new();
+    let mut targets = Vec::new();
+    for row in &table.rows {
+        let pair = row
+            .get(feature_index)
+            .zip(row.get(target_index))
+            .and_then(|(x, y)| Some((x.parse::<f32>().ok()?, y.parse::<f32>().ok()?)))
+            .filter(|(x, y)| x.is_finite() && y.is_finite());
+        if let Some((x, y)) = pair {
+            inputs.push(x);
+            targets.push(y);
+        }
+    }
+    if inputs.len() < 2 {
+        return Err("Native Burn training requires at least two complete numeric rows".into());
+    }
+    Ok(NativeTrainingData {
+        dataset: dataset.to_owned(),
+        feature: feature.to_owned(),
+        target: target.to_owned(),
+        inputs,
+        targets,
+    })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct NativeTrainingConfig {
@@ -79,6 +148,7 @@ pub fn native_burn_training_demo(backend: Backend) -> Result<Vec<TrainingEvent>,
     native_burn_training_demo_with_progress(
         backend,
         NativeTrainingConfig::default(),
+        None,
         || false,
         |_| {},
     )
@@ -87,6 +157,7 @@ pub fn native_burn_training_demo(backend: Backend) -> Result<Vec<TrainingEvent>,
 pub fn native_burn_training_demo_with_progress(
     backend: Backend,
     config: NativeTrainingConfig,
+    data: Option<NativeTrainingData>,
     cancelled: impl Fn() -> bool,
     on_event: impl FnMut(TrainingEvent),
 ) -> Result<Vec<TrainingEvent>, String> {
@@ -98,7 +169,7 @@ pub fn native_burn_training_demo_with_progress(
         ));
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        native_burn_training_demo_inner(backend, config, cancelled, on_event)
+        native_burn_training_demo_inner(backend, config, data, cancelled, on_event)
     }))
     .map_err(|_| {
         format!(
@@ -111,6 +182,7 @@ pub fn native_burn_training_demo_with_progress(
 fn native_burn_training_demo_inner(
     backend: Backend,
     config: NativeTrainingConfig,
+    data: Option<NativeTrainingData>,
     cancelled: impl Fn() -> bool,
     mut on_event: impl FnMut(TrainingEvent),
 ) -> Result<Vec<TrainingEvent>, String> {
@@ -129,8 +201,23 @@ fn native_burn_training_demo_inner(
     device.seed(7);
     let mut model = LinearConfig::new(1, 1).init(&device);
     let mut optimizer = SgdConfig::new().init();
-    let input = Tensor::<2>::from_data([[-2.0_f32], [-1.0], [0.0], [1.0], [2.0]], &device);
-    let target = Tensor::<2>::from_data([[-3.0_f32], [-1.0], [1.0], [3.0], [5.0]], &device);
+    let (input, target, data_label) = if let Some(data) = data {
+        let rows = data.inputs.len();
+        (
+            Tensor::<1>::from_floats(data.inputs.as_slice(), &device).reshape([rows, 1]),
+            Tensor::<1>::from_floats(data.targets.as_slice(), &device).reshape([rows, 1]),
+            format!(
+                "{} {}→{} ({rows} rows)",
+                data.dataset, data.feature, data.target
+            ),
+        )
+    } else {
+        (
+            Tensor::<2>::from_data([[-2.0_f32], [-1.0], [0.0], [1.0], [2.0]], &device),
+            Tensor::<2>::from_data([[-3.0_f32], [-1.0], [1.0], [3.0], [5.0]], &device),
+            "built-in sample".into(),
+        )
+    };
     let run_id = format!(
         "burn-{}-{}",
         backend.feature(),
@@ -142,8 +229,9 @@ fn native_burn_training_demo_inner(
         },
         TrainingEvent::Started {
             job: format!(
-                "Embedded Burn {} linear regression ({} epochs, lr {})",
+                "Embedded Burn {} linear regression · {} ({} epochs, lr {})",
                 backend.label(),
+                data_label,
                 config.epochs,
                 config.learning_rate
             ),
@@ -384,6 +472,7 @@ mod tests {
         let result = native_burn_training_demo_with_progress(
             Backend::Cpu,
             NativeTrainingConfig::default(),
+            None,
             || true,
             |event| emitted.push(event),
         );
@@ -396,12 +485,25 @@ mod tests {
 
     #[test]
     fn embedded_burn_training_validates_and_applies_configuration() {
+        let table = TableData {
+            columns: vec!["feature".into(), "target".into(), "label".into()],
+            rows: vec![
+                vec!["-1".into(), "-1".into(), "a".into()],
+                vec!["0".into(), "1".into(), "b".into()],
+                vec!["bad".into(), "ignored".into(), "c".into()],
+                vec!["1".into(), "3".into(), "d".into()],
+            ],
+        };
+        let data = native_training_data("sample", &table, "feature", "target").unwrap();
+        assert_eq!(data.inputs, vec![-1.0, 0.0, 1.0]);
+        assert_eq!(data.targets, vec![-1.0, 1.0, 3.0]);
         let events = native_burn_training_demo_with_progress(
             Backend::Cpu,
             NativeTrainingConfig {
                 epochs: 3,
                 learning_rate: 0.02,
             },
+            Some(data),
             || false,
             |_| {},
         )
@@ -414,6 +516,13 @@ mod tests {
                 .count(),
             3
         );
+        assert!(matches!(
+            &events[1],
+            TrainingEvent::Started { job, .. }
+                if job.contains("sample feature→target (3 rows)")
+        ));
+        assert!(native_training_data("sample", &table, "feature", "feature").is_err());
+        assert!(native_training_data("sample", &table, "missing", "target").is_err());
         for config in [
             NativeTrainingConfig {
                 epochs: 0,
@@ -431,6 +540,7 @@ mod tests {
             assert!(native_burn_training_demo_with_progress(
                 Backend::Cpu,
                 config,
+                None,
                 || false,
                 |_| {}
             )

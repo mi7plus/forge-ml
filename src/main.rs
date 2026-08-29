@@ -433,6 +433,9 @@ struct ForgeApp {
     burn_training_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
     burn_training_epochs: usize,
     burn_training_learning_rate: f64,
+    burn_training_use_dataset: bool,
+    burn_training_feature: String,
+    burn_training_target: String,
     deep_outputs: DeepOutputs,
     resource_system: sysinfo::System,
     resource_snapshot: ResourceSnapshot,
@@ -710,6 +713,9 @@ impl ForgeApp {
             burn_training_cancel: None,
             burn_training_epochs: 40,
             burn_training_learning_rate: 0.05,
+            burn_training_use_dataset: false,
+            burn_training_feature: String::new(),
+            burn_training_target: String::new(),
             deep_outputs: DeepOutputs::default(),
             resource_system: sysinfo::System::new_all(),
             resource_snapshot: ResourceSnapshot::default(),
@@ -3806,18 +3812,27 @@ impl ForgeApp {
             if ui.button("Test embedded Burn").clicked() {
                 self.sql_output = deep_learning::native_burn_self_test();
             }
-            if self.burn_training_cancel.is_none() && ui.button("Run native Burn demo").clicked() {
+            if self.burn_training_cancel.is_none()
+                && ui.button("Run native Burn training").clicked()
+            {
+                let data = if self.burn_training_use_dataset {
+                    self.selected_native_training_data().map(Some)
+                } else {
+                    Ok(None)
+                };
                 let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
-                match self
-                    .integration_worker
-                    .submit(IntegrationRequest::BurnTraining {
-                        backend: self.deep_backend,
-                        config: NativeTrainingConfig {
-                            epochs: self.burn_training_epochs,
-                            learning_rate: self.burn_training_learning_rate,
-                        },
-                        cancelled: Arc::clone(&cancelled),
-                    }) {
+                match data.and_then(|data| {
+                    self.integration_worker
+                        .submit(IntegrationRequest::BurnTraining {
+                            backend: self.deep_backend,
+                            config: NativeTrainingConfig {
+                                epochs: self.burn_training_epochs,
+                                learning_rate: self.burn_training_learning_rate,
+                            },
+                            data,
+                            cancelled: Arc::clone(&cancelled),
+                        })
+                }) {
                     Ok(()) => {
                         self.burn_training_cancel = Some(cancelled);
                         self.integration_pending += 1;
@@ -3848,6 +3863,19 @@ impl ForgeApp {
                     .speed(0.001)
                     .prefix("lr "),
             );
+            ui.checkbox(&mut self.burn_training_use_dataset, "use selected dataset");
+            if self.burn_training_use_dataset {
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.burn_training_feature)
+                        .desired_width(110.0)
+                        .hint_text("feature column"),
+                );
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.burn_training_target)
+                        .desired_width(110.0)
+                        .hint_text("target column"),
+                );
+            }
             ui.add(egui::DragValue::new(&mut self.early_stopping_patience).prefix("patience "));
             ui.add(
                 egui::TextEdit::singleline(&mut self.resume_checkpoint)
@@ -4238,6 +4266,26 @@ impl ForgeApp {
                 },
             );
         }
+    }
+
+    fn selected_native_training_data(&self) -> Result<deep_learning::NativeTrainingData, String> {
+        let (name, is_table) = self
+            .selected_dataset_info()
+            .ok_or("Select a table dataset in the Data viewer first")?;
+        if !is_table {
+            return Err("Native Burn training requires a table dataset".into());
+        }
+        let dataset = self
+            .data
+            .tables
+            .get(&name)
+            .ok_or("The selected dataset no longer exists")?;
+        deep_learning::native_training_data(
+            &name,
+            &dataset.table,
+            self.burn_training_feature.trim(),
+            self.burn_training_target.trim(),
+        )
     }
 
     fn database_inspector(&mut self, ui: &mut egui::Ui) {

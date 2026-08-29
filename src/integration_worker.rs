@@ -19,6 +19,7 @@ pub enum Request {
     BurnTraining {
         backend: crate::deep_learning::Backend,
         config: crate::deep_learning::NativeTrainingConfig,
+        data: Option<crate::deep_learning::NativeTrainingData>,
         cancelled: Arc<AtomicBool>,
     },
     DataImport(PathBuf),
@@ -167,11 +168,13 @@ fn execute(request: Request, events: &Sender<ResultEvent>) -> ResultEvent {
         Request::BurnTraining {
             backend,
             config,
+            data,
             cancelled,
         } => {
             let result = crate::deep_learning::native_burn_training_demo_with_progress(
                 backend,
                 config,
+                data,
                 || cancelled.load(Ordering::Relaxed),
                 |event| {
                     let _ = events.send(ResultEvent::BurnTrainingProgress(event));
@@ -311,6 +314,7 @@ mod tests {
             .submit(Request::BurnTraining {
                 backend: crate::deep_learning::Backend::Cpu,
                 config: crate::deep_learning::NativeTrainingConfig::default(),
+                data: None,
                 cancelled: Arc::new(AtomicBool::new(false)),
             })
             .unwrap();

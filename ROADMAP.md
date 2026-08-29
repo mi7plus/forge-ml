@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.81.0`
+Current application version: `0.82.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1473,6 +1473,22 @@ Implementation notes:
 
 - These controls configure the embedded linear-regression trainer; generated Burn projects remain fully editable for arbitrary architectures and optimizers.
 - Training configuration is recorded in the job label and therefore propagates into run overviews, CSV, reports, and attested bundles.
+
+## 0.82 selected-dataset native Burn regression — implemented
+
+- [x] Train the embedded Burn linear model from the table currently open in the Data viewer.
+- [x] Add explicit feature and target column inputs without coupling training to visible grid order.
+- [x] Require distinct existing columns and at least two complete finite numeric pairs.
+- [x] Bound source tables at 100,000 rows and copied names at 128 bytes.
+- [x] Copy only prepared numeric vectors into the background worker.
+- [x] Preserve the deterministic built-in sample as the default zero-setup path.
+- [x] Include dataset, feature, target, and admitted-row provenance in monitored job labels.
+- [x] Test numeric preparation, incomplete-row exclusion, custom training, and invalid selections.
+
+Implementation notes:
+
+- This phase implements one-feature/one-target regression. Multivariate tensors, categorical encoders, splits, and reusable preprocessing graphs remain better served by generated Burn projects or Millwright pipelines until their native contracts are designed.
+- Dataset preparation is completed before worker submission, so invalid columns and oversized inputs fail without initializing a compute device or creating partial telemetry.
 
 ## Known technical risks
 
