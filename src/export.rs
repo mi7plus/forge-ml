@@ -667,6 +667,11 @@ pub fn monitoring_csv(
     atomic_bytes(path, &bytes)
 }
 
+pub fn training_run_csv(events: &[TrainingEvent], path: &Path) -> Result<(), String> {
+    let bytes = millwright_studio::training_run_csv(events)?;
+    atomic_bytes(path, &bytes)
+}
+
 pub struct ImportedMonitoringBundle {
     pub snapshot: service_monitor::MonitoringSnapshot,
     pub plots: Vec<plot::PlotSpec>,

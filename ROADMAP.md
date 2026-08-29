@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.72.0`
+Current application version: `0.73.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1340,6 +1340,20 @@ Implementation notes:
 
 - The current telemetry protocol has no run identifier on every event, so the overview intentionally supports sequential rather than interleaved concurrent streams.
 - The summary is derived on demand and does not change the validated typed event stream or portable export formats.
+
+## 0.73 structured training-run summary CSV — implemented
+
+- [x] Export one analysis-ready row per derived training run in newest-first order.
+- [x] Preserve job, status, trial/epoch progress, latest loss/metric, and best score in stable columns.
+- [x] Apply standards-compliant CSV quoting to arbitrary validated job names.
+- [x] Revalidate source events and reuse the overview's 128-run history bound.
+- [x] Cap output at 16 MiB and publish through the atomic rollback-safe export path.
+- [x] Test the generated schema and values by parsing the completed CSV.
+
+Implementation notes:
+
+- Blank numeric cells represent unavailable telemetry rather than zero, preserving the distinction for downstream analysis.
+- The raw typed-event CSV remains available when a full event audit rather than run-level analysis is required.
 
 ## Known technical risks
 

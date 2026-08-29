@@ -177,6 +177,61 @@ pub fn training_run_overview(events: &[TrainingEvent]) -> Vec<TrainingRunSummary
     runs.into_iter().rev().take(MAX_RUN_OVERVIEW_ROWS).collect()
 }
 
+pub fn training_run_csv(events: &[TrainingEvent]) -> Result<Vec<u8>, String> {
+    if events.is_empty() {
+        return Err("No training events are available for a run-summary export".into());
+    }
+    if events.len() > MAX_TRAINING_EVENTS
+        || events.iter().any(|event| !validate_training_event(event))
+    {
+        return Err("Training run summary contains invalid or excessive events".into());
+    }
+    let mut writer = csv::Writer::from_writer(Vec::new());
+    writer
+        .write_record([
+            "newest_index",
+            "job",
+            "status",
+            "completed_trials",
+            "total_trials",
+            "epoch",
+            "total_epochs",
+            "latest_loss",
+            "latest_metric",
+            "best_score",
+        ])
+        .map_err(|error| error.to_string())?;
+    for (index, run) in training_run_overview(events).into_iter().enumerate() {
+        writer
+            .write_record([
+                (index + 1).to_string(),
+                run.job,
+                run.status,
+                run.completed_trials.to_string(),
+                run.total_trials.to_string(),
+                run.epoch.map(|value| value.to_string()).unwrap_or_default(),
+                run.total_epochs
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
+                run.latest_loss
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
+                run.latest_metric
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
+                run.best_score
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
+            ])
+            .map_err(|error| error.to_string())?;
+    }
+    let output = writer.into_inner().map_err(|error| error.to_string())?;
+    if output.len() > MAX_TRAINING_IMPORT_BYTES {
+        return Err("Training run-summary CSV exceeds the 16 MiB export limit".into());
+    }
+    Ok(output)
+}
+
 pub fn training_json(events: &[TrainingEvent]) -> Result<Vec<u8>, String> {
     let output = serde_json::to_vec_pretty(events).map_err(|error| error.to_string())?;
     if output.len() > MAX_TRAINING_EXPORT_BYTES {
@@ -819,5 +874,37 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(training_run_overview(&fleet).len(), MAX_RUN_OVERVIEW_ROWS);
+    }
+
+    #[test]
+    fn training_run_csv_is_structured_bounded_and_escaped() {
+        let events = vec![
+            TrainingEvent::Started {
+                job: "search, \"wide\"".into(),
+                total_trials: 2,
+            },
+            TrainingEvent::TrialCompleted {
+                trial: 1,
+                score: 0.8,
+            },
+            TrainingEvent::Epoch {
+                epoch: 2,
+                total: 4,
+                loss: 0.3,
+                metric: Some(0.9),
+            },
+            TrainingEvent::Completed { best_score: 0.95 },
+        ];
+        let output = training_run_csv(&events).unwrap();
+        let mut reader = csv::Reader::from_reader(output.as_slice());
+        assert_eq!(reader.headers().unwrap().len(), 10);
+        let rows = reader.records().collect::<Result<Vec<_>, _>>().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(&rows[0][1], "search, \"wide\"");
+        assert_eq!(&rows[0][2], "Completed");
+        assert_eq!(&rows[0][3], "1");
+        assert_eq!(&rows[0][5], "2");
+        assert_eq!(&rows[0][9], "0.95");
+        assert!(training_run_csv(&[]).is_err());
     }
 }

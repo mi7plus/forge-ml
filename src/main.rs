@@ -4566,6 +4566,18 @@ impl ForgeApp {
                     }
                 }
             }
+            if !self.training_events.is_empty() && ui.button("Run summary CSV").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_file_name("forge-training-runs.csv")
+                    .save_file()
+                {
+                    self.console = export::training_run_csv(&self.training_events, &path)
+                        .map(|()| format!("Exported training run summary to {}", path.display()))
+                        .unwrap_or_else(|error| {
+                            format!("Training run-summary export failed: {error}")
+                        });
+                }
+            }
             if ui.button("Import JSON").clicked() {
                 if let Some(path) = rfd::FileDialog::new()
                     .add_filter("Forge training JSON", &["json"])
