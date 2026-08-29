@@ -249,6 +249,107 @@ pub fn monitoring_report(
     ))
 }
 
+pub fn monitoring_pdf_lines(
+    service_events: &[ServiceEvent],
+    drift_events: &[DriftEvent],
+) -> Result<Vec<String>, String> {
+    if service_events.is_empty() && drift_events.is_empty() {
+        return Err("No deployment monitoring events are available for a report".into());
+    }
+    if service_events.iter().any(|event| !valid_service(event))
+        || drift_events.iter().any(|event| !valid_drift(event))
+    {
+        return Err("Deployment monitoring report contains invalid events".into());
+    }
+    let latest = service_events.last();
+    let error_rate = latest.map_or(0.0, |event| {
+        if event.requests == 0 {
+            0.0
+        } else {
+            event.errors as f64 * 100.0 / event.requests as f64
+        }
+    });
+    let breaches = drift_events
+        .iter()
+        .filter(|event| event.score > event.threshold)
+        .count();
+    let mut lines = vec![
+        "Forge ML deployment monitoring report".into(),
+        format!("Service events: {}", service_events.len()),
+        format!("Drift events: {}", drift_events.len()),
+        format!(
+            "Latest requests: {}",
+            latest.map_or(0, |event| event.requests)
+        ),
+        format!("Latest error rate: {error_rate:.3}%"),
+        format!(
+            "Latest p95: {}",
+            latest
+                .and_then(|event| event.p95_ms)
+                .map_or_else(|| "-".into(), |value| format!("{value:.3} ms"))
+        ),
+        format!("Drift breaches: {breaches}"),
+        String::new(),
+        format!(
+            "Recent service health (newest {} of {})",
+            service_events.len().min(MAX_REPORT_EVENTS_PER_STREAM),
+            service_events.len()
+        ),
+    ];
+    lines.extend(
+        service_events
+            .iter()
+            .enumerate()
+            .rev()
+            .take(MAX_REPORT_EVENTS_PER_STREAM)
+            .map(|(index, event)| {
+                format!(
+                    "#{} | {} {} | requests {} | errors {} | p95 {}",
+                    index + 1,
+                    event.model,
+                    event.version,
+                    event.requests,
+                    event.errors,
+                    event
+                        .p95_ms
+                        .map_or_else(|| "-".into(), |value| format!("{value:.3} ms"))
+                )
+            }),
+    );
+    lines.extend([
+        String::new(),
+        format!(
+            "Recent feature drift (newest {} of {})",
+            drift_events.len().min(MAX_REPORT_EVENTS_PER_STREAM),
+            drift_events.len()
+        ),
+    ]);
+    lines.extend(
+        drift_events
+            .iter()
+            .enumerate()
+            .rev()
+            .take(MAX_REPORT_EVENTS_PER_STREAM)
+            .map(|(index, event)| {
+                format!(
+                    "#{} | {} {} | {} | score {:.6} | threshold {:.6} | {}",
+                    index + 1,
+                    event.model,
+                    event.version,
+                    event.feature,
+                    event.score,
+                    event.threshold,
+                    if event.score > event.threshold {
+                        "breach"
+                    } else {
+                        "ok"
+                    }
+                )
+            }),
+    );
+    Ok(lines)
+}
+
 fn html_escape(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -408,5 +509,31 @@ mod tests {
         assert!(!report.contains("&lt;model&gt;"));
         assert!(!report.contains("<script>"));
         assert!(!report.contains("https://"));
+    }
+
+    #[test]
+    fn monitoring_pdf_lines_are_bounded_and_summarized() {
+        let services = (0..=MAX_REPORT_EVENTS_PER_STREAM)
+            .map(|index| ServiceEvent {
+                model: format!("model-{index}"),
+                version: "1".into(),
+                requests: 100,
+                errors: 5,
+                p95_ms: Some(4.5),
+            })
+            .collect::<Vec<_>>();
+        let drift = vec![DriftEvent {
+            model: "model".into(),
+            version: "1".into(),
+            feature: "width".into(),
+            score: 0.3,
+            threshold: 0.2,
+        }];
+        let lines = monitoring_pdf_lines(&services, &drift).unwrap();
+        assert!(lines.iter().any(|line| line == "Latest error rate: 5.000%"));
+        assert!(lines.iter().any(|line| line == "Drift breaches: 1"));
+        assert!(lines.iter().any(|line| line.contains("newest 500 of 501")));
+        assert!(!lines.iter().any(|line| line.contains("model-0 ")));
+        assert!(monitoring_pdf_lines(&[], &[]).is_err());
     }
 }

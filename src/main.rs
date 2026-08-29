@@ -3616,6 +3616,22 @@ impl ForgeApp {
                 }
             }
             if (!self.service_events.is_empty() || !self.drift_events.is_empty())
+                && ui.button("PDF report").clicked()
+            {
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_file_name("forge-deployment-monitoring.pdf")
+                    .save_file()
+                {
+                    self.registry_output = service_monitor::monitoring_pdf_lines(
+                        &self.service_events,
+                        &self.drift_events,
+                    )
+                    .and_then(|lines| export::write_text_pdf(&path, &lines))
+                    .map(|()| format!("Exported monitoring PDF report to {}", path.display()))
+                    .unwrap_or_else(|error| format!("Monitoring PDF report failed: {error}"));
+                }
+            }
+            if (!self.service_events.is_empty() || !self.drift_events.is_empty())
                 && ui.button("Clear monitoring").clicked()
             {
                 self.service_events.clear();

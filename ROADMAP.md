@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.66.0`
+Current application version: `0.67.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1256,6 +1256,19 @@ Implementation notes:
 
 - The report summarizes live or imported monitoring state without mutating it.
 - Individual text fields are already limited to 256 bytes and all events pass the same validation used by monitoring snapshots.
+
+## 0.67 native PDF deployment monitoring reports — implemented
+
+- [x] Add a native paginated **PDF report** action to deployment monitoring.
+- [x] Include service/drift counts, latest requests, error rate, p95 latency, and total drift breaches.
+- [x] Add separate newest-500 service-health and feature-drift audit sections.
+- [x] Reuse validated monitoring events and the atomic rollback-safe native PDF writer.
+- [x] Test summary calculations, empty-state rejection, and oldest-event truncation.
+
+Implementation notes:
+
+- The native text PDF path avoids browser, web-renderer, and Python runtime dependencies.
+- PDF pagination and character sanitization are inherited from Forge's shared report writer.
 
 ## Known technical risks
 
