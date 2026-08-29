@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.93.0`
+Current application version: `0.94.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1661,6 +1661,20 @@ Implementation notes:
 
 - Explainable plots are generated only when their optional telemetry fields exist, so external legacy producers see no blank dashboards.
 - Native plot history inherits the existing JSON, CSV point, PNG, SVG, PDF, and interactive HTML export paths.
+
+## 0.94 explainable deployment health overview — implemented
+
+- [x] Track the latest valid drift event per model/version while retaining per-feature breach aggregation.
+- [x] Show the latest drift feature and observation count in the deployment health table.
+- [x] Show standardized mean shift and scale ratio directly in the deployment pane.
+- [x] Preserve deterministic model ordering, bounded rows, and horizontal table scrolling.
+- [x] Display explicit placeholders for legacy drift telemetry without explainable fields.
+- [x] Test latest-event selection and enriched overview values.
+
+Implementation notes:
+
+- The existing drift breach fraction still summarizes the latest event for every feature; the added columns describe the newest drift event for the model/version.
+- The health overview remains derived from bounded validated in-memory events and does not duplicate monitoring state.
 
 ## Known technical risks
 

@@ -71,7 +71,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - Authenticated background start/stop lifecycle for Forge-managed remote Jupyter kernels
 - Bounded authenticated Jupyter WebSocket execution with rich MIME, responsive interrupts, direct notebook-cell routing, and secure stdin prompts
 - Self-contained Rust/Axum inference services with real Millwright ONNX inference, health, readiness, metadata, Docker, Compose, and Kubernetes templates
-- Framework-neutral request/error/latency and feature-drift monitoring records in the deployment pane
+- Framework-neutral request/error/latency and explainable feature-drift monitoring in the deployment pane
 - Bounded validated deployment-monitor snapshots with all-or-nothing JSON import/export
 - One-click native request, error-rate, p95-latency, and drift-threshold monitoring plots
 - Self-contained offline deployment health and drift-breach HTML reports

@@ -3811,6 +3811,10 @@ impl ForgeApp {
                         ui.strong("Errors");
                         ui.strong("p95 ms");
                         ui.strong("Drift");
+                        ui.strong("Latest feature");
+                        ui.strong("Observed");
+                        ui.strong("Mean shift");
+                        ui.strong("Scale ratio");
                         ui.end_row();
                         for health in overview {
                             ui.label(health.model);
@@ -3836,6 +3840,22 @@ impl ForgeApp {
                                     GREEN
                                 },
                                 format!("{} / {}", health.drift_breaches, health.drift_features),
+                            );
+                            ui.label(health.latest_drift_feature.as_deref().unwrap_or("-"));
+                            ui.label(
+                                health
+                                    .drift_observed
+                                    .map_or_else(|| "-".into(), |value| value.to_string()),
+                            );
+                            ui.label(
+                                health
+                                    .drift_mean_shift
+                                    .map_or_else(|| "-".into(), |value| format!("{value:.3}σ")),
+                            );
+                            ui.label(
+                                health
+                                    .drift_scale_ratio
+                                    .map_or_else(|| "-".into(), |value| format!("{value:.3}")),
                             );
                             ui.end_row();
                         }

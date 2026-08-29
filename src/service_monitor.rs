@@ -52,6 +52,10 @@ pub struct DeploymentHealth {
     pub p95_ms: Option<f64>,
     pub drift_features: usize,
     pub drift_breaches: usize,
+    pub latest_drift_feature: Option<String>,
+    pub drift_observed: Option<usize>,
+    pub drift_mean_shift: Option<f64>,
+    pub drift_scale_ratio: Option<f64>,
 }
 
 fn safe_text(value: &str) -> bool {
@@ -352,7 +356,9 @@ pub fn deployment_overview(
         services.insert((event.model.clone(), event.version.clone()), event);
     }
     let mut latest_drift = std::collections::BTreeMap::new();
+    let mut latest_model_drift = std::collections::BTreeMap::new();
     for event in drift_events.iter().filter(|event| valid_drift(event)) {
+        latest_model_drift.insert((event.model.clone(), event.version.clone()), event);
         latest_drift.insert(
             (
                 event.model.clone(),
@@ -381,6 +387,7 @@ pub fn deployment_overview(
                 .get(&(model.clone(), version.clone()))
                 .copied()
                 .unwrap_or_default();
+            let drift = latest_model_drift.get(&(model.clone(), version.clone()));
             DeploymentHealth {
                 model,
                 version,
@@ -396,6 +403,10 @@ pub fn deployment_overview(
                 p95_ms: service.and_then(|event| event.p95_ms),
                 drift_features,
                 drift_breaches,
+                latest_drift_feature: drift.map(|event| event.feature.clone()),
+                drift_observed: drift.and_then(|event| event.observed),
+                drift_mean_shift: drift.and_then(|event| event.standardized_mean_shift),
+                drift_scale_ratio: drift.and_then(|event| event.scale_ratio),
             }
         })
         .collect()
@@ -770,7 +781,9 @@ mod tests {
                 feature: "width".into(),
                 score: 0.1,
                 threshold: 0.2,
-                ..Default::default()
+                observed: Some(75),
+                standardized_mean_shift: Some(0.4),
+                scale_ratio: Some(1.2),
             },
             DriftEvent {
                 model: "drift-only".into(),
@@ -790,6 +803,10 @@ mod tests {
         assert_eq!(overview[1].error_rate, Some(5.0));
         assert_eq!(overview[1].drift_features, 1);
         assert_eq!(overview[1].drift_breaches, 0);
+        assert_eq!(overview[1].latest_drift_feature.as_deref(), Some("width"));
+        assert_eq!(overview[1].drift_observed, Some(75));
+        assert_eq!(overview[1].drift_mean_shift, Some(0.4));
+        assert_eq!(overview[1].drift_scale_ratio, Some(1.2));
 
         let fleet = (0..=MAX_OVERVIEW_ROWS)
             .map(|index| ServiceEvent {
