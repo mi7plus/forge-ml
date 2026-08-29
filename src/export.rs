@@ -1384,7 +1384,9 @@ mod tests {
             feature: "width".into(),
             score: 0.3,
             threshold: 0.2,
-            ..Default::default()
+            observed: Some(100),
+            standardized_mean_shift: Some(1.25),
+            scale_ratio: Some(2.5),
         }];
         monitoring_bundle(&services, &drift, &path).unwrap();
         let mut archive = zip::ZipArchive::new(File::open(&path).unwrap()).unwrap();
@@ -1394,7 +1396,7 @@ mod tests {
         };
         assert_eq!(manifest["service_event_count"], 1);
         assert_eq!(manifest["drift_event_count"], 1);
-        assert_eq!(manifest["plot_count"], 4);
+        assert_eq!(manifest["plot_count"], 6);
         for entry in manifest["entries"].as_array().unwrap() {
             let name = entry["path"].as_str().unwrap();
             let mut bytes = Vec::new();
@@ -1411,7 +1413,7 @@ mod tests {
         let imported = import_monitoring_bundle(&path).unwrap();
         assert_eq!(imported.snapshot.service_events, services);
         assert_eq!(imported.snapshot.drift_events, drift);
-        assert_eq!(imported.plots.len(), 4);
+        assert_eq!(imported.plots.len(), 6);
 
         let tampered_path = root.join("tampered.zip");
         let mut source = zip::ZipArchive::new(File::open(&path).unwrap()).unwrap();

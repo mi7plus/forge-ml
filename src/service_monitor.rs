@@ -267,6 +267,10 @@ pub fn monitoring_plots(
     }
     let mut drift = std::collections::BTreeMap::<String, Vec<[f64; 2]>>::new();
     let mut thresholds = std::collections::BTreeMap::<String, Vec<[f64; 2]>>::new();
+    let mut mean_shift = std::collections::BTreeMap::<String, Vec<[f64; 2]>>::new();
+    let mut mean_thresholds = std::collections::BTreeMap::<String, Vec<[f64; 2]>>::new();
+    let mut scale_ratio = std::collections::BTreeMap::<String, Vec<[f64; 2]>>::new();
+    let mut scale_thresholds = std::collections::BTreeMap::<String, Vec<[f64; 2]>>::new();
     for (index, event) in drift_events.iter().enumerate() {
         let name = format!("{} {} · {}", event.model, event.version, event.feature);
         drift
@@ -277,6 +281,30 @@ pub fn monitoring_plots(
             .entry(format!("{name} threshold"))
             .or_default()
             .push([index as f64, event.threshold]);
+        if let Some(value) = event.standardized_mean_shift {
+            mean_shift
+                .entry(name.clone())
+                .or_default()
+                .push([index as f64, value]);
+            mean_thresholds
+                .entry(format!("{name} 1σ boundary"))
+                .or_default()
+                .push([index as f64, 1.0]);
+        }
+        if let Some(value) = event.scale_ratio {
+            scale_ratio
+                .entry(name.clone())
+                .or_default()
+                .push([index as f64, value]);
+            scale_thresholds
+                .entry(format!("{name} lower boundary"))
+                .or_default()
+                .push([index as f64, 0.5]);
+            scale_thresholds
+                .entry(format!("{name} upper boundary"))
+                .or_default()
+                .push([index as f64, 2.0]);
+        }
     }
     let mut plots = Vec::new();
     push_plot(
@@ -296,6 +324,22 @@ pub fn monitoring_plots(
     push_plot(&mut plots, "Service p95 latency", "event", "ms", latency);
     drift.extend(thresholds);
     push_plot(&mut plots, "Feature drift", "event", "score", drift);
+    mean_shift.extend(mean_thresholds);
+    push_plot(
+        &mut plots,
+        "Feature mean shift",
+        "event",
+        "standard deviations",
+        mean_shift,
+    );
+    scale_ratio.extend(scale_thresholds);
+    push_plot(
+        &mut plots,
+        "Feature scale ratio",
+        "event",
+        "inference / training scale",
+        scale_ratio,
+    );
     plots
 }
 
@@ -677,6 +721,20 @@ mod tests {
         assert!(plots.iter().all(|plot| plot.validate().is_ok()));
         assert_eq!(plots[1].series[0].points[0][1], 2.0);
         assert_eq!(plots[3].series.len(), 2);
+
+        let enriched = vec![DriftEvent {
+            observed: Some(100),
+            standardized_mean_shift: Some(1.25),
+            scale_ratio: Some(2.5),
+            ..drift[0].clone()
+        }];
+        let plots = monitoring_plots(&services, &enriched);
+        assert_eq!(plots.len(), 6);
+        assert!(plots.iter().all(|plot| plot.validate().is_ok()));
+        assert_eq!(plots[4].name, "Feature mean shift");
+        assert_eq!(plots[4].series.len(), 2);
+        assert_eq!(plots[5].name, "Feature scale ratio");
+        assert_eq!(plots[5].series.len(), 3);
     }
 
     #[test]

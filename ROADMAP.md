@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.92.0`
+Current application version: `0.93.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1647,6 +1647,20 @@ Implementation notes:
 
 - Optional fields keep external `forge_drift:` producers source-compatible while native inference emits the richer form.
 - The established score/threshold fields remain authoritative for dashboards and breach aggregation.
+
+## 0.93 explainable native drift plots — implemented
+
+- [x] Plot standardized feature mean-shift history for enriched drift events.
+- [x] Plot inference-to-training feature scale-ratio history.
+- [x] Render the 1σ mean boundary and the 0.5/2.0 scale boundaries alongside measurements.
+- [x] Keep legacy monitoring streams on the existing four dashboards without empty plots.
+- [x] Include enriched drift plots in integrity-attested monitoring bundles and bundle import.
+- [x] Validate series counts, plot schemas, and legacy/enriched conditional behavior.
+
+Implementation notes:
+
+- Explainable plots are generated only when their optional telemetry fields exist, so external legacy producers see no blank dashboards.
+- Native plot history inherits the existing JSON, CSV point, PNG, SVG, PDF, and interactive HTML export paths.
 
 ## Known technical risks
 
