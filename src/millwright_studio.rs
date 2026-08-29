@@ -11,9 +11,13 @@ const MAX_REPORT_EVENT_CHARS: usize = 8_192;
 const MAX_PDF_REPORT_EVENTS: usize = 500;
 const MAX_PDF_EVENT_CHARS: usize = 512;
 const MAX_RUN_OVERVIEW_ROWS: usize = 128;
+const MAX_RUN_ID_BYTES: usize = 256;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TrainingEvent {
+    RunContext {
+        run_id: String,
+    },
     Started {
         job: String,
         total_trials: usize,
@@ -64,6 +68,7 @@ pub enum TrainingEvent {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrainingRunSummary {
+    pub run_id: Option<String>,
     pub job: String,
     pub status: String,
     pub total_trials: usize,
@@ -78,6 +83,7 @@ pub struct TrainingRunSummary {
 impl TrainingRunSummary {
     fn unscoped() -> Self {
         Self {
+            run_id: None,
             job: "Unscoped telemetry".into(),
             status: "Running".into(),
             total_trials: 0,
@@ -94,6 +100,11 @@ impl TrainingRunSummary {
 pub fn validate_training_event(event: &TrainingEvent) -> bool {
     let text_ok = |value: &str| value.len() <= MAX_TRAINING_TEXT_BYTES && !value.contains('\0');
     match event {
+        TrainingEvent::RunContext { run_id } => {
+            !run_id.trim().is_empty()
+                && run_id.len() <= MAX_RUN_ID_BYTES
+                && !run_id.contains(['\0', ']'])
+        }
         TrainingEvent::Started { job, .. } => text_ok(job),
         TrainingEvent::TrialStarted { parameters, .. } => text_ok(parameters),
         TrainingEvent::FoldCompleted { score, .. }
@@ -125,56 +136,100 @@ pub fn record_training_event(events: &mut Vec<TrainingEvent>, event: TrainingEve
 }
 
 pub fn training_run_overview(events: &[TrainingEvent]) -> Vec<TrainingRunSummary> {
-    let mut runs = Vec::<TrainingRunSummary>::new();
+    let mut runs = Vec::<(Option<String>, TrainingRunSummary, usize)>::new();
+    let mut pending_context = None;
+    let mut activity = 0usize;
     for event in events.iter().filter(|event| validate_training_event(event)) {
+        if let TrainingEvent::RunContext { run_id } = event {
+            pending_context = Some(run_id.clone());
+            continue;
+        }
+        activity += 1;
+        let context = pending_context.take();
         if let TrainingEvent::Started { job, total_trials } = event {
-            runs.push(TrainingRunSummary {
+            let summary = TrainingRunSummary {
+                run_id: context.clone(),
                 job: job.clone(),
                 status: "Running".into(),
                 total_trials: *total_trials,
                 ..TrainingRunSummary::unscoped()
-            });
+            };
+            if let Some(index) = context.as_ref().and_then(|run_id| {
+                runs.iter()
+                    .position(|(key, _, _)| key.as_ref() == Some(run_id))
+            }) {
+                runs[index] = (context, summary, activity);
+            } else {
+                runs.push((context, summary, activity));
+            }
             continue;
         }
-        if runs.is_empty() {
-            runs.push(TrainingRunSummary::unscoped());
-        }
-        let run = runs.last_mut().expect("training run exists");
-        match event {
-            TrainingEvent::TrialCompleted { score, .. } => {
-                run.completed_trials += 1;
-                run.best_score = Some(run.best_score.map_or(*score, |best| best.max(*score)));
-            }
-            TrainingEvent::Epoch {
-                epoch,
-                total,
-                loss,
-                metric,
-            } => {
-                run.epoch = Some(*epoch);
-                run.total_epochs = Some(*total);
-                run.latest_loss = Some(*loss);
-                if metric.is_some() {
-                    run.latest_metric = *metric;
+        let index = context
+            .as_ref()
+            .and_then(|run_id| {
+                runs.iter()
+                    .position(|(key, _, _)| key.as_ref() == Some(run_id))
+            })
+            .or_else(|| {
+                context
+                    .is_none()
+                    .then(|| runs.iter().rposition(|(key, _, _)| key.is_none()))
+                    .flatten()
+            })
+            .unwrap_or_else(|| {
+                let mut summary = TrainingRunSummary::unscoped();
+                if let Some(run_id) = &context {
+                    summary.run_id = Some(run_id.clone());
+                    summary.job = format!("Run {run_id}");
                 }
-            }
-            TrainingEvent::Batch { loss, .. } => run.latest_loss = Some(*loss),
-            TrainingEvent::EarlyStopping { best_score, .. } => {
-                run.status = "Early stopped".into();
-                run.best_score = Some(*best_score);
-            }
-            TrainingEvent::Completed { best_score } => {
-                run.status = "Completed".into();
-                run.best_score = Some(*best_score);
-            }
-            TrainingEvent::Failed { .. } => run.status = "Failed".into(),
-            TrainingEvent::Started { .. }
-            | TrainingEvent::TrialStarted { .. }
-            | TrainingEvent::FoldCompleted { .. }
-            | TrainingEvent::Checkpoint { .. } => {}
-        }
+                runs.push((context.clone(), summary, activity));
+                runs.len() - 1
+            });
+        apply_run_event(&mut runs[index].1, event);
+        runs[index].2 = activity;
     }
-    runs.into_iter().rev().take(MAX_RUN_OVERVIEW_ROWS).collect()
+    runs.sort_by_key(|(_, _, last_activity)| std::cmp::Reverse(*last_activity));
+    runs.into_iter()
+        .take(MAX_RUN_OVERVIEW_ROWS)
+        .map(|(_, summary, _)| summary)
+        .collect()
+}
+
+fn apply_run_event(run: &mut TrainingRunSummary, event: &TrainingEvent) {
+    match event {
+        TrainingEvent::TrialCompleted { score, .. } => {
+            run.completed_trials += 1;
+            run.best_score = Some(run.best_score.map_or(*score, |best| best.max(*score)));
+        }
+        TrainingEvent::Epoch {
+            epoch,
+            total,
+            loss,
+            metric,
+        } => {
+            run.epoch = Some(*epoch);
+            run.total_epochs = Some(*total);
+            run.latest_loss = Some(*loss);
+            if metric.is_some() {
+                run.latest_metric = *metric;
+            }
+        }
+        TrainingEvent::Batch { loss, .. } => run.latest_loss = Some(*loss),
+        TrainingEvent::EarlyStopping { best_score, .. } => {
+            run.status = "Early stopped".into();
+            run.best_score = Some(*best_score);
+        }
+        TrainingEvent::Completed { best_score } => {
+            run.status = "Completed".into();
+            run.best_score = Some(*best_score);
+        }
+        TrainingEvent::Failed { .. } => run.status = "Failed".into(),
+        TrainingEvent::RunContext { .. }
+        | TrainingEvent::Started { .. }
+        | TrainingEvent::TrialStarted { .. }
+        | TrainingEvent::FoldCompleted { .. }
+        | TrainingEvent::Checkpoint { .. } => {}
+    }
 }
 
 pub fn training_run_csv(events: &[TrainingEvent]) -> Result<Vec<u8>, String> {
@@ -190,6 +245,7 @@ pub fn training_run_csv(events: &[TrainingEvent]) -> Result<Vec<u8>, String> {
     writer
         .write_record([
             "newest_index",
+            "run_id",
             "job",
             "status",
             "completed_trials",
@@ -205,6 +261,7 @@ pub fn training_run_csv(events: &[TrainingEvent]) -> Result<Vec<u8>, String> {
         writer
             .write_record([
                 (index + 1).to_string(),
+                run.run_id.unwrap_or_default(),
                 run.job,
                 run.status,
                 run.completed_trials.to_string(),
@@ -433,6 +490,7 @@ fn report_number(value: Option<f64>) -> String {
 
 fn event_kind(event: &TrainingEvent) -> &'static str {
     match event {
+        TrainingEvent::RunContext { .. } => "Run context",
         TrainingEvent::Started { .. } => "Started",
         TrainingEvent::TrialStarted { .. } => "Trial started",
         TrainingEvent::FoldCompleted { .. } => "Fold completed",
@@ -675,6 +733,20 @@ pub fn parse_runtime_output(output: &str) -> (Vec<TrainingEvent>, Vec<Evaluation
     let mut events = Vec::new();
     let mut reports = Vec::new();
     for line in output.lines() {
+        if let Some(scoped) = line.strip_prefix("forge_training[") {
+            if let Some((run_id, json)) = scoped.split_once("]:") {
+                let context = TrainingEvent::RunContext {
+                    run_id: run_id.to_owned(),
+                };
+                if validate_training_event(&context) {
+                    if let Ok(event) = serde_json::from_str(json.trim()) {
+                        record_training_event(&mut events, context);
+                        record_training_event(&mut events, event);
+                    }
+                }
+            }
+            continue;
+        }
         if let Some(json) = line.strip_prefix("forge_training:") {
             if let Ok(event) = serde_json::from_str(json.trim()) {
                 record_training_event(&mut events, event);
@@ -897,14 +969,35 @@ mod tests {
         ];
         let output = training_run_csv(&events).unwrap();
         let mut reader = csv::Reader::from_reader(output.as_slice());
-        assert_eq!(reader.headers().unwrap().len(), 10);
+        assert_eq!(reader.headers().unwrap().len(), 11);
         let rows = reader.records().collect::<Result<Vec<_>, _>>().unwrap();
         assert_eq!(rows.len(), 1);
-        assert_eq!(&rows[0][1], "search, \"wide\"");
-        assert_eq!(&rows[0][2], "Completed");
-        assert_eq!(&rows[0][3], "1");
-        assert_eq!(&rows[0][5], "2");
-        assert_eq!(&rows[0][9], "0.95");
+        assert_eq!(&rows[0][2], "search, \"wide\"");
+        assert_eq!(&rows[0][3], "Completed");
+        assert_eq!(&rows[0][4], "1");
+        assert_eq!(&rows[0][6], "2");
+        assert_eq!(&rows[0][10], "0.95");
         assert!(training_run_csv(&[]).is_err());
+    }
+
+    #[test]
+    fn scoped_training_lines_support_interleaved_run_progress() {
+        let output = concat!(
+            "forge_training[a]:{\"Started\":{\"job\":\"alpha\",\"total_trials\":2}}\n",
+            "forge_training[b]:{\"Started\":{\"job\":\"beta\",\"total_trials\":1}}\n",
+            "forge_training[a]:{\"TrialCompleted\":{\"trial\":1,\"score\":0.8}}\n",
+            "forge_training[b]:{\"Completed\":{\"best_score\":0.9}}"
+        );
+        let (events, _) = parse_runtime_output(output);
+        assert_eq!(events.len(), 8);
+        let overview = training_run_overview(&events);
+        assert_eq!(overview.len(), 2);
+        assert_eq!(overview[0].run_id.as_deref(), Some("b"));
+        assert_eq!(overview[0].status, "Completed");
+        assert_eq!(overview[1].run_id.as_deref(), Some("a"));
+        assert_eq!(overview[1].completed_trials, 1);
+        assert!(!validate_training_event(&TrainingEvent::RunContext {
+            run_id: "]".into()
+        }));
     }
 }

@@ -4694,6 +4694,7 @@ impl ForgeApp {
                     .striped(true)
                     .show(ui, |ui| {
                         ui.strong("Job");
+                        ui.strong("Run ID");
                         ui.strong("Status");
                         ui.strong("Trials");
                         ui.strong("Epoch");
@@ -4703,6 +4704,7 @@ impl ForgeApp {
                         ui.end_row();
                         for run in run_overview {
                             ui.label(run.job);
+                            ui.label(run.run_id.unwrap_or_else(|| "-".into()));
                             ui.label(run.status);
                             ui.label(format!("{} / {}", run.completed_trials, run.total_trials));
                             ui.label(match (run.epoch, run.total_epochs) {

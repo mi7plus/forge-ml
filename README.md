@@ -68,6 +68,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - Native bounded multi-model deployment health and latest-feature-drift overview
 - Native bounded multi-run training status, progress, metric, and score overview
 - Atomic analysis-ready training-run summary CSV exports
+- Explicit bounded run contexts for interleaved concurrent training telemetry
 - S3-compatible and rclone object-storage profiles with bounded browsing, reachability probes, and atomic prefix-aware project caching
 - Hardened SQLite, DuckDB, PostgreSQL, and verified-TLS MySQL profiles with test probes, command timeouts, output caps, and credential-safe errors
 - Project-scoped successful SQL history with bounded deduplication, recall, JSON export, and explicit clearing

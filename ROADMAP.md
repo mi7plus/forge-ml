@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.73.0`
+Current application version: `0.74.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1354,6 +1354,21 @@ Implementation notes:
 
 - Blank numeric cells represent unavailable telemetry rather than zero, preserving the distinction for downstream analysis.
 - The raw typed-event CSV remains available when a full event audit rather than run-level analysis is required.
+
+## 0.74 interleaved concurrent training run contexts — implemented
+
+- [x] Add a validated typed `RunContext` event with non-empty run IDs capped at 256 bytes.
+- [x] Accept concise `forge_training[run-id]:<json>` runtime lines while preserving the legacy prefix.
+- [x] Scope context to exactly one following event so malformed or missing events cannot leak association.
+- [x] Aggregate interleaved run progress independently and order the overview by latest activity.
+- [x] Display run IDs in the native overview and preserve them in the structured run-summary CSV.
+- [x] Preserve context events in typed JSON, raw CSV, reports, and attested training bundles.
+- [x] Test two interleaved jobs, terminal status, progress association, and invalid run-ID rejection.
+
+Implementation notes:
+
+- Published Millwright telemetry remains compatible; run contexts are a Forge extension usable by Millwright, Burn, or custom producers.
+- A context event and its payload count as two retained typed events, keeping association explicit in portable audit artifacts.
 
 ## Known technical risks
 
