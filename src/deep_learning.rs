@@ -91,7 +91,7 @@ pub fn native_regression_predictions(
     artifact: &NativeRegressionArtifact,
     dataset: &str,
     table: &TableData,
-) -> Result<(String, TableData, usize), String> {
+) -> Result<NativePredictionOutcome, String> {
     artifact.validate()?;
     if table.rows.len() > MAX_NATIVE_ROWS {
         return Err(format!(
@@ -111,6 +111,11 @@ pub fn native_regression_predictions(
         suffix += 1;
     }
     let mut predicted = 0;
+    let target_index = table
+        .columns
+        .iter()
+        .position(|column| column == &artifact.target);
+    let mut evaluated = Vec::new();
     let rows = table
         .rows
         .iter()
@@ -123,6 +128,13 @@ pub fn native_regression_predictions(
                 .and_then(|value| artifact.predict(value).ok());
             if let Some(prediction) = prediction {
                 predicted += 1;
+                if let Some(actual) = target_index
+                    .and_then(|index| row.get(index))
+                    .and_then(|value| value.parse::<f64>().ok())
+                    .filter(|value| value.is_finite())
+                {
+                    evaluated.push((actual, prediction));
+                }
                 output.push(prediction.to_string());
             } else {
                 output.push(String::new());
@@ -135,11 +147,105 @@ pub fn native_regression_predictions(
     }
     let mut columns = table.columns.clone();
     columns.push(prediction_column);
-    Ok((
-        format!("{dataset}_predictions"),
-        TableData { columns, rows },
+    let diagnostics = RegressionDiagnostics::from_pairs(evaluated);
+    Ok(NativePredictionOutcome {
+        name: format!("{dataset}_predictions"),
+        table: TableData { columns, rows },
         predicted,
-    ))
+        diagnostics,
+    })
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct NativePredictionOutcome {
+    pub name: String,
+    pub table: TableData,
+    pub predicted: usize,
+    pub diagnostics: Option<RegressionDiagnostics>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RegressionDiagnostics {
+    pub evaluated: usize,
+    pub mae: f64,
+    pub rmse: f64,
+    pub r_squared: Option<f64>,
+    pub actual_vs_predicted: Vec<[f64; 2]>,
+    pub residuals: Vec<[f64; 2]>,
+}
+
+impl RegressionDiagnostics {
+    fn from_pairs(pairs: Vec<(f64, f64)>) -> Option<Self> {
+        if pairs.is_empty() {
+            return None;
+        }
+        let evaluated = pairs.len();
+        let mean_actual = pairs.iter().map(|(actual, _)| actual).sum::<f64>() / evaluated as f64;
+        let absolute_error = pairs
+            .iter()
+            .map(|(actual, predicted)| (actual - predicted).abs())
+            .sum::<f64>();
+        let squared_error = pairs
+            .iter()
+            .map(|(actual, predicted)| (actual - predicted).powi(2))
+            .sum::<f64>();
+        let total = pairs
+            .iter()
+            .map(|(actual, _)| (actual - mean_actual).powi(2))
+            .sum::<f64>();
+        Some(Self {
+            evaluated,
+            mae: absolute_error / evaluated as f64,
+            rmse: (squared_error / evaluated as f64).sqrt(),
+            r_squared: (total > f64::EPSILON).then_some(1.0 - squared_error / total),
+            actual_vs_predicted: pairs
+                .iter()
+                .map(|(actual, predicted)| [*actual, *predicted])
+                .collect(),
+            residuals: pairs
+                .into_iter()
+                .map(|(actual, predicted)| [predicted, actual - predicted])
+                .collect(),
+        })
+    }
+
+    pub fn plots(&self, dataset: &str) -> Vec<crate::plot::PlotSpec> {
+        use crate::plot::{PlotKind, PlotSeries, PlotSpec, PLOT_SPEC_VERSION};
+        vec![
+            PlotSpec {
+                version: PLOT_SPEC_VERSION,
+                name: format!("{dataset} actual vs predicted"),
+                kind: PlotKind::Scatter,
+                x_label: "Actual".into(),
+                y_label: "Predicted".into(),
+                series: vec![PlotSeries {
+                    name: "Predictions".into(),
+                    points: self.actual_vs_predicted.clone(),
+                    values: Vec::new(),
+                    visible: true,
+                }],
+                matrix: Vec::new(),
+                x_log: false,
+                y_log: false,
+            },
+            PlotSpec {
+                version: PLOT_SPEC_VERSION,
+                name: format!("{dataset} residuals"),
+                kind: PlotKind::Residual,
+                x_label: "Predicted".into(),
+                y_label: "Residual".into(),
+                series: vec![PlotSeries {
+                    name: "Residuals".into(),
+                    points: self.residuals.clone(),
+                    values: Vec::new(),
+                    visible: true,
+                }],
+                matrix: Vec::new(),
+                x_log: false,
+                y_log: false,
+            },
+        ]
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -821,12 +927,24 @@ mod tests {
         let prediction = outcome.artifact.predict(2.0).unwrap();
         assert!(prediction.is_finite());
         assert_eq!(outcome.artifact.schema, 1);
-        let (name, predictions, predicted) =
+        let predictions =
             native_regression_predictions(&outcome.artifact, "sample", &table).unwrap();
-        assert_eq!(name, "sample_predictions");
-        assert_eq!(predicted, 3);
-        assert_eq!(predictions.columns.last().unwrap(), "target_prediction");
-        assert_eq!(predictions.rows[2].last().unwrap(), "");
+        assert_eq!(predictions.name, "sample_predictions");
+        assert_eq!(predictions.predicted, 3);
+        assert_eq!(
+            predictions.table.columns.last().unwrap(),
+            "target_prediction"
+        );
+        assert_eq!(predictions.table.rows[2].last().unwrap(), "");
+        let diagnostics = predictions.diagnostics.unwrap();
+        assert_eq!(diagnostics.evaluated, 3);
+        assert!(diagnostics.mae.is_finite());
+        assert!(diagnostics.rmse.is_finite());
+        assert_eq!(diagnostics.plots("sample").len(), 2);
+        assert!(diagnostics
+            .plots("sample")
+            .iter()
+            .all(|plot| plot.validate().is_ok()));
         assert!(native_training_data("sample", &table, "feature", "feature").is_err());
         assert!(native_training_data("sample", &table, "missing", "target").is_err());
         for config in [

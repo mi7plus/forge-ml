@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.88.0`
+Current application version: `0.89.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1586,6 +1586,23 @@ Implementation notes:
 
 - Native generated services need only Axum, Tokio, Serde, Serde JSON, and SHA-256; neither Python nor Burn is required for original-unit linear inference.
 - The generic adapter scaffold remains explicit for other non-ONNX formats, while native regression and ONNX now both generate executable inference handlers.
+
+## 0.89 native regression evaluation and diagnostic plots — implemented
+
+- [x] Detect the artifact target column during background batch inference.
+- [x] Evaluate only rows with both finite actual values and successful predictions.
+- [x] Compute bounded MAE, RMSE, and R² in original target units.
+- [x] Report R² as unavailable for constant-target evaluation sets.
+- [x] Generate native actual-vs-predicted scatter and residual plots.
+- [x] Validate plots through the existing finite-value and point-count contracts.
+- [x] Replace same-name diagnostics deterministically and open the Charts pane after evaluation.
+- [x] Preserve target-less batch inference and Data-viewer publication behavior.
+- [x] Test evaluated counts, finite metrics, plot kinds, and target-less worker results.
+
+Implementation notes:
+
+- Diagnostics use the scored dataset rather than the training holdout, making them suitable for separate test datasets as well as quick training-data checks.
+- At most 100,000 evaluated pairs feed each diagnostic series, remaining below Forge's one-million-point plot limit.
 
 ## Known technical risks
 

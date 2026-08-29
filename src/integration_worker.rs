@@ -78,7 +78,17 @@ pub enum Request {
 pub enum ResultEvent {
     BurnTrainingProgress(crate::millwright_studio::TrainingEvent),
     BurnTrainingFinished(Result<crate::deep_learning::NativeTrainingOutcome, String>),
-    NativeRegressionPredicted(Result<(String, Dataset, usize), String>),
+    NativeRegressionPredicted(
+        Result<
+            (
+                String,
+                Dataset,
+                usize,
+                Option<crate::deep_learning::RegressionDiagnostics>,
+            ),
+            String,
+        >,
+    ),
     DataImportProgress {
         path: PathBuf,
         rows: usize,
@@ -198,9 +208,17 @@ fn execute(request: Request, events: &Sender<ResultEvent>) -> ResultEvent {
                 &dataset_name,
                 &table,
             )
-            .and_then(|(name, table, predicted)| {
-                prepared_dataset(table, format!("native model {}", artifact.run_id))
-                    .map(|dataset| (name, dataset, predicted))
+            .and_then(|outcome| {
+                prepared_dataset(outcome.table, format!("native model {}", artifact.run_id)).map(
+                    |dataset| {
+                        (
+                            outcome.name,
+                            dataset,
+                            outcome.predicted,
+                            outcome.diagnostics,
+                        )
+                    },
+                )
             });
             ResultEvent::NativeRegressionPredicted(result)
         }
@@ -388,9 +406,10 @@ mod tests {
             .recv_timeout(std::time::Duration::from_secs(2))
             .expect("prediction worker result")
         {
-            ResultEvent::NativeRegressionPredicted(Ok((name, dataset, predicted))) => {
+            ResultEvent::NativeRegressionPredicted(Ok((name, dataset, predicted, diagnostics))) => {
                 assert_eq!(name, "source_predictions");
                 assert_eq!(predicted, 1);
+                assert!(diagnostics.is_none());
                 assert_eq!(dataset.rows[0][1], "5");
                 assert_eq!(dataset.rows[1][1], "");
             }

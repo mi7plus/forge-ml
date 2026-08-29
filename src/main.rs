@@ -1958,14 +1958,34 @@ impl ForgeApp {
                         .unwrap_or_else(|error| format!("Embedded Burn training failed: {error}"));
                 }
                 ResultEvent::NativeRegressionPredicted(result) => match result {
-                    Ok((name, dataset, predicted)) => {
+                    Ok((name, dataset, predicted, diagnostics)) => {
                         let rows = dataset.rows.len();
                         self.data.insert_dataset(name.clone(), dataset);
                         self.open_dataset = Some(format!("table:{name}"));
-                        self.inspector_tab = InspectorTab::Data;
-                        self.sql_output = format!(
+                        let mut message = format!(
                             "Predicted {predicted} of {rows} row(s) into dataset `{name}`."
                         );
+                        if let Some(diagnostics) = diagnostics {
+                            message.push_str(&format!(
+                                " Evaluated {} row(s): MAE {:.6}, RMSE {:.6}, R² {}.",
+                                diagnostics.evaluated,
+                                diagnostics.mae,
+                                diagnostics.rmse,
+                                diagnostics
+                                    .r_squared
+                                    .map(|value| format!("{value:.6}"))
+                                    .unwrap_or_else(|| "unavailable".into())
+                            ));
+                            for spec in diagnostics.plots(&name) {
+                                self.structured_plots
+                                    .retain(|existing| existing.name != spec.name);
+                                self.structured_plots.push(spec);
+                            }
+                            self.inspector_tab = InspectorTab::Charts;
+                        } else {
+                            self.inspector_tab = InspectorTab::Data;
+                        }
+                        self.sql_output = message;
                     }
                     Err(error) => {
                         self.sql_output = format!("Native batch inference failed: {error}")
