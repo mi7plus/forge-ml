@@ -50,6 +50,7 @@ See the [user guide](docs/USER_GUIDE.md), [privacy guide](docs/PRIVACY.md), [dev
 - Leakage-safe native feature/target standardization with original-unit loss reporting
 - Portable schema-1 native regression artifacts with atomic JSON import/export and in-IDE inference
 - Background native batch inference into Arrow-backed prediction datasets
+- Immutable model-registry versioning and integrity-verified loading for native regression artifacts
 - Bounded framework-neutral training event monitoring with validated JSON/CSV export
 - All-or-nothing validated training JSON import for reopening archived telemetry
 - Self-contained offline training summary and event-audit HTML reports

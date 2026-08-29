@@ -95,6 +95,103 @@ impl ModelRegistry {
         self.save(&index)?;
         Ok(item)
     }
+    pub fn register_native_regression(
+        &self,
+        model: &str,
+        version: &str,
+        artifact: &crate::deep_learning::NativeRegressionArtifact,
+        tags: Vec<String>,
+    ) -> Result<ModelVersion, String> {
+        artifact.validate()?;
+        let bytes = serde_json::to_vec_pretty(artifact).map_err(|error| error.to_string())?;
+        if bytes.len() > 64 * 1024 {
+            return Err("Native regression artifact exceeds the 64 KiB registry limit".into());
+        }
+        self.register_bytes(
+            model,
+            version,
+            "forge-native-regression",
+            "json",
+            &bytes,
+            tags,
+        )
+    }
+
+    fn register_bytes(
+        &self,
+        model: &str,
+        version: &str,
+        format: &str,
+        extension: &str,
+        bytes: &[u8],
+        tags: Vec<String>,
+    ) -> Result<ModelVersion, String> {
+        validate(model)?;
+        validate(version)?;
+        let sha256 = format!("{:x}", Sha256::digest(bytes));
+        let size_bytes = bytes.len() as u64;
+        let mut index = self.load()?;
+        if let Some(existing) = index
+            .versions
+            .iter()
+            .find(|item| item.model == model && item.version == version)
+        {
+            let existing_path = self.root.join(&existing.artifact);
+            let identity = artifact_identity(&existing_path).map_err(|_| {
+                "Registered model metadata exists but its artifact is missing or unreadable"
+                    .to_owned()
+            })?;
+            if identity == (sha256, size_bytes) {
+                return Ok(existing.clone());
+            }
+            return Err(format!(
+                "Model {model} version {version} is immutable and already contains different bytes"
+            ));
+        }
+        let relative = format!("{model}/{version}/model.{extension}");
+        let destination = self.root.join(&relative);
+        fs::create_dir_all(destination.parent().unwrap()).map_err(|error| error.to_string())?;
+        if destination.exists() {
+            return Err(
+                "Artifact destination already exists without matching registry metadata".into(),
+            );
+        }
+        let temporary = destination.with_extension(format!("{extension}.tmp"));
+        fs::write(&temporary, bytes).map_err(|error| error.to_string())?;
+        fs::rename(&temporary, &destination).map_err(|error| error.to_string())?;
+        let item = ModelVersion {
+            model: model.into(),
+            version: version.into(),
+            format: format.into(),
+            artifact: relative,
+            created_at_unix: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            tags,
+            sha256,
+            size_bytes,
+        };
+        index.versions.push(item.clone());
+        self.save(&index)?;
+        Ok(item)
+    }
+
+    pub fn load_native_regression(
+        &self,
+        model: &str,
+        version_or_alias: &str,
+    ) -> Result<crate::deep_learning::NativeRegressionArtifact, String> {
+        let version = self.resolve_version(model, version_or_alias)?;
+        if version.format != "forge-native-regression" {
+            return Err(format!(
+                "Registered model format `{}` is not a native regression artifact",
+                version.format
+            ));
+        }
+        let path = self.resolve(model, version_or_alias)?;
+        crate::export::import_native_regression_artifact(&path)
+    }
     pub fn versions(&self, model: &str) -> Result<Vec<ModelVersion>, String> {
         Ok(self
             .load()?
@@ -351,6 +448,55 @@ async fn predict(Json(input): Json<Request>) -> Json<Response> {{
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn native_artifact(slope: f64) -> crate::deep_learning::NativeRegressionArtifact {
+        crate::deep_learning::NativeRegressionArtifact {
+            schema: 1,
+            run_id: "burn-flex-registry".into(),
+            dataset: "sample".into(),
+            feature: "x".into(),
+            target: "y".into(),
+            slope,
+            intercept: 1.0,
+            feature_mean: 0.0,
+            feature_scale: 1.0,
+            target_mean: 0.0,
+            target_scale: 1.0,
+            best_score: -0.1,
+            epochs_completed: 4,
+        }
+    }
+
+    #[test]
+    fn registry_versions_and_loads_native_regression_artifacts() {
+        let root =
+            std::env::temp_dir().join(format!("forge-native-registry-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let registry = ModelRegistry::open(&root).unwrap();
+        let artifact = native_artifact(2.0);
+        let version = registry
+            .register_native_regression("linear", "1.0.0", &artifact, vec!["native".into()])
+            .unwrap();
+        assert_eq!(version.format, "forge-native-regression");
+        let repeated = registry
+            .register_native_regression("linear", "1.0.0", &artifact, vec![])
+            .unwrap();
+        assert_eq!(repeated.sha256, version.sha256);
+        registry.promote("linear", "production", "1.0.0").unwrap();
+        assert_eq!(
+            registry
+                .load_native_regression("linear", "production")
+                .unwrap(),
+            artifact
+        );
+        assert!(registry
+            .register_native_regression("linear", "1.0.0", &native_artifact(3.0), vec![])
+            .unwrap_err()
+            .contains("immutable"));
+        let _ = fs::remove_dir_all(root);
+    }
+
     #[test]
     fn registry_supports_alias_rollback() {
         let root = std::env::temp_dir().join(format!("forge-registry-{}", std::process::id()));

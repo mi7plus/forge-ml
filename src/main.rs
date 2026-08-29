@@ -4005,6 +4005,66 @@ impl ForgeApp {
                 }
             }
         }
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Registry");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.registry_model)
+                    .desired_width(100.0)
+                    .hint_text("model"),
+            );
+            ui.add(
+                egui::TextEdit::singleline(&mut self.registry_version)
+                    .desired_width(80.0)
+                    .hint_text("version"),
+            );
+            if ui
+                .add_enabled(
+                    self.native_burn_artifact.is_some(),
+                    egui::Button::new("Register native model"),
+                )
+                .clicked()
+            {
+                self.sql_output = root
+                    .as_ref()
+                    .ok_or_else(|| "Open a project first".to_owned())
+                    .and_then(|root| model_registry::ModelRegistry::open(root))
+                    .and_then(|registry| {
+                        registry.register_native_regression(
+                            &self.registry_model,
+                            &self.registry_version,
+                            self.native_burn_artifact.as_ref().expect("button enabled"),
+                            vec!["native-burn".into(), "regression".into()],
+                        )
+                    })
+                    .map(|version| {
+                        self.registry_format = version.format.clone();
+                        format!(
+                            "Registered native model {} {} · {} bytes · SHA-256 {}",
+                            version.model, version.version, version.size_bytes, version.sha256
+                        )
+                    })
+                    .unwrap_or_else(|error| format!("Native model registration failed: {error}"));
+            }
+            if ui.button("Load registry version").clicked() {
+                match root
+                    .as_ref()
+                    .ok_or_else(|| "Open a project first".to_owned())
+                    .and_then(|root| model_registry::ModelRegistry::open(root))
+                    .and_then(|registry| {
+                        registry
+                            .load_native_regression(&self.registry_model, &self.registry_version)
+                    }) {
+                    Ok(artifact) => {
+                        self.sql_output = format!(
+                            "Loaded integrity-verified native model {} {}.",
+                            self.registry_model, self.registry_version
+                        );
+                        self.native_burn_artifact = Some(artifact);
+                    }
+                    Err(error) => self.sql_output = format!("Native registry load failed: {error}"),
+                }
+            }
+        });
         let memory = if self.resource_snapshot.total_memory == 0 {
             0.0
         } else {

@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.86.0`
+Current application version: `0.87.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1554,6 +1554,22 @@ Implementation notes:
 
 - Batch inference uses the artifact's original-unit equation, so it requires neither Python nor a Burn device after training.
 - Prediction datasets remain ordinary Forge datasets and can immediately use sorting, filtering, quality analysis, plots, and every supported export.
+
+## 0.87 native model-registry integration — implemented
+
+- [x] Register the active native regression artifact directly from memory without staging files.
+- [x] Store native artifacts under the dedicated `forge-native-regression` format.
+- [x] Reuse immutable `(model, version)` enforcement and idempotent same-byte registration.
+- [x] Attach native Burn and regression tags plus SHA-256 and size metadata.
+- [x] Load native versions or promoted aliases through the existing registry resolver.
+- [x] Verify registry bytes before native schema validation and active-model replacement.
+- [x] Expose registry model/version controls directly in the Deep Learning pane.
+- [x] Test registration, idempotence, immutable conflicts, alias loading, and artifact equality.
+
+Implementation notes:
+
+- Native artifacts share the project-local `.forge/models` registry and therefore participate in the same version listing, alias promotion, and tamper detection as ONNX and adapter artifacts.
+- Registry loading is all-or-nothing: an integrity, format, or schema failure leaves the currently active native model unchanged.
 
 ## Known technical risks
 
