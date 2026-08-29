@@ -1980,6 +1980,9 @@ impl ForgeApp {
                                 feature: drift.feature,
                                 score: drift.score,
                                 threshold: 1.0,
+                                observed: Some(drift.observed),
+                                standardized_mean_shift: Some(drift.standardized_mean_shift),
+                                scale_ratio: Some(drift.scale_ratio),
                             },
                         );
                         if let Some(diagnostics) = diagnostics {

@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.91.0`
+Current application version: `0.92.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1633,6 +1633,20 @@ Implementation notes:
 
 - The monitoring score normalizes the bidirectional scale-ratio check and mean-shift check to the existing threshold of 1.0.
 - Drift uses only finite feature values that actually produced predictions, so invalid source cells cannot distort the comparison.
+
+## 0.92 explainable drift telemetry — implemented
+
+- [x] Extend drift events with optional observation count, standardized mean shift, and scale ratio.
+- [x] Preserve backward compatibility for existing runtime telemetry and monitoring snapshots.
+- [x] Validate every optional diagnostic before it enters bounded monitoring state.
+- [x] Preserve native inference diagnostics through JSON snapshots and attested monitoring bundles.
+- [x] Add the diagnostics to portable monitoring CSV, offline HTML, and native PDF reports.
+- [x] Test legacy and enriched telemetry parsing, snapshot round trips, and exported diagnostics.
+
+Implementation notes:
+
+- Optional fields keep external `forge_drift:` producers source-compatible while native inference emits the richer form.
+- The established score/threshold fields remain authoritative for dashboards and breach aggregation.
 
 ## Known technical risks
 

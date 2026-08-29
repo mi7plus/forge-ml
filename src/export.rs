@@ -1384,6 +1384,7 @@ mod tests {
             feature: "width".into(),
             score: 0.3,
             threshold: 0.2,
+            ..Default::default()
         }];
         monitoring_bundle(&services, &drift, &path).unwrap();
         let mut archive = zip::ZipArchive::new(File::open(&path).unwrap()).unwrap();
