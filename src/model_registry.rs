@@ -357,7 +357,7 @@ fn integrity_ok() -> bool {{
 fn load_model() -> Result<NativeModel, Box<dyn std::error::Error>> {{
     if !integrity_ok() {{ return Err("model integrity check failed".into()) }}
     let model: NativeModel = serde_json::from_slice(&std::fs::read(MODEL_PATH)?)?;
-    if model.schema != 1 || !model.slope.is_finite() || !model.intercept.is_finite() {{ return Err("invalid native regression artifact".into()) }}
+    if !matches!(model.schema, 1 | 2) || !model.slope.is_finite() || !model.intercept.is_finite() {{ return Err("invalid native regression artifact".into()) }}
     Ok(model)
 }}
 async fn health() -> &'static str {{ "ok" }}
@@ -543,6 +543,7 @@ mod tests {
             target_scale: 1.0,
             best_score: -0.1,
             epochs_completed: 4,
+            ..Default::default()
         }
     }
 

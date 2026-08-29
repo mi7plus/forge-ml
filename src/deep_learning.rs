@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -20,7 +21,7 @@ pub struct NativeTrainingData {
     targets: Vec<f32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct NativeRegressionArtifact {
     pub schema: u32,
     pub run_id: String,
@@ -35,11 +36,29 @@ pub struct NativeRegressionArtifact {
     pub target_scale: f64,
     pub best_score: f64,
     pub epochs_completed: usize,
+    #[serde(default)]
+    pub backend: String,
+    #[serde(default)]
+    pub data_sha256: String,
+    #[serde(default)]
+    pub rows: usize,
+    #[serde(default)]
+    pub training_rows: usize,
+    #[serde(default)]
+    pub validation_rows: usize,
+    #[serde(default)]
+    pub learning_rate: f64,
+    #[serde(default)]
+    pub configured_epochs: usize,
+    #[serde(default)]
+    pub validation_fraction: f64,
+    #[serde(default)]
+    pub early_stopping_patience: usize,
 }
 
 impl NativeRegressionArtifact {
     pub fn validate(&self) -> Result<(), String> {
-        if self.schema != 1 {
+        if !matches!(self.schema, 1 | 2) {
             return Err(format!(
                 "Unsupported native regression artifact schema {}",
                 self.schema
@@ -70,6 +89,25 @@ impl NativeRegressionArtifact {
         }
         if self.feature_scale <= 0.0 || self.target_scale <= 0.0 || self.epochs_completed == 0 {
             return Err("Native regression artifact contains invalid fitted metadata".into());
+        }
+        if self.schema == 2
+            && (!matches!(self.backend.as_str(), "flex" | "wgpu")
+                || self.data_sha256.len() != 64
+                || !self
+                    .data_sha256
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit())
+                || self.rows < 2
+                || self.training_rows == 0
+                || self.training_rows + self.validation_rows != self.rows
+                || self.configured_epochs == 0
+                || self.epochs_completed > self.configured_epochs
+                || !self.learning_rate.is_finite()
+                || self.learning_rate <= 0.0
+                || !self.validation_fraction.is_finite()
+                || !(0.0..=0.5).contains(&self.validation_fraction))
+        {
+            return Err("Native regression schema-2 provenance is invalid".into());
         }
         Ok(())
     }
@@ -303,6 +341,17 @@ fn standardize(
     })
 }
 
+fn training_data_fingerprint(inputs: &[f32], targets: &[f32]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"forge-native-regression-data-v1");
+    hasher.update((inputs.len() as u64).to_le_bytes());
+    for (input, target) in inputs.iter().zip(targets) {
+        hasher.update(input.to_le_bytes());
+        hasher.update(target.to_le_bytes());
+    }
+    format!("{:x}", hasher.finalize())
+}
+
 pub fn native_training_data(
     dataset: &str,
     table: &TableData,
@@ -528,6 +577,8 @@ fn native_burn_training_demo_inner(
     } else {
         0
     };
+    let rows = inputs.len();
+    let data_sha256 = training_data_fingerprint(&inputs, &targets);
     let training_rows = inputs.len() - validation_rows;
     let standardization = standardize(&mut inputs, &mut targets, training_rows)?;
     data_label.push_str(&format!(
@@ -660,7 +711,7 @@ fn native_burn_training_demo_inner(
         return Err("Embedded Burn training produced invalid inference parameters".into());
     }
     let artifact = NativeRegressionArtifact {
-        schema: 1,
+        schema: 2,
         run_id,
         dataset,
         feature,
@@ -673,6 +724,15 @@ fn native_burn_training_demo_inner(
         target_scale,
         best_score,
         epochs_completed,
+        backend: backend.feature().into(),
+        data_sha256,
+        rows,
+        training_rows,
+        validation_rows,
+        learning_rate: config.learning_rate,
+        configured_epochs: config.epochs,
+        validation_fraction: config.validation_fraction,
+        early_stopping_patience: config.early_stopping_patience,
     };
     artifact.validate()?;
     Ok(NativeTrainingOutcome { events, artifact })
@@ -926,7 +986,18 @@ mod tests {
         ));
         let prediction = outcome.artifact.predict(2.0).unwrap();
         assert!(prediction.is_finite());
-        assert_eq!(outcome.artifact.schema, 1);
+        assert_eq!(outcome.artifact.schema, 2);
+        assert_eq!(outcome.artifact.data_sha256.len(), 64);
+        assert_eq!(outcome.artifact.rows, 3);
+        assert_eq!(
+            outcome.artifact.training_rows + outcome.artifact.validation_rows,
+            3
+        );
+        assert_eq!(outcome.artifact.backend, "flex");
+        assert_eq!(outcome.artifact.configured_epochs, 3);
+        let mut invalid_provenance = outcome.artifact.clone();
+        invalid_provenance.data_sha256.clear();
+        assert!(invalid_provenance.validate().is_err());
         let predictions =
             native_regression_predictions(&outcome.artifact, "sample", &table).unwrap();
         assert_eq!(predictions.name, "sample_predictions");

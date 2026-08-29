@@ -391,6 +391,7 @@ mod tests {
             target_scale: 1.0,
             best_score: -0.1,
             epochs_completed: 2,
+            ..Default::default()
         };
         worker
             .submit(Request::NativeRegressionPredict {

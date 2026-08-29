@@ -12,7 +12,7 @@ Legend:
 
 ## Current status
 
-Current application version: `0.89.0`
+Current application version: `0.90.0`
 
 Forge ML is a functional desktop prototype with interactive Rust execution,
 editor and language tooling, project navigation, telemetry plots, experiment
@@ -1603,6 +1603,22 @@ Implementation notes:
 
 - Diagnostics use the scored dataset rather than the training holdout, making them suitable for separate test datasets as well as quick training-data checks.
 - At most 100,000 evaluated pairs feed each diagnostic series, remaining below Forge's one-million-point plot limit.
+
+## 0.90 schema-2 native model provenance — implemented
+
+- [x] Fingerprint the exact ordered finite feature/target pairs admitted to native training.
+- [x] Store backend, total/train/validation rows, learning rate, requested epochs, validation fraction, and patience.
+- [x] Preserve requested versus actually completed epochs for early-stopped runs.
+- [x] Advance newly trained native regression artifacts to schema 2.
+- [x] Apply strict schema-2 SHA-256, backend, row-accounting, numeric, and epoch validation.
+- [x] Retain schema-1 JSON import, registry loading, batch inference, and service generation.
+- [x] Accept both schemas in generated standalone service startup validation.
+- [x] Test schema-2 provenance values and invalid fingerprint rejection.
+
+Implementation notes:
+
+- The data digest covers canonical little-endian `f32` pairs after numeric admission but before splitting or standardization, making it independent of JSON formatting and table-only columns.
+- Schema 1 remains intentionally lenient because those artifacts predate structured training provenance; registry SHA-256 still protects their stored bytes.
 
 ## Known technical risks
 

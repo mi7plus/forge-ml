@@ -1177,6 +1177,7 @@ mod tests {
             target_scale: 2.0,
             best_score: -0.01,
             epochs_completed: 40,
+            ..Default::default()
         };
         native_regression_artifact(&artifact, &root).unwrap();
         let imported = import_native_regression_artifact(&root).unwrap();
