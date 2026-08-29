@@ -1,3 +1,7 @@
+// The right-pane split predates the egui_tiles dock; its logic is retained and
+// still unit-tested, but the live layout no longer calls it.
+#![allow(dead_code)]
+
 pub const DATASET_DIVIDER_HEIGHT: f32 = 12.0;
 pub const MIN_RIGHT_PANE_HEIGHT: f32 = 120.0;
 
@@ -73,5 +77,46 @@ mod tests {
         let invalid = RightPaneSplit::resolve(f32::NAN, f32::INFINITY);
         assert_eq!(invalid.inspector_height, 0.0);
         assert_eq!(invalid.dataset_height, 0.0);
+    }
+
+    #[test]
+    fn resolve_is_idempotent_once_settled() {
+        let first = RightPaneSplit::resolve(700.0, 280.0);
+        let second = RightPaneSplit::resolve(700.0, first.dataset_height);
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn exact_double_minimum_is_split_evenly() {
+        // usable_height == MIN * 2 sits on the boundary between the even-split
+        // branch and the clamped branch; both must agree and stay non-negative.
+        let available = MIN_RIGHT_PANE_HEIGHT * 2.0 + DATASET_DIVIDER_HEIGHT;
+        let split = RightPaneSplit::resolve(available, MIN_RIGHT_PANE_HEIGHT);
+        assert_eq!(split.inspector_height, MIN_RIGHT_PANE_HEIGHT);
+        assert_eq!(split.dataset_height, MIN_RIGHT_PANE_HEIGHT);
+        assert!(split.inspector_height >= 0.0 && split.dataset_height >= 0.0);
+    }
+
+    #[test]
+    fn heights_always_fill_available_space() {
+        for &(available, requested) in &[
+            (700.0_f32, 280.0_f32),
+            (300.0, 50.0),
+            (300.0, 10_000.0),
+            (150.0, 40.0),
+        ] {
+            let split = RightPaneSplit::resolve(available, requested);
+            let total = split.inspector_height + DATASET_DIVIDER_HEIGHT + split.dataset_height;
+            assert!((total - available).abs() < 1e-3, "total {total} != {available}");
+        }
+    }
+
+    #[test]
+    fn dataset_height_never_escapes_its_clamp_under_repeated_drags() {
+        let mut height = 280.0_f32;
+        for _ in 0..50 {
+            height = RightPaneSplit::after_drag(700.0, height, -1_000.0).dataset_height;
+        }
+        assert_eq!(height, 700.0 - DATASET_DIVIDER_HEIGHT - MIN_RIGHT_PANE_HEIGHT);
     }
 }

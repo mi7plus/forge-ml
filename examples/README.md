@@ -11,6 +11,8 @@ Files under `notebooks/` contain Forge `//# %%` cells. Open one in the editor an
 - `notebooks/experiment_comparison.rs` provides baseline and tuned cells for testing named run snapshots, overlays, and CSV export.
 - `notebooks/stop_execution.rs` runs long enough to test the Stop button safely.
 - `notebooks/diagnostics.rs` contains intentional errors for the Problems pane.
+- `notebooks/native_regression.rs` fits a univariate model inline and emits a loss curve, an original-unit equation, MAE/RMSE/R2, and actual-vs-predicted vectors, mirroring the native-regression workflow.
+- `notebooks/structured_plots.rs` emits versioned `forge_plot:` JSON across several plot families (line, scatter, bars, histogram) plus legacy metric/vector markers, to exercise the Plots pane and its exports.
 
 These notebook files are nested deliberately. Cargo does not treat them as standalone example binaries, because interactive cell bodies are not ordinary `main` functions.
 

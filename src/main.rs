@@ -38,6 +38,7 @@ use diagnostics::DiagnosticsHandle;
 use eframe::egui;
 use egui::{Color32, Frame, Margin, Panel, RichText, Stroke};
 use egui_code_editor::{CodeEditor, ColorTheme, Syntax};
+use egui_tiles::{Container, Linear, LinearDir, SimplificationOptions, Tile, TileId, Tiles, Tree};
 use egui_plot::{Bar, BarChart, Line, Plot, PlotPoints, Points};
 use experiment::{capture_provenance, ExperimentRun};
 #[cfg(test)]
@@ -55,7 +56,6 @@ use notebook::{
     cell_byte_ranges, is_notebook_document, lsp_document, notebook_lsp_prefix_chars,
     prepare_runtime_code, CellKind, NotebookDocument, RichOutput,
 };
-use pane_layout::{RightPaneSplit, DATASET_DIVIDER_HEIGHT};
 use plot::{metric_line, vector_bars, PlotKind, PlotSpec};
 use project::{FileNode, Project};
 use runtime::{CellResult, RuntimeHandle, VariableMeta};
@@ -116,7 +116,7 @@ fn main() -> eframe::Result<()> {
     )
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 enum InspectorTab {
     Variables,
     Data,
@@ -133,6 +133,109 @@ enum InspectorTab {
     DeepLearning,
     Deploy,
     Storage,
+}
+
+impl InspectorTab {
+    /// Stable ordering used to build the default dock layout and the View menu.
+    const ALL: [InspectorTab; 15] = [
+        InspectorTab::Variables,
+        InspectorTab::Data,
+        InspectorTab::Charts,
+        InspectorTab::Experiments,
+        InspectorTab::Search,
+        InspectorTab::Help,
+        InspectorTab::Problems,
+        InspectorTab::Git,
+        InspectorTab::Packages,
+        InspectorTab::GitHub,
+        InspectorTab::Studio,
+        InspectorTab::Database,
+        InspectorTab::DeepLearning,
+        InspectorTab::Deploy,
+        InspectorTab::Storage,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            InspectorTab::Variables => "Variables",
+            InspectorTab::Data => "Data",
+            InspectorTab::Charts => "Plots",
+            InspectorTab::Experiments => "Runs",
+            InspectorTab::Search => "Search",
+            InspectorTab::Help => "Help",
+            InspectorTab::Problems => "Problems",
+            InspectorTab::Git => "Git",
+            InspectorTab::Packages => "Crates",
+            InspectorTab::GitHub => "GitHub",
+            InspectorTab::Studio => "Studio",
+            InspectorTab::Database => "SQL",
+            InspectorTab::DeepLearning => "Deep",
+            InspectorTab::Deploy => "Deploy",
+            InspectorTab::Storage => "Storage",
+        }
+    }
+
+    fn icon(self) -> &'static str {
+        use egui_phosphor_icons::icons;
+        match self {
+            InspectorTab::Variables => icons::CUBE,
+            InspectorTab::Data => icons::GRID_FOUR,
+            InspectorTab::Charts => icons::CHART_LINE,
+            InspectorTab::Experiments => icons::FLASK,
+            InspectorTab::Search => icons::MAGNIFYING_GLASS,
+            InspectorTab::Help => icons::QUESTION,
+            InspectorTab::Problems => icons::BUG,
+            InspectorTab::Git => icons::GIT_BRANCH,
+            InspectorTab::Packages => icons::PACKAGE,
+            InspectorTab::GitHub => icons::GITHUB_LOGO,
+            InspectorTab::Studio => icons::FLOW_ARROW,
+            InspectorTab::Database => icons::DATABASE,
+            InspectorTab::DeepLearning => icons::BRAIN,
+            InspectorTab::Deploy => icons::ROCKET_LAUNCH,
+            InspectorTab::Storage => icons::CLOUD,
+        }
+        .as_str()
+    }
+}
+
+/// A dockable surface in the [`egui_tiles`] workspace tree. Each pane maps to an
+/// existing render method; the tree owns their layout, so panes can be split,
+/// re-docked between regions, floated, or hidden without bespoke panel code.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
+enum PaneKind {
+    Editor,
+    Workspace,
+    Console,
+    DataViewer,
+    Inspector(InspectorTab),
+}
+
+impl PaneKind {
+    fn title(self) -> &'static str {
+        match self {
+            PaneKind::Editor => "Editor",
+            PaneKind::Workspace => "Workspace",
+            PaneKind::Console => "Console",
+            PaneKind::DataViewer => "Data viewer",
+            PaneKind::Inspector(tab) => tab.label(),
+        }
+    }
+
+    fn icon(self) -> &'static str {
+        use egui_phosphor_icons::icons;
+        match self {
+            PaneKind::Editor => icons::CODE.as_str(),
+            PaneKind::Workspace => icons::TREE_STRUCTURE.as_str(),
+            PaneKind::Console => icons::TERMINAL_WINDOW.as_str(),
+            PaneKind::DataViewer => icons::TABLE.as_str(),
+            PaneKind::Inspector(tab) => tab.icon(),
+        }
+    }
+
+    /// Tab label as shown in the dock: icon glyph followed by the pane name.
+    fn tab_label(self) -> String {
+        format!("{}  {}", self.icon(), self.title())
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -485,6 +588,18 @@ struct ForgeApp {
     update_channel: updater::Channel,
     last_file_poll: Instant,
     pending_editor_history: Option<EditorHistoryCommand>,
+    /// The dockable workspace layout. `None` only transiently while its `ui` is
+    /// borrowed (it is `take`n so the tree and `self` can be borrowed at once).
+    dock_tree: Option<Tree<PaneKind>>,
+    /// A pane to bring to the front on the next frame (menu/command navigation).
+    dock_focus: Option<PaneKind>,
+    /// Last observed `inspector_tab`; when it changes, the matching dock pane is
+    /// brought to the front so legacy `inspector_tab = ...` navigation still works.
+    last_inspector_tab: InspectorTab,
+    /// Deferred definition-probe offset produced while rendering the editor pane.
+    dock_pending_definition_probe: Option<usize>,
+    /// Whether a Ctrl+click go-to-definition fired inside the editor pane.
+    dock_pending_ctrl_definition: bool,
 }
 
 impl ForgeApp {
@@ -781,6 +896,11 @@ impl ForgeApp {
             update_channel: updater::Channel::Stable,
             last_file_poll: Instant::now(),
             pending_editor_history: None,
+            dock_tree: Some(load_dock_tree(session.dock_layout.as_deref())),
+            dock_focus: None,
+            last_inspector_tab: InspectorTab::Variables,
+            dock_pending_definition_probe: None,
+            dock_pending_ctrl_definition: false,
         }
     }
 
@@ -789,6 +909,69 @@ impl ForgeApp {
     }
     fn active_mut(&mut self) -> &mut EditorTab {
         &mut self.tabs[self.active_tab]
+    }
+
+    /// A compact bottom strip summarizing runtime, file, and language-server
+    /// state so those signals live in one predictable place.
+    fn status_bar(&mut self, ui: &mut egui::Ui) {
+        use egui_phosphor_icons::icons;
+        ui.horizontal(|ui| {
+            let (glyph, text, color) = match self.run_state {
+                RunState::Booting => (icons::CIRCLE_DASHED.as_str(), "Booting".to_owned(), EMBER),
+                RunState::Ready => (icons::CHECK_CIRCLE.as_str(), "Ready".to_owned(), GREEN),
+                RunState::Running(cell) => (
+                    icons::CIRCLE_NOTCH.as_str(),
+                    format!("Running cell {}", cell + 1),
+                    CYAN,
+                ),
+                RunState::Failed => (icons::X_CIRCLE.as_str(), "Runtime failed".to_owned(), RED),
+            };
+            ui.label(
+                RichText::new(format!("{glyph}  {text}"))
+                    .color(color)
+                    .size(11.0),
+            );
+            ui.separator();
+
+            let dirty = self.active().dirty;
+            let name = self
+                .active()
+                .path
+                .as_ref()
+                .map(|path| file_title(path))
+                .unwrap_or_else(|| "untitled".to_owned());
+            ui.label(
+                RichText::new(format!("{}  {}{}", icons::FILE_CODE.as_str(), name, if dirty { " •" } else { "" }))
+                    .color(if dirty { EMBER } else { MUTED })
+                    .size(11.0),
+            );
+
+            if self.integration_pending > 0 {
+                ui.separator();
+                ui.label(
+                    RichText::new(format!("{}  {} background task(s)", icons::HOURGLASS_MEDIUM.as_str(), self.integration_pending))
+                        .color(CYAN)
+                        .size(11.0),
+                );
+            }
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let (line, column) =
+                    line_column(&self.active().content, self.cursor_offset);
+                ui.label(
+                    RichText::new(format!("Ln {line}, Col {column}"))
+                        .monospace()
+                        .size(11.0)
+                        .color(MUTED),
+                );
+                ui.separator();
+                let mut lsp = self.lsp_status.replace('\n', " ");
+                if lsp.chars().count() > 60 {
+                    lsp = format!("{}…", lsp.chars().take(59).collect::<String>());
+                }
+                ui.label(RichText::new(lsp).size(11.0).color(MUTED));
+            });
+        });
     }
 
     fn cells(&self) -> Vec<(String, String)> {
@@ -2401,7 +2584,12 @@ impl ForgeApp {
     }
 
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
+        // egui::MenuBar coordinates the top-level menus so that, once one menu is
+        // open, hovering a sibling opens it without a second click. Bare
+        // `ui.menu_button` calls in a plain `ui.horizontal` do not share that
+        // state. MenuBar::ui already lays its content out horizontally, so we do
+        // not nest another horizontal layout here.
+        egui::MenuBar::new().ui(ui, |ui| {
             ui.label(RichText::new("FORGE ML").strong().color(RED));
             ui.separator();
             ui.menu_button("File", |ui| {
@@ -2411,6 +2599,7 @@ impl ForgeApp {
                 }
                 if ui.button("Open project...").clicked() {
                     self.open_project();
+                    ui.close();
                 }
                 if ui.button("Import Jupyter notebook...").clicked() {
                     self.import_ipynb();
@@ -2453,9 +2642,11 @@ impl ForgeApp {
                 });
                 if ui.button("Save   Ctrl+S").clicked() {
                     self.save_active();
+                    ui.close();
                 }
                 if ui.button("Close editor tab").clicked() {
                     self.close_tab(self.active_tab);
+                    ui.close();
                 }
             });
             ui.menu_button("Edit", |ui| {
@@ -2477,20 +2668,25 @@ impl ForgeApp {
             ui.menu_button("Source", |ui| {
                 if ui.button("Run code analysis").clicked() {
                     self.run_diagnostics();
+                    ui.close();
                 }
             });
             ui.menu_button("Run", |ui| {
                 if ui.button("Run cell   Shift+Enter").clicked() {
                     self.enqueue_cells([self.selected_cell]);
+                    ui.close();
                 }
                 if ui.button("Run cells above").clicked() {
                     self.enqueue_cells(0..=self.selected_cell);
+                    ui.close();
                 }
                 if ui.button("Run all   Ctrl+Shift+Enter").clicked() {
                     self.enqueue_cells(0..self.cells().len());
+                    ui.close();
                 }
                 if ui.button("Restart and run all").clicked() {
                     self.restart_and_run_all();
+                    ui.close();
                 }
                 if ui
                     .add_enabled(
@@ -2500,6 +2696,7 @@ impl ForgeApp {
                     .clicked()
                 {
                     self.stop_execution();
+                    ui.close();
                 }
             });
             ui.menu_button("Debug", |ui| {
@@ -2551,6 +2748,7 @@ impl ForgeApp {
                 if ui.button("Restart Rust console").clicked() {
                     let _ = self.runtime.reset();
                     self.run_state = RunState::Booting;
+                    ui.close();
                 }
             });
             ui.menu_button("View", |ui| {
@@ -2564,7 +2762,42 @@ impl ForgeApp {
                     configure_style(ui.ctx(), self.dark_mode, self.high_contrast);
                     ui.close();
                 }
-                ui.label("Drag pane dividers to resize the workspace.");
+                ui.separator();
+                ui.menu_button("Panes", |ui| {
+                    ui.label(
+                        RichText::new("Show or hide dock panes")
+                            .size(10.0)
+                            .color(MUTED),
+                    );
+                    let mut kinds = vec![
+                        PaneKind::Editor,
+                        PaneKind::Workspace,
+                        PaneKind::Console,
+                        PaneKind::DataViewer,
+                    ];
+                    kinds.extend(InspectorTab::ALL.iter().map(|tab| PaneKind::Inspector(*tab)));
+                    for kind in kinds {
+                        let Some((mut visible, id)) = self.dock_tree.as_ref().and_then(|tree| {
+                            Self::dock_tile_of(tree, kind).map(|id| (tree.tiles.is_visible(id), id))
+                        }) else {
+                            continue;
+                        };
+                        if ui.checkbox(&mut visible, kind.title()).changed() {
+                            if let Some(tree) = self.dock_tree.as_mut() {
+                                tree.tiles.set_visible(id, visible);
+                            }
+                        }
+                    }
+                });
+                if ui.button("Reset layout to default").clicked() {
+                    self.dock_tree = Some(build_dock_tree());
+                    ui.close();
+                }
+                ui.label(
+                    RichText::new("Drag a pane's tab to split, re-dock, or reorder it.")
+                        .size(10.0)
+                        .color(MUTED),
+                );
             });
             ui.menu_button("Help", |ui| {
                 ui.label(format!(
@@ -3025,6 +3258,7 @@ impl ForgeApp {
     fn editor_tabs(&mut self, ui: &mut egui::Ui) {
         let mut select = None;
         let mut close = None;
+        let mut reorder: Option<(usize, usize)> = None;
         egui::ScrollArea::horizontal()
             .id_salt("editor_tab_strip")
             .show(ui, |ui| {
@@ -3037,22 +3271,34 @@ impl ForgeApp {
                         } else {
                             tab.title.clone()
                         };
-                        if ui
-                            .selectable_label(
-                                index == self.active_tab,
-                                RichText::new(title).color(if tab.external_change_pending {
-                                    RED
-                                } else if tab.dirty {
-                                    EMBER
-                                } else {
-                                    TEXT
-                                }),
-                            )
-                            .clicked()
-                        {
+                        let color = if tab.external_change_pending {
+                            RED
+                        } else if tab.dirty {
+                            EMBER
+                        } else {
+                            TEXT
+                        };
+                        let selected = index == self.active_tab;
+                        // Each tab is a drag source (reorder) whose inner label
+                        // still reports clicks and middle-clicks (close) when not
+                        // being dragged.
+                        let dnd_id = egui::Id::new(("editor_tab_dnd", index));
+                        let inner = ui.dnd_drag_source(dnd_id, index, |ui| {
+                            ui.selectable_label(selected, RichText::new(title).color(color))
+                        });
+                        let label = inner
+                            .inner
+                            .on_hover_text("Drag to reorder · middle-click to close");
+                        if label.clicked() {
                             select = Some(index);
                         }
-                        if index == self.active_tab
+                        if label.middle_clicked() {
+                            close = Some(index);
+                        }
+                        if let Some(from) = inner.response.dnd_release_payload::<usize>() {
+                            reorder = Some((*from, index));
+                        }
+                        if selected
                             && compact_icon_button(
                                 ui,
                                 egui_phosphor_icons::icons::X,
@@ -3071,9 +3317,25 @@ impl ForgeApp {
             self.selected_cell = 0;
             self.cell_records.clear();
         }
+        if let Some((from, to)) = reorder {
+            self.move_tab(from, to);
+        }
         if let Some(index) = close {
             self.close_tab(index);
         }
+    }
+
+    /// Move an editor tab from one position to another (drag-to-reorder),
+    /// keeping `active_tab` pointed at the same logical tab.
+    fn move_tab(&mut self, from: usize, to: usize) {
+        if from == to || from >= self.tabs.len() || to >= self.tabs.len() {
+            return;
+        }
+        let active = self.active_tab;
+        let tab = self.tabs.remove(from);
+        self.tabs.insert(to, tab);
+        self.active_tab =
+            reordered_active_index(active, from, to).min(self.tabs.len().saturating_sub(1));
     }
 
     fn apply_pending_editor_history(&mut self, ui: &mut egui::Ui) {
@@ -3107,106 +3369,9 @@ impl ForgeApp {
         self.last_lsp_hash = 0;
     }
 
-    fn right_sidebar(&mut self, ui: &mut egui::Ui) {
-        if !self.dataset_viewer_docked || self.open_dataset.is_none() {
-            self.inspector(ui);
-            return;
-        }
-
-        let available_height = ui.available_height();
-        let split = RightPaneSplit::resolve(available_height, self.dataset_pane_height);
-        self.dataset_pane_height = split.dataset_height;
-
-        let (inspector_rect, _) = ui.allocate_exact_size(
-            egui::vec2(ui.available_width(), split.inspector_height),
-            egui::Sense::hover(),
-        );
-        let mut inspector_ui = ui.new_child(
-            egui::UiBuilder::new()
-                .id_salt("right_inspector_top")
-                .max_rect(inspector_rect)
-                .layout(egui::Layout::top_down(egui::Align::Min)),
-        );
-        inspector_ui.set_clip_rect(inspector_rect);
-        self.inspector(&mut inspector_ui);
-
-        let (divider_rect, divider) = ui.allocate_exact_size(
-            egui::vec2(ui.available_width(), DATASET_DIVIDER_HEIGHT),
-            egui::Sense::drag(),
-        );
-        if divider.hovered() || divider.dragged() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
-        }
-        if divider.dragged() {
-            self.dataset_pane_height = RightPaneSplit::after_drag(
-                available_height,
-                self.dataset_pane_height,
-                ui.input(|input| input.pointer.delta().y),
-            )
-            .dataset_height;
-            ui.ctx().request_repaint();
-        }
-        let divider_color = if divider.hovered() || divider.dragged() {
-            CYAN
-        } else {
-            theme_colors(self.dark_mode).border
-        };
-        if divider.hovered() || divider.dragged() {
-            ui.painter().rect_filled(
-                divider_rect,
-                2.0,
-                CYAN.gamma_multiply(if self.dark_mode { 0.14 } else { 0.09 }),
-            );
-        }
-        ui.painter().line_segment(
-            [divider_rect.left_center(), divider_rect.right_center()],
-            Stroke::new(if divider.dragged() { 2.0 } else { 1.0 }, divider_color),
-        );
-
-        let (dataset_rect, _) = ui.allocate_exact_size(
-            egui::vec2(ui.available_width(), ui.available_height()),
-            egui::Sense::hover(),
-        );
-        let mut dataset_ui = ui.new_child(
-            egui::UiBuilder::new()
-                .id_salt("right_dataset_bottom")
-                .max_rect(dataset_rect)
-                .layout(egui::Layout::top_down(egui::Align::Min)),
-        );
-        dataset_ui.set_clip_rect(dataset_rect);
-        self.docked_dataset_viewer(&mut dataset_ui);
-    }
-
-    fn inspector(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal_wrapped(|ui| {
-            for (tab, label) in [
-                (InspectorTab::Variables, "Variables"),
-                (InspectorTab::Data, "Data"),
-                (InspectorTab::Charts, "Plots"),
-                (InspectorTab::Experiments, "Runs"),
-                (InspectorTab::Search, "Search"),
-                (InspectorTab::Help, "Help"),
-                (InspectorTab::Problems, "Problems"),
-                (InspectorTab::Git, "Git"),
-                (InspectorTab::Packages, "Crates"),
-                (InspectorTab::GitHub, "GitHub"),
-                (InspectorTab::Studio, "Studio"),
-                (InspectorTab::Database, "SQL"),
-                (InspectorTab::DeepLearning, "Deep"),
-                (InspectorTab::Deploy, "Deploy"),
-                (InspectorTab::Storage, "Storage"),
-            ] {
-                if ui
-                    .selectable_label(self.inspector_tab == tab, label)
-                    .clicked()
-                {
-                    self.inspector_tab = tab;
-                }
-            }
-        });
-        ui.separator();
-        ui.add_space(7.0);
-        match self.inspector_tab {
+    /// Render one inspector pane's body, hosted by a [`PaneKind::Inspector`] tile.
+    fn inspector_body(&mut self, tab: InspectorTab, ui: &mut egui::Ui) {
+        match tab {
             InspectorTab::Variables => {
                 ui.label(
                     RichText::new("LIVE EVCXR STATE")
@@ -6163,6 +6328,30 @@ impl ForgeApp {
         }
     }
 
+    /// Body of the dockable [`PaneKind::DataViewer`] tile. Shows the docked
+    /// dataset when one is open, or a hint pointing at the floating window /
+    /// the Data pane otherwise.
+    fn dock_data_viewer(&mut self, ui: &mut egui::Ui) {
+        if self.open_dataset.is_none() {
+            ui.add_space(6.0);
+            ui.label(
+                RichText::new("No dataset open. Open one from the Data pane.").color(MUTED),
+            );
+            return;
+        }
+        if !self.dataset_viewer_docked {
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Dataset is in a floating window.").color(MUTED));
+                if ui.small_button("Dock here").clicked() {
+                    self.dataset_viewer_docked = true;
+                }
+            });
+            return;
+        }
+        self.docked_dataset_viewer(ui);
+    }
+
     fn dataset_window(&mut self, ctx: &egui::Context) {
         if self.dataset_viewer_docked {
             return;
@@ -7183,28 +7372,27 @@ impl ForgeApp {
             self.command_query.clear();
             self.command_selection = 0;
         }
-        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Num1)) {
-            self.inspector_tab = InspectorTab::Variables;
-            self.status_announcement = "Variables pane selected".into();
+        // Ctrl+1..=9 jump straight to the first nine inspector panes.
+        const NUM_KEYS: [egui::Key; 9] = [
+            egui::Key::Num1,
+            egui::Key::Num2,
+            egui::Key::Num3,
+            egui::Key::Num4,
+            egui::Key::Num5,
+            egui::Key::Num6,
+            egui::Key::Num7,
+            egui::Key::Num8,
+            egui::Key::Num9,
+        ];
+        for (index, key) in NUM_KEYS.iter().enumerate() {
+            if ctx.input(|i| i.modifiers.command && i.key_pressed(*key)) {
+                let tab = InspectorTab::ALL[index];
+                self.inspector_tab = tab;
+                self.status_announcement = format!("{} pane selected", tab.label());
+            }
         }
         if ctx.input(|i| i.key_pressed(egui::Key::F6)) {
-            let tabs = [
-                InspectorTab::Variables,
-                InspectorTab::Data,
-                InspectorTab::Charts,
-                InspectorTab::Experiments,
-                InspectorTab::Search,
-                InspectorTab::Help,
-                InspectorTab::Problems,
-                InspectorTab::Git,
-                InspectorTab::Packages,
-                InspectorTab::GitHub,
-                InspectorTab::Studio,
-                InspectorTab::Database,
-                InspectorTab::DeepLearning,
-                InspectorTab::Deploy,
-                InspectorTab::Storage,
-            ];
+            let tabs = InspectorTab::ALL;
             let index = tabs
                 .iter()
                 .position(|tab| *tab == self.inspector_tab)
@@ -7273,90 +7461,32 @@ impl ForgeApp {
     }
 }
 
-impl eframe::App for ForgeApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        self.accessibility_shortcuts(ui.ctx());
-        self.command_palette(ui.ctx());
-        self.poll_background(ui.ctx());
-        let save = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S));
-        let new_file = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::N));
-        let find = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F));
-        let find_in_files =
-            ui.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::F));
-        let complete = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Space));
-        let run = ui.input(|i| i.modifiers.shift && i.key_pressed(egui::Key::Enter));
-        let run_all = ui
-            .input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Enter));
-        if save {
-            self.save_active();
+impl ForgeApp {
+    /// Post-editor work shared by the legacy layout and the docked workspace:
+    /// LSP sync, deferred definition probes, and the modal windows.
+    fn after_editor(&mut self, ui: &mut egui::Ui) {
+        self.sync_lsp();
+        if let Some(offset) = self.dock_pending_definition_probe.take() {
+            self.definition_probe_pending = true;
+            self.probe_definition(offset);
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(40));
         }
-        if new_file {
-            self.create_new_file(None);
+        if std::mem::take(&mut self.dock_pending_ctrl_definition) {
+            self.request_lsp("definition");
+            self.lsp_status = "Looking up definition...".to_owned();
         }
-        if find_in_files {
-            self.inspector_tab = InspectorTab::Search;
-        } else if find {
-            self.find_visible = true;
-        }
-        if complete {
-            ui.input_mut(|input| {
-                input.consume_key(egui::Modifiers::COMMAND, egui::Key::Space);
-            });
-            self.request_lsp("complete");
-            self.lsp_status = "Requesting completions...".to_owned();
-        }
-        if self.completion_popup_open && ui.input(|input| input.key_pressed(egui::Key::Escape)) {
-            self.completion_popup_open = false;
-        }
-        if run_all {
-            self.enqueue_cells(0..self.cells().len());
-        } else if run {
-            self.enqueue_cells([self.selected_cell]);
-        }
-        Panel::top("menu_bar")
-            .resizable(false)
-            .default_size(28.0)
-            .frame(compact_panel_frame(
-                theme_colors(self.dark_mode).menu,
-                self.dark_mode,
-            ))
-            .show(ui, |ui| self.menu_bar(ui));
-        Panel::top("command_bar")
-            .resizable(false)
-            .default_size(42.0)
-            .frame(compact_panel_frame(
-                theme_colors(self.dark_mode).surface,
-                self.dark_mode,
-            ))
-            .show(ui, |ui| self.top_bar(ui));
-        Panel::left("workspace")
-            .default_size(240.0)
-            .frame(panel_frame(
-                theme_colors(self.dark_mode).surface,
-                self.dark_mode,
-            ))
-            .show(ui, |ui| self.cell_navigator(ui));
-        Panel::right("inspector")
-            .default_size(320.0)
-            .frame(panel_frame(
-                theme_colors(self.dark_mode).surface,
-                self.dark_mode,
-            ))
-            .show(ui, |ui| self.right_sidebar(ui));
-        Panel::bottom("console")
-            .resizable(true)
-            .show_separator_line(false)
-            .default_size(190.0)
-            .frame(console_panel_frame(self.dark_mode))
-            .show(ui, |ui| self.console(ui));
-        let mut ctrl_clicked_definition = false;
-        let mut definition_probe = None;
-        egui::CentralPanel::default()
-            .frame(panel_frame(
-                theme_colors(self.dark_mode).background,
-                self.dark_mode,
-            ))
-            .show(ui, |ui| {
+        self.delete_confirmation(ui.ctx());
+        self.unsaved_confirmation(ui.ctx());
+        self.settings_window(ui.ctx());
+        self.dataset_window(ui.ctx());
+        self.remote_input_window(ui.ctx());
+    }
+
+    /// Render the editor surface: tabs, find bar, code editor, inline
+    /// diagnostics, caret, hover/definition probing, and the completion popup.
+    /// Shared by the central editor panel and [`PaneKind::Editor`].
+    fn editor_pane(&mut self, ui: &mut egui::Ui) {
                 self.editor_tabs(ui);
                 self.external_change_banner(ui);
                 self.apply_pending_editor_history(ui);
@@ -7462,7 +7592,7 @@ impl eframe::App for ForgeApp {
                 if hovered_offset != self.hover_probe_offset {
                     self.hover_probe_offset = hovered_offset;
                     self.navigable_hover_offset = None;
-                    definition_probe = hovered_offset;
+                    self.dock_pending_definition_probe = hovered_offset;
                 }
                 if let Some(offset) = hovered_offset {
                     if self.navigable_hover_offset == Some(offset) {
@@ -7477,7 +7607,7 @@ impl eframe::App for ForgeApp {
                         );
                         if ctrl_held && output.response.clicked_by(egui::PointerButton::Primary) {
                             self.cursor_offset = offset;
-                            ctrl_clicked_definition = true;
+                            self.dock_pending_ctrl_definition = true;
                         }
                     }
                 }
@@ -7557,33 +7687,238 @@ impl eframe::App for ForgeApp {
                     output.response.request_focus();
                     ui.ctx().request_repaint();
                 }
-                let (line, column) =
-                    line_column(&self.tabs[self.active_tab].content, self.cursor_offset);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(
-                        RichText::new(format!("Ln {line}, Col {column}"))
-                            .monospace()
-                            .size(10.0)
-                            .color(MUTED),
-                    );
-                });
+    }
+
+    /// Find the tile hosting a given pane, if it is present in the tree.
+    fn dock_tile_of(tree: &Tree<PaneKind>, kind: PaneKind) -> Option<TileId> {
+        tree.tiles.iter().find_map(|(id, tile)| match tile {
+            Tile::Pane(pane) if *pane == kind => Some(*id),
+            _ => None,
+        })
+    }
+}
+
+impl egui_tiles::Behavior<PaneKind> for ForgeApp {
+    fn pane_ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        _tile_id: TileId,
+        pane: &mut PaneKind,
+    ) -> egui_tiles::UiResponse {
+        ui.add_space(2.0);
+        match *pane {
+            PaneKind::Editor => self.editor_pane(ui),
+            PaneKind::Workspace => self.cell_navigator(ui),
+            PaneKind::Console => self.console(ui),
+            PaneKind::DataViewer => self.dock_data_viewer(ui),
+            // Inspector panes scroll as a whole; the stable id keeps each pane's
+            // scroll position remembered across focus changes and restarts.
+            PaneKind::Inspector(tab) => {
+                egui::ScrollArea::vertical()
+                    .id_salt(("dock_inspector_scroll", tab))
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| self.inspector_body(tab, ui));
+            }
+        }
+        egui_tiles::UiResponse::None
+    }
+
+    fn tab_title_for_pane(&mut self, pane: &PaneKind) -> egui::WidgetText {
+        pane.tab_label().into()
+    }
+
+    fn simplification_options(&self) -> SimplificationOptions {
+        SimplificationOptions {
+            // Keep emptied tab groups from vanishing so a hidden pane can be
+            // brought back; still allow single-child pruning for tidy splits.
+            all_panes_must_have_tabs: true,
+            ..Default::default()
+        }
+    }
+}
+
+/// Build the default dockable workspace: a left navigator, a center column with
+/// the editor over a console/data-viewer tab group, and a right inspector tab
+/// group holding every inspector pane.
+fn build_dock_tree() -> Tree<PaneKind> {
+    let mut tiles = Tiles::default();
+
+    let inspector_ids: Vec<TileId> = InspectorTab::ALL
+        .iter()
+        .map(|tab| tiles.insert_pane(PaneKind::Inspector(*tab)))
+        .collect();
+    let inspector_group = tiles.insert_tab_tile(inspector_ids);
+
+    let workspace = tiles.insert_pane(PaneKind::Workspace);
+
+    let editor = tiles.insert_pane(PaneKind::Editor);
+    let console = tiles.insert_pane(PaneKind::Console);
+    let data_viewer = tiles.insert_pane(PaneKind::DataViewer);
+    let bottom = tiles.insert_tab_tile(vec![console, data_viewer]);
+
+    let mut center = Linear::new(LinearDir::Vertical, vec![editor, bottom]);
+    center.shares.set_share(editor, 0.76);
+    center.shares.set_share(bottom, 0.24);
+    let center = tiles.insert_container(Container::Linear(center));
+
+    let mut root = Linear::new(
+        LinearDir::Horizontal,
+        vec![workspace, center, inspector_group],
+    );
+    root.shares.set_share(workspace, 0.17);
+    root.shares.set_share(center, 0.60);
+    root.shares.set_share(inspector_group, 0.23);
+    let root = tiles.insert_container(Container::Linear(root));
+
+    Tree::new("forge_dock", root, tiles)
+}
+
+/// Where `active` lands after an editor tab is moved from `from` to `to`
+/// (remove-then-insert), keeping the active tab pointed at the same tab.
+fn reordered_active_index(active: usize, from: usize, to: usize) -> usize {
+    if active == from {
+        return to;
+    }
+    let mut adjusted = active;
+    if from < adjusted {
+        adjusted -= 1;
+    }
+    if to <= adjusted {
+        adjusted += 1;
+    }
+    adjusted
+}
+
+/// Every pane the workspace expects to be present, so an older or corrupt saved
+/// layout can be detected and replaced rather than leaving a pane unreachable.
+fn expected_panes() -> Vec<PaneKind> {
+    let mut kinds = vec![
+        PaneKind::Editor,
+        PaneKind::Workspace,
+        PaneKind::Console,
+        PaneKind::DataViewer,
+    ];
+    kinds.extend(InspectorTab::ALL.iter().map(|tab| PaneKind::Inspector(*tab)));
+    kinds
+}
+
+/// Restore a saved dock layout, falling back to the default when it is missing,
+/// unparseable, or does not contain exactly the panes this build expects.
+fn load_dock_tree(serialized: Option<&str>) -> Tree<PaneKind> {
+    if let Some(json) = serialized {
+        if let Ok(tree) = serde_json::from_str::<Tree<PaneKind>>(json) {
+            let present: Vec<PaneKind> = tree
+                .tiles
+                .iter()
+                .filter_map(|(_, tile)| match tile {
+                    Tile::Pane(pane) => Some(*pane),
+                    _ => None,
+                })
+                .collect();
+            let expected = expected_panes();
+            let complete = expected.iter().all(|kind| present.contains(kind));
+            // Reject stray/duplicate panes too, so the tree round-trips exactly.
+            if complete && present.len() == expected.len() {
+                return tree;
+            }
+        }
+    }
+    build_dock_tree()
+}
+
+impl eframe::App for ForgeApp {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.accessibility_shortcuts(ui.ctx());
+        self.command_palette(ui.ctx());
+        self.poll_background(ui.ctx());
+        // Legacy navigation still assigns `inspector_tab`; when it changes, bring
+        // the matching dock pane to the front of its tab group.
+        if self.inspector_tab != self.last_inspector_tab {
+            self.last_inspector_tab = self.inspector_tab;
+            self.dock_focus = Some(PaneKind::Inspector(self.inspector_tab));
+        }
+        let save = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S));
+        let new_file = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::N));
+        let find = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F));
+        let find_in_files =
+            ui.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::F));
+        let complete = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Space));
+        let run = ui.input(|i| i.modifiers.shift && i.key_pressed(egui::Key::Enter));
+        let run_all = ui
+            .input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Enter));
+        if save {
+            self.save_active();
+        }
+        if new_file {
+            self.create_new_file(None);
+        }
+        if find_in_files {
+            self.inspector_tab = InspectorTab::Search;
+        } else if find {
+            self.find_visible = true;
+        }
+        if complete {
+            ui.input_mut(|input| {
+                input.consume_key(egui::Modifiers::COMMAND, egui::Key::Space);
             });
-        self.sync_lsp();
-        if let Some(offset) = definition_probe {
-            self.definition_probe_pending = true;
-            self.probe_definition(offset);
-            ui.ctx()
-                .request_repaint_after(std::time::Duration::from_millis(40));
+            self.request_lsp("complete");
+            self.lsp_status = "Requesting completions...".to_owned();
         }
-        if ctrl_clicked_definition {
-            self.request_lsp("definition");
-            self.lsp_status = "Looking up definition...".to_owned();
+        if self.completion_popup_open && ui.input(|input| input.key_pressed(egui::Key::Escape)) {
+            self.completion_popup_open = false;
         }
-        self.delete_confirmation(ui.ctx());
-        self.unsaved_confirmation(ui.ctx());
-        self.settings_window(ui.ctx());
-        self.dataset_window(ui.ctx());
-        self.remote_input_window(ui.ctx());
+        if run_all {
+            self.enqueue_cells(0..self.cells().len());
+        } else if run {
+            self.enqueue_cells([self.selected_cell]);
+        }
+        Panel::top("menu_bar")
+            .resizable(false)
+            .default_size(28.0)
+            .frame(compact_panel_frame(
+                theme_colors(self.dark_mode).menu,
+                self.dark_mode,
+            ))
+            .show(ui, |ui| self.menu_bar(ui));
+        Panel::top("command_bar")
+            .resizable(false)
+            .default_size(42.0)
+            .frame(compact_panel_frame(
+                theme_colors(self.dark_mode).surface,
+                self.dark_mode,
+            ))
+            .show(ui, |ui| self.top_bar(ui));
+        Panel::bottom("status_bar")
+            .resizable(false)
+            .default_size(24.0)
+            .frame(compact_panel_frame(
+                theme_colors(self.dark_mode).surface,
+                self.dark_mode,
+            ))
+            .show(ui, |ui| self.status_bar(ui));
+        let dock_frame =
+            panel_frame(theme_colors(self.dark_mode).background, self.dark_mode);
+        egui::CentralPanel::default()
+            .frame(dock_frame)
+            .show(ui, |ui| {
+                // Take the tree out so both it and `self` (the Behavior) can be
+                // borrowed mutably during layout; restore it immediately after.
+                let mut tree = self
+                    .dock_tree
+                    .take()
+                    .unwrap_or_else(build_dock_tree);
+                if let Some(kind) = self.dock_focus.take() {
+                    if let Some(id) = Self::dock_tile_of(&tree, kind) {
+                        tree.tiles.set_visible(id, true);
+                        tree.make_active(
+                            |_, tile| matches!(tile, Tile::Pane(p) if *p == kind),
+                        );
+                    }
+                }
+                tree.ui(self, ui);
+                self.dock_tree = Some(tree);
+            });
+        self.after_editor(ui);
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
@@ -7641,6 +7976,10 @@ impl eframe::App for ForgeApp {
             native_training_use_dataset: self.burn_training_use_dataset,
             native_training_feature: self.burn_training_feature.clone(),
             native_training_target: self.burn_training_target.clone(),
+            dock_layout: self
+                .dock_tree
+                .as_ref()
+                .and_then(|tree| serde_json::to_string(tree).ok()),
         };
         eframe::set_value(storage, STORAGE_KEY, &state);
     }
@@ -8675,6 +9014,8 @@ fn compact_panel_frame(fill: Color32, dark: bool) -> Frame {
         .inner_margin(Margin::symmetric(8, 4))
 }
 
+// Retained for the console styling now that the console renders inside a dock tile.
+#[allow(dead_code)]
 fn console_panel_frame(dark: bool) -> Frame {
     Frame::new()
         .fill(theme_colors(dark).surface)
@@ -8799,6 +9140,58 @@ fn configure_style(ctx: &egui::Context, dark: bool, high_contrast: bool) {
 #[cfg(test)]
 mod editor_tests {
     use super::*;
+
+    #[test]
+    fn tab_reorder_keeps_active_tab_stable() {
+        // Verify against the ground truth: apply the move to a labelled vector
+        // and check reordered_active_index points at the originally-active label.
+        for len in 2..=6usize {
+            for from in 0..len {
+                for to in 0..len {
+                    for active in 0..len {
+                        let mut v: Vec<usize> = (0..len).collect();
+                        let moved = v.remove(from);
+                        v.insert(to, moved);
+                        let expected_label = active; // labels equal their start index
+                        let new_active = reordered_active_index(active, from, to);
+                        assert_eq!(
+                            v[new_active], expected_label,
+                            "len={len} from={from} to={to} active={active}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn dock_layout_round_trips_and_recovers_from_bad_input() {
+        // A serialized default tree restores to a complete, identical layout.
+        let original = build_dock_tree();
+        let json = serde_json::to_string(&original).unwrap();
+        let restored = load_dock_tree(Some(&json));
+        let panes = |tree: &Tree<PaneKind>| {
+            let mut v: Vec<PaneKind> = tree
+                .tiles
+                .iter()
+                .filter_map(|(_, t)| match t {
+                    Tile::Pane(p) => Some(*p),
+                    _ => None,
+                })
+                .collect();
+            v.sort_by_key(|p| format!("{p:?}"));
+            v
+        };
+        assert_eq!(panes(&restored), panes(&original));
+        assert_eq!(panes(&restored).len(), expected_panes().len());
+
+        // Missing, unparseable, or incomplete layouts fall back to the default.
+        assert_eq!(panes(&load_dock_tree(None)), panes(&original));
+        assert_eq!(panes(&load_dock_tree(Some("not json"))), panes(&original));
+        let incomplete = Tree::new_tabs("forge_dock", vec![PaneKind::Editor]);
+        let incomplete_json = serde_json::to_string(&incomplete).unwrap();
+        assert_eq!(panes(&load_dock_tree(Some(&incomplete_json))), panes(&original));
+    }
 
     #[test]
     fn restores_experiment_snapshots_and_defaults_legacy_sessions() {

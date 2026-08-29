@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forge ML — a Rust IDE for machine learning</title>
+<meta name="description" content="Forge ML is a desktop scientific IDE for interactive Rust machine-learning work: a persistent Evcxr console, notebook cells, live plots, embedded Burn training, and native model deployment.">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<nav class="nav">
+  <span class="brand">FORGE <span>ML</span></span>
+  <div class="links">
+    <a href="#features">Features</a>
+    <a href="#workflow">Workflow</a>
+    <a href="#ml">ML &amp; deploy</a>
+    <a href="guide.html">Guide</a>
+    <a href="https://github.com/mi7plus/forge-ml">GitHub</a>
+  </div>
+</nav>
+
+<header class="hero wrap">
+  <p class="eyebrow">Desktop scientific IDE · Rust</p>
+  <h1>An interactive IDE for<br>machine learning in Rust.</h1>
+  <p class="lede">Forge ML brings the Spyder-style scientific workspace to Rust: a persistent
+  Evcxr console, <code>//# %%</code> notebook cells, a live variable and plot inspector, embedded
+  Burn training, and native model deployment — all in one native desktop app.</p>
+  <div class="badges">
+    <span class="chip">Evcxr console</span>
+    <span class="chip">Burn 0.22 training</span>
+    <span class="chip">Millwright ONNX</span>
+    <span class="chip">rust-analyzer</span>
+    <span class="chip">Arrow / Parquet</span>
+    <span class="chip">Offline &amp; local</span>
+  </div>
+  <div class="cta">
+    <a class="btn primary" href="guide.html">Read the guide</a>
+    <a class="btn ghost" href="https://github.com/mi7plus/forge-ml">View source</a>
+  </div>
+</header>
+
+<section id="features" class="wrap">
+  <p class="eyebrow">What's inside</p>
+  <h2>A full scientific workspace, editor-first</h2>
+  <p class="lede">Every pane surrounds the editor the way a scientific IDE should — and each one is
+  driven by real, bounded, non-blocking background work.</p>
+  <div class="grid">
+    <div class="card"><span class="ico">▶</span><h3>Persistent Rust console</h3><p>An Evcxr session runs off the UI thread. Cells share state, so setup and data cells feed later ones. Reset the runtime without restarting the app.</p></div>
+    <div class="card"><span class="ico">▦</span><h3>Notebook cells</h3><p>Split scripts into cells with <code>//# %%</code>. Run a cell, everything above, or all — with per-cell status, output, compiler errors, and timing.</p></div>
+    <div class="card"><span class="ico">◔</span><h3>Variables &amp; plots</h3><p>Live Evcxr variable names and Rust types after every cell. Publish metrics, vectors, and tables from <code>stdout</code> into charts and grids.</p></div>
+    <div class="card"><span class="ico">⊞</span><h3>Data viewer</h3><p>Import CSV, TSV, JSON Lines, Parquet, and Arrow IPC. Virtualized two-axis grids with filter, sort, pin/hide columns, editing, and linked plots.</p></div>
+    <div class="card"><span class="ico">◈</span><h3>rust-analyzer</h3><p>Document sync, inline diagnostics, hover, caret-anchored completion, and Ctrl+click go-to-definition across files.</p></div>
+    <div class="card"><span class="ico">⌘</span><h3>Command palette</h3><p>Ctrl+Shift+P fuzzy-searches every command. F6 cycles inspector panes; the whole workspace is keyboard-reachable.</p></div>
+    <div class="card"><span class="ico">◱</span><h3>Experiments</h3><p>Name, snapshot, compare, clone, and archive runs. SHA-256 provenance over datasets, sources, lockfiles, and bundles.</p></div>
+    <div class="card"><span class="ico">◆</span><h3>SQL &amp; storage</h3><p>Read-only SQL workbench over SQLite, DuckDB, PostgreSQL, and MySQL; S3-compatible and rclone object storage — all credential-safe.</p></div>
+    <div class="card"><span class="ico">⇲</span><h3>Offline by default</h3><p>Diagnostics are off unless enabled. Nothing uploads automatically; credentials live in the OS keychain, never in project files.</p></div>
+  </div>
+</section>
+
+<section id="workflow" class="wrap">
+  <p class="eyebrow">The loop</p>
+  <h2>Write a cell, run it, watch the plots</h2>
+  <p>Cells publish visualization data straight through <code>stdout</code>. Metrics become live line
+  charts, vectors become bar plots, and tables open in the full data viewer:</p>
+<pre><code>//# %% training loop
+for epoch in 0..epochs {
+    let loss = (-0.22 * epoch as f64).exp();
+    println!("forge_metric:loss={loss}");
+}
+println!("forge_vector:weights=0.18,-0.42,0.91,0.37");
+println!(r#"forge_table:sample={"columns":["x","label"],"rows":[[0.2,"cat"],[0.7,"dog"]]}"#);</code></pre>
+  <div class="note">Select a cell in the notebook rail and press <strong>Shift+Enter</strong>. Metrics
+  appear in <em>Charts</em>, vectors and tables in <em>Data</em> — click a dataset name to open the
+  full table viewer.</div>
+
+  <h3>Keyboard-first</h3>
+  <table>
+    <tr><th>Action</th><th>Shortcut</th></tr>
+    <tr><td>Run the selected cell</td><td><kbd>Shift</kbd> + <kbd>Enter</kbd></td></tr>
+    <tr><td>Run all cells</td><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Enter</kbd></td></tr>
+    <tr><td>Command palette</td><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd></td></tr>
+    <tr><td>Cycle inspector panes</td><td><kbd>F6</kbd></td></tr>
+    <tr><td>Search the project</td><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd></td></tr>
+    <tr><td>Go to definition</td><td><kbd>Ctrl</kbd> + click</td></tr>
+  </table>
+</section>
+
+<section id="ml" class="wrap">
+  <p class="eyebrow">Train &amp; ship</p>
+  <h2>Embedded training and native deployment</h2>
+  <p>Forge embeds <strong>Burn 0.22</strong> (Flex CPU + WGPU backends) and <strong>Millwright 2.2.1</strong>
+  ONNX. Train an autodiff linear model on a selected dataset with validation holdouts and early
+  stopping — no Python required — then register, verify, and generate a standalone Rust service.</p>
+  <div class="grid">
+    <div class="card"><h3>Native regression</h3><p>Leakage-safe standardization, deterministic validation, patience-based early stopping, and original-unit loss. Predict inline or score a whole table.</p></div>
+    <div class="card"><h3>Model registry</h3><p>Project-local versioning with promotion/rollback aliases, immutable bytes, and SHA-256 integrity checks before every load.</p></div>
+    <div class="card"><h3>Generated services</h3><p>One click produces an Axum <code>POST /predict</code> service with health, readiness, metadata, Docker, Compose, and Kubernetes files.</p></div>
+    <div class="card"><h3>Monitoring</h3><p>Framework-neutral request / error / latency and explainable feature-drift tracking, with offline HTML/PDF reports and attested bundles.</p></div>
+  </div>
+  <div class="note">Model cards, training reports, and EDA exports are fully offline HTML/PDF — no browser,
+  no Python runtime, no network calls.</div>
+</section>
+
+<section class="wrap">
+  <h2>Get started</h2>
+  <p>Forge ML is a Cargo workspace. On Windows, build from a Visual Studio Native Tools command prompt
+  so Cargo can find the MSVC linker:</p>
+<pre><code>git clone https://github.com/mi7plus/forge-ml
+cd forge-ml
+cargo run</code></pre>
+  <p>Then open a Cargo project, open one of the <a href="https://github.com/mi7plus/forge-ml/tree/main/examples">example notebooks</a>,
+  and press Shift+Enter. The <a href="guide.html">guide</a> walks through the panes end to end.</p>
+</section>
+
+<footer>
+  <p>Forge ML — an experimental desktop compute studio for interactive Rust ML.
+  <a href="https://github.com/mi7plus/forge-ml">Source</a> · <a href="guide.html">Guide</a></p>
+</footer>
+</body>
+</html>

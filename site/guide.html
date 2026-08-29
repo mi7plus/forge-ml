@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forge ML — Guide</title>
+<meta name="description" content="A practical guide to Forge ML: the workspace panes, notebook cells, keyboard workflow, data & experiments, embedded Burn training, native deployment, SQL, object storage, and privacy.">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<nav class="nav">
+  <a class="brand" href="index.html" style="text-decoration:none">FORGE <span>ML</span></a>
+  <div class="links">
+    <a href="index.html">Home</a>
+    <a href="#panes">Panes</a>
+    <a href="#notebook">Notebook</a>
+    <a href="#data">Data</a>
+    <a href="#train">Training</a>
+    <a href="https://github.com/mi7plus/forge-ml">GitHub</a>
+  </div>
+</nav>
+
+<header class="wrap" style="padding:48px 0 8px">
+  <p class="eyebrow">Guide</p>
+  <h1>Using Forge ML</h1>
+  <p class="lede">Forge ML is a desktop scientific IDE for Rust machine-learning projects. Open a Cargo
+  project, edit Rust scripts or <code>//# %%</code> notebooks, and run cells in a persistent Evcxr
+  console. This guide covers the workspace end to end.</p>
+</header>
+
+<div class="wrap">
+  <div class="toc">
+    <strong>On this page</strong>
+    <ul>
+      <li><a href="#install">Install &amp; run</a></li>
+      <li><a href="#panes">The workspace</a></li>
+      <li><a href="#notebook">Notebook cells</a></li>
+      <li><a href="#keys">Keyboard workflow</a></li>
+      <li><a href="#data">Data &amp; experiments</a></li>
+      <li><a href="#train">Embedded training</a></li>
+      <li><a href="#deploy">Registry &amp; deployment</a></li>
+      <li><a href="#sql">SQL &amp; storage</a></li>
+      <li><a href="#a11y">Accessibility</a></li>
+      <li><a href="#privacy">Privacy</a></li>
+    </ul>
+  </div>
+</div>
+
+<section id="install" class="wrap">
+  <h2>Install &amp; run</h2>
+  <p>Forge ML is a Cargo workspace. On Windows, use a Visual Studio Native Tools command prompt so Cargo
+  can find the MSVC linker:</p>
+<pre><code>cargo run</code></pre>
+  <p>Release installers bundle the correct <code>rust-analyzer</code> for each platform. Development builds
+  can install or repair it from the Help pane, or manually:</p>
+<pre><code>rustup component add rust-analyzer</code></pre>
+  <div class="note">Tagged releases build an NSIS installer for Windows, a DMG for macOS, and DEB/AppImage
+  packages for Linux, each with the matching <code>rust-analyzer</code> sidecar and a build-provenance
+  attestation. Forge can report an available update, but installing it is always an explicit action.</div>
+</section>
+
+<section id="panes" class="wrap">
+  <h2>The workspace</h2>
+  <p>The layout follows the scientific-IDE model: an editor in the center surrounded by tool panes.</p>
+  <div class="grid">
+    <div class="card"><h3>Left — navigation</h3><p><strong>Project</strong> and <strong>Outline</strong> tabs. The outline links functions, structs, enums, traits, impls, and modules; project-wide search gives clickable line/column results.</p></div>
+    <div class="card"><h3>Right — inspectors</h3><p>Variables, Data, Plots, Runs, Search, Help, Problems, Git, Crates, GitHub, Studio, SQL, Deep, Deploy, and Storage — one pane at a time (docking is on the roadmap).</p></div>
+    <div class="card"><h3>Bottom — console</h3><p>The interactive Rust console with persistent Evcxr state and command history, plus a Python tab.</p></div>
+    <div class="card"><h3>Center — editor</h3><p>Multiple tabs with independent unsaved-change protection, inline rust-analyzer diagnostics, and a caret-anchored completion popup.</p></div>
+  </div>
+</section>
+
+<section id="notebook" class="wrap">
+  <h2>Notebook cells</h2>
+  <p>Separate cells with a <code>//# %% &lt;name&gt;</code> marker. Cells share one Evcxr session, so setup
+  and dataset cells define values that later cells use.</p>
+<pre><code>//# %% setup
+let learning_rate = 0.05_f64;
+let epochs = 8_usize;
+
+//# %% data
+let features = vec![1.0_f64, 2.0, 3.0, 4.0, 5.0];
+let targets  = vec![2.2_f64, 4.1, 6.0, 8.2, 10.1];
+
+//# %% train
+let mut weight = 0.0_f64;
+for _ in 0..epochs {
+    let g = features.iter().zip(&targets)
+        .map(|(x, y)| (weight * x - y) * x).sum::&lt;f64&gt;() / features.len() as f64;
+    weight -= learning_rate * g;
+}
+println!("Learned weight: {weight:.4}");</code></pre>
+  <p>Publish visualizations from any cell via <code>stdout</code>:</p>
+<pre><code>println!("forge_metric:loss={}", loss);          // live line chart
+println!("forge_vector:weights=0.2,0.7,1.1,1.8"); // bar plot
+println!(r#"forge_table:samples={"columns":["x","label"],"rows":[[0.2,"cat"]]}"#);</code></pre>
+  <div class="note">Structured <code>forge_plot:</code> JSON supports 11 plot families — lines, scatter,
+  bars, areas, histograms, box summaries, heatmaps, ROC, precision–recall, residuals, and feature
+  importance — with per-series toggles, log axes, and SVG/PNG/PDF/interactive-HTML export.</div>
+</section>
+
+<section id="keys" class="wrap">
+  <h2>Keyboard workflow</h2>
+  <table>
+    <tr><th>Action</th><th>Shortcut</th></tr>
+    <tr><td>Open the command palette</td><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd></td></tr>
+    <tr><td>Next inspector pane</td><td><kbd>F6</kbd></td></tr>
+    <tr><td>Return to Variables</td><td><kbd>Ctrl</kbd> + <kbd>1</kbd></td></tr>
+    <tr><td>Run the current cell</td><td><kbd>Shift</kbd> + <kbd>Enter</kbd></td></tr>
+    <tr><td>Run all cells</td><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Enter</kbd></td></tr>
+    <tr><td>Save / new file</td><td><kbd>Ctrl</kbd> + <kbd>S</kbd> / <kbd>Ctrl</kbd> + <kbd>N</kbd></td></tr>
+    <tr><td>Find in file / in project</td><td><kbd>Ctrl</kbd> + <kbd>F</kbd> / <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd></td></tr>
+    <tr><td>Request completion</td><td><kbd>Ctrl</kbd> + <kbd>Space</kbd></td></tr>
+    <tr><td>Go to definition</td><td><kbd>Ctrl</kbd> + click a symbol</td></tr>
+  </table>
+  <p>The palette accepts words from a command name or its shortcut; navigate with Up/Down, Enter, and
+  Escape without reaching for the mouse.</p>
+</section>
+
+<section id="data" class="wrap">
+  <h2>Data &amp; experiments</h2>
+  <p>Import CSV, TSV, JSON Lines, Parquet, or Arrow IPC from the Data pane or the Tools menu. Parsing runs
+  in the background and opens the result in the lower-right viewer only after Arrow construction and
+  quality profiling finish. Interactive imports are bounded (512&nbsp;MiB on disk, 1M rows, 10k columns);
+  query or stream larger sources.</p>
+  <p>Each dataset gets a cached quality profile — missingness, numeric coverage, uniqueness, range, mean,
+  standard deviation, mixed-type and constant-column alerts, and bounded Pearson correlations. The data grid
+  is virtualized, so wide tables stay responsive while you filter, sort, pin/hide columns, edit drafts, and
+  build linked scatter plots from a selection.</p>
+  <p>Runs carry SHA-256 provenance over dataset contents, source identities, the Cargo lockfile, and runtime
+  metadata. Name, snapshot, compare, clone, archive, and export runs as ZIP bundles; produce EDA and
+  experiment-comparison reports as offline HTML or native PDF.</p>
+</section>
+
+<section id="train" class="wrap">
+  <h2>Embedded training</h2>
+  <p>Forge embeds <strong>Burn 0.22</strong> with training, metrics, the portable Flex CPU backend, and
+  WGPU. The Deep Learning pane runs a native tensor self-test or <strong>Run native Burn training</strong>,
+  which trains an autodiff linear layer with SGD on a CPU/Flex or WGPU backend.</p>
+  <ul>
+    <li>Set <strong>epochs</strong> (1–10,000) and <strong>lr</strong> (&gt;0 through 1); values are validated and recorded in the run label.</li>
+    <li><strong>validation</strong> reserves a deterministic tail holdout (0–50%) and reports its MSE per epoch.</li>
+    <li><strong>patience</strong> stops after N validation epochs without improvement (0 disables early stopping).</li>
+    <li>Enable <strong>use selected dataset</strong> and name distinct feature/target columns to train on workspace data — up to 100,000 finite pairs, standardized with training-partition statistics only, loss reported in original units.</li>
+  </ul>
+  <p>A completed run produces a schema-2 native regression artifact with the fitted equation, preprocessing
+  statistics, score, exact data fingerprint, backend, and optimizer configuration. Predict a single value
+  inline, or choose <strong>Predict selected dataset</strong> to score a whole table into a new Arrow-backed
+  <code>&lt;source&gt;_predictions</code> dataset with MAE/RMSE/R², actual-vs-predicted, and residual plots.</p>
+  <div class="note">Training runs on a background worker, streams backend-labeled progress into Millwright
+  Studio, and can be cancelled without emitting a false completion. WGPU needs a compatible local adapter;
+  CUDA/ROCm are available for generated projects and remote jobs but rejected for embedded training.</div>
+</section>
+
+<section id="deploy" class="wrap">
+  <h2>Registry &amp; deployment</h2>
+  <p>With a project open, <strong>Register native model</strong> stores the active artifact as immutable
+  bytes with SHA-256 metadata. <strong>Load registry version</strong> resolves a version or promoted alias,
+  verifies registry integrity, and validates the schema before replacing the active model.</p>
+  <p>In Model Registry &amp; Deployment, promote an alias and <strong>Generate Rust service</strong> to
+  produce a standalone Axum service for that immutable version. Its <code>POST /predict</code> accepts up to
+  10,000 finite values and ships with integrity-checked startup, readiness, metadata, health probes, and
+  Docker/Compose/Kubernetes files.</p>
+  <p>The deployment pane ingests framework-neutral <code>forge_service:</code> and <code>forge_drift:</code>
+  events, showing request volume, error rate, p95 latency, and explainable feature-drift breaches — with
+  native plots, offline HTML/PDF reports, and attested, integrity-verified monitoring bundles.</p>
+</section>
+
+<section id="sql" class="wrap">
+  <h2>SQL &amp; object storage</h2>
+  <p>The SQL workbench runs one <strong>read-only</strong> analytical statement at a time over embedded
+  SQLite plus the official DuckDB, PostgreSQL, and MySQL clients. It permits <code>SELECT</code>,
+  <code>WITH</code>, <code>EXPLAIN</code>, <code>SHOW</code>, <code>DESCRIBE</code>, and <code>VALUES</code>
+  forms and rejects stacked or mutating statements before dispatch. Passwords go only in Forge's password
+  field, are stored in the OS credential manager, and never touch project JSON or command arguments.</p>
+  <p>The Storage inspector connects to S3-compatible buckets and rclone remotes without storing their
+  credentials. Test reachability, browse bounded listings, and download objects into a per-profile local
+  cache with atomic, size-limited, redacted transfers.</p>
+  <div class="note">Database, storage, import, and export work all runs on a background integration worker,
+  so the editor keeps painting and accepting input while a request is in flight.</div>
+</section>
+
+<section id="a11y" class="wrap">
+  <h2>Accessibility</h2>
+  <p>Settings offer light/dark themes, a 10–24&nbsp;px editor font, high contrast, reduced motion, and caret
+  blinking. Reduced motion disables the custom blinking caret. Execution, diagnostics, Git state, and cells
+  use text or symbols in addition to color, so status never depends on color alone.</p>
+</section>
+
+<section id="privacy" class="wrap">
+  <h2>Privacy</h2>
+  <p>Diagnostics are <strong>off by default</strong>. Settings can enable bounded local events and sanitized
+  crash summaries for the open project; Forge never uploads them automatically. Use the explicit ZIP export
+  to review the exact bundle before sharing. External tools (Cargo, Git, <code>gh</code>, Jupyter, Python,
+  AWS CLI, rclone, DuckDB, PostgreSQL, MySQL) own their own credentials — Forge project JSON contains only
+  profile metadata and opaque credential keys, never tokens or passwords.</p>
+</section>
+
+<footer>
+  <p>Forge ML guide · <a href="index.html">Home</a> ·
+  <a href="https://github.com/mi7plus/forge-ml/blob/main/docs/USER_GUIDE.md">Full user guide</a> ·
+  <a href="https://github.com/mi7plus/forge-ml">Source</a></p>
+</footer>
+</body>
+</html>
