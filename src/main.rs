@@ -1,3 +1,4 @@
+mod classification;
 mod commands;
 mod data;
 mod database;
@@ -577,6 +578,11 @@ struct ForgeApp {
     burn_training_use_dataset: bool,
     burn_training_feature: String,
     burn_training_target: String,
+    class_features: String,
+    class_target: String,
+    class_epochs: usize,
+    class_lr: f64,
+    class_result: String,
     native_burn_artifact: Option<deep_learning::NativeRegressionArtifact>,
     native_burn_inference_feature: f64,
     drift_mean_shift_threshold: f64,
@@ -906,6 +912,11 @@ impl ForgeApp {
             burn_training_use_dataset: session.native_training_use_dataset,
             burn_training_feature: native_training_feature,
             burn_training_target: native_training_target,
+            class_features: String::new(),
+            class_target: String::new(),
+            class_epochs: 300,
+            class_lr: 0.5,
+            class_result: String::new(),
             native_burn_artifact,
             drift_mean_shift_threshold: drift_policy.mean_shift_threshold,
             drift_scale_ratio_lower: drift_policy.scale_ratio_lower,
@@ -4658,6 +4669,43 @@ impl ForgeApp {
             deep_learning::BURN_VERSION
         ));
         ui.label(&self.sql_output);
+
+        ui.separator();
+        ui.strong("Native classification (softmax)");
+        ui.label(
+            RichText::new("Train a multiclass classifier on the open dataset; see accuracy, per-class F1, and a confusion matrix.")
+                .size(10.0)
+                .color(MUTED),
+        );
+        ui.horizontal_wrapped(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.class_features)
+                    .desired_width(200.0)
+                    .hint_text("feature columns (comma-separated)"),
+            );
+            ui.add(
+                egui::TextEdit::singleline(&mut self.class_target)
+                    .desired_width(110.0)
+                    .hint_text("target column"),
+            );
+            ui.add(
+                egui::DragValue::new(&mut self.class_epochs)
+                    .range(1..=100_000)
+                    .prefix("epochs "),
+            );
+            ui.add(
+                egui::DragValue::new(&mut self.class_lr)
+                    .speed(0.05)
+                    .range(0.001..=10.0)
+                    .prefix("lr "),
+            );
+            if ui.button("Train classifier").clicked() {
+                self.train_classifier();
+            }
+        });
+        if !self.class_result.is_empty() {
+            ui.label(RichText::new(&self.class_result).monospace().size(11.0));
+        }
         if let Some(artifact) = self.native_burn_artifact.clone() {
             ui.horizontal_wrapped(|ui| {
                 ui.label("Drift policy");
@@ -5246,6 +5294,73 @@ impl ForgeApp {
                     }
                 },
             );
+        }
+    }
+
+    /// Train a native softmax classifier on the selected dataset and open its
+    /// confusion matrix. Feature columns are comma-separated.
+    fn train_classifier(&mut self) {
+        let result = (|| -> Result<(String, plot::PlotSpec), String> {
+            let (name, is_table) = self
+                .selected_dataset_info()
+                .ok_or("Select a table dataset in the Data viewer first")?;
+            if !is_table {
+                return Err("Classification requires a table dataset".into());
+            }
+            let table = &self
+                .data
+                .tables
+                .get(&name)
+                .ok_or("The selected dataset no longer exists")?
+                .table;
+            let features: Vec<String> = self
+                .class_features
+                .split(',')
+                .map(|s| s.trim().to_owned())
+                .filter(|s| !s.is_empty())
+                .collect();
+            let data = classification::prepare(table, &features, self.class_target.trim())?;
+            let rows = data.features.len();
+            let classes = data.class_names.len();
+            let model = classification::Classifier::train(&data, self.class_epochs, self.class_lr)?;
+            let metrics = model.evaluate(&data);
+            let per_class = model
+                .classes
+                .iter()
+                .zip(&metrics.per_class)
+                .map(|(name, m)| {
+                    format!(
+                        "  {name}: precision {:.3}, recall {:.3}, F1 {:.3} (n={})",
+                        m.precision, m.recall, m.f1, m.support
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let summary = format!(
+                "Softmax classifier on `{name}` — {rows} rows, {classes} classes, {} features.\nAccuracy {:.3} · macro-F1 {:.3}\n{per_class}",
+                data.feature_names.len(),
+                metrics.accuracy,
+                metrics.macro_f1
+            );
+            let plot = classification::confusion_plot(&metrics, &format!("{name} confusion"));
+            plot.validate()?;
+            Ok((summary, plot))
+        })();
+        match result {
+            Ok((summary, plot)) => {
+                self.class_result = summary;
+                if let Some(existing) = self
+                    .structured_plots
+                    .iter_mut()
+                    .find(|p| p.name == plot.name)
+                {
+                    *existing = plot;
+                } else {
+                    self.structured_plots.push(plot);
+                }
+                self.inspector_tab = InspectorTab::Charts;
+            }
+            Err(error) => self.class_result = error,
         }
     }
 
