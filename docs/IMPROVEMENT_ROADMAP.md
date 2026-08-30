@@ -1,8 +1,14 @@
 # Forge ML — Improvement Roadmap
 
-Status: proposed (2026-08-30). A prioritized plan for taking Forge ML from a
+Status: in progress (2026-08-30). A prioritized plan for taking Forge ML from a
 capable prototype to a complete Rust ML IDE. Grounded in the current codebase;
 each item notes what, why, where, and rough effort.
+
+**Shipped:** all of Tier 1 (rustfmt, clippy-in-Problems, cargo tasks, PR CI,
+site refresh); Tier 2 #8 (fuzzy palette + recents + live bindings), #9 (welcome
+screen), #10 (customizable keyboard shortcuts), and part of #6 (rust-analyzer
+find-references and signature help). **Remaining in Tier 2:** #6 rename + code
+actions, #7 snippet support. Tiers 3–4 are untouched.
 
 Related: [UX improvement plan](UX_IMPROVEMENT_PLAN.md) (the dockable-workspace
 work, now shipped).
