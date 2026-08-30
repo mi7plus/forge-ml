@@ -1157,7 +1157,7 @@ impl crate::ForgeApp {
                     rows.push(values);
                 }
             }
-            if rows.len() < 1 {
+            if rows.is_empty() {
                 return Err("No complete numeric rows to score".into());
             }
             let n = rows.len();
