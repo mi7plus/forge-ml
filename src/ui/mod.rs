@@ -3,5 +3,6 @@
 
 pub mod editing;
 pub mod grid;
+pub mod ml_lab;
 pub mod plotting;
 pub mod theme;
