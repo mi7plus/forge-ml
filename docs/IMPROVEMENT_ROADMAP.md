@@ -13,7 +13,9 @@ regression) with a confusion matrix and precision/recall/F1, plus a
 deterministic train/test split (part of #12), #13 (classifier hyperparameter
 sweep over learning rate × epochs), and #14 (ONNX import — load an arbitrary
 ONNX model and run single-row or whole-dataset inference in-IDE via Millwright /
-tract). **Remaining in Tier 3:** the rest of #12 (encoding / scaling UI) and #15
+tract), and #12 (dataset-preparation UI — categorical one-hot / ordinal
+encoding, missing-value drop / mean / zero imputation, and standardize / min-max
+scaling, writing a new numeric dataset). **Remaining in Tier 3:** #15
 inference-playground polish. Tier 4 (engineering health) is untouched.
 
 Related: [UX improvement plan](UX_IMPROVEMENT_PLAN.md) (the dockable-workspace
@@ -108,9 +110,11 @@ Jupyter; Git/GitHub/packages panes; off-by-default diagnostics; and 132 tests.
     softmax / cross-entropy, accuracy / precision / recall / F1, and a
     confusion-matrix view (the heatmap plot family already exists). Roughly
     doubles the IDE's ML reach.
-12. **Dataset preparation UI.** Train/val/test split, categorical encoding,
-    missing-value strategy, and scaling presets surfaced before training instead
-    of being code-only.
+12. **Dataset preparation UI.** _(shipped)_ Train/test split (in the classifier)
+    plus a Deep-learning-pane *Dataset preparation* step: categorical one-hot /
+    ordinal encoding, missing-value drop / mean / zero imputation, and
+    standardize / min-max scaling, materialized as a new `… · prepared` numeric
+    dataset (see [`prep.rs`](../src/prep.rs)).
 13. **Hyperparameter sweeps.** Grid / random search over epochs, learning rate,
     and layer sizes, feeding the existing Runs leaderboard and comparison
     reports.

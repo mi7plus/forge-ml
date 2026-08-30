@@ -1,4 +1,5 @@
 mod classification;
+mod prep;
 mod commands;
 mod data;
 mod database;
@@ -584,6 +585,11 @@ struct ForgeApp {
     class_lr: f64,
     class_test_fraction: f64,
     class_result: String,
+    prep_categorical: String,
+    prep_encoding: prep::Encoding,
+    prep_missing: prep::Missing,
+    prep_scaling: prep::Scaling,
+    prep_result: String,
     onnx_model: Option<millwright::onnx::InferenceModel>,
     onnx_model_name: String,
     onnx_input: String,
@@ -923,6 +929,11 @@ impl ForgeApp {
             class_lr: 0.5,
             class_test_fraction: 0.25,
             class_result: String::new(),
+            prep_categorical: String::new(),
+            prep_encoding: prep::Encoding::OneHot,
+            prep_missing: prep::Missing::Mean,
+            prep_scaling: prep::Scaling::None,
+            prep_result: String::new(),
             onnx_model: None,
             onnx_model_name: String::new(),
             onnx_input: String::new(),
@@ -4681,6 +4692,66 @@ impl ForgeApp {
         ui.label(&self.sql_output);
 
         ui.separator();
+        ui.strong("Dataset preparation");
+        ui.label(
+            RichText::new("Encode categorical columns, fill missing values, and scale features into a new numeric dataset (uses the feature/target columns below).")
+                .size(10.0)
+                .color(MUTED),
+        );
+        ui.horizontal_wrapped(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.prep_categorical)
+                    .desired_width(200.0)
+                    .hint_text("categorical columns (comma-separated)"),
+            );
+            egui::ComboBox::from_id_salt("prep_encoding")
+                .selected_text(match self.prep_encoding {
+                    prep::Encoding::OneHot => "one-hot",
+                    prep::Encoding::Ordinal => "ordinal",
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.prep_encoding, prep::Encoding::OneHot, "one-hot");
+                    ui.selectable_value(&mut self.prep_encoding, prep::Encoding::Ordinal, "ordinal");
+                });
+            egui::ComboBox::from_id_salt("prep_missing")
+                .selected_text(match self.prep_missing {
+                    prep::Missing::DropRows => "drop rows",
+                    prep::Missing::Mean => "impute mean",
+                    prep::Missing::Zero => "impute zero",
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.prep_missing, prep::Missing::DropRows, "drop rows");
+                    ui.selectable_value(&mut self.prep_missing, prep::Missing::Mean, "impute mean");
+                    ui.selectable_value(&mut self.prep_missing, prep::Missing::Zero, "impute zero");
+                });
+            egui::ComboBox::from_id_salt("prep_scaling")
+                .selected_text(match self.prep_scaling {
+                    prep::Scaling::None => "no scaling",
+                    prep::Scaling::Standardize => "standardize",
+                    prep::Scaling::MinMax => "min-max",
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.prep_scaling, prep::Scaling::None, "no scaling");
+                    ui.selectable_value(
+                        &mut self.prep_scaling,
+                        prep::Scaling::Standardize,
+                        "standardize",
+                    );
+                    ui.selectable_value(&mut self.prep_scaling, prep::Scaling::MinMax, "min-max");
+                });
+            if ui
+                .button("Prepare dataset")
+                .on_hover_text("Write a new numeric dataset from the feature columns; the target becomes a passthrough column")
+                .clicked()
+            {
+                self.run_data_prep();
+            }
+        });
+        if !self.prep_result.is_empty() {
+            ui.label(RichText::new(&self.prep_result).monospace().size(11.0));
+        }
+
+        ui.separator();
         ui.strong("Native classification (softmax)");
         ui.label(
             RichText::new("Train a multiclass classifier on the open dataset; see accuracy, per-class F1, and a confusion matrix.")
@@ -5434,6 +5505,55 @@ impl ForgeApp {
                 self.inspector_tab = InspectorTab::Charts;
             }
             Err(error) => self.class_result = error,
+        }
+    }
+
+    /// Encode, impute, and scale the selected dataset's feature columns into a
+    /// new fully numeric table, inserted alongside the source for training.
+    fn run_data_prep(&mut self) {
+        let result = (|| -> Result<(String, prep::PrepReport), String> {
+            let (name, is_table) = self
+                .selected_dataset_info()
+                .ok_or("Select a table dataset in the Data viewer first")?;
+            if !is_table {
+                return Err("Dataset preparation requires a table dataset".into());
+            }
+            let table = self
+                .data
+                .tables
+                .get(&name)
+                .ok_or("The selected dataset no longer exists")?
+                .table
+                .as_ref()
+                .clone();
+            let split = |text: &str| {
+                text.split(',')
+                    .map(|s| s.trim().to_owned())
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>()
+            };
+            let passthrough = split(&self.class_target);
+            let config = prep::PrepConfig {
+                feature_columns: split(&self.class_features),
+                categorical_columns: split(&self.prep_categorical),
+                encoding: self.prep_encoding,
+                missing: self.prep_missing,
+                scaling: self.prep_scaling,
+                passthrough,
+            };
+            let (prepared, report) = prep::transform(&table, &config)?;
+            let new_name = format!("{name} · prepared");
+            let dataset = data::Dataset::from_table(prepared, Some(format!("prep::{name}")))
+                .map_err(|e| format!("Could not build prepared dataset: {e}"))?;
+            self.data.tables.insert(new_name.clone(), dataset);
+            Ok((new_name, report))
+        })();
+        match result {
+            Ok((new_name, report)) => {
+                self.prep_result = format!("Saved `{new_name}`.\n{}", report.summary());
+                self.console = format!("Prepared dataset saved as `{new_name}`.");
+            }
+            Err(error) => self.prep_result = error,
         }
     }
 
