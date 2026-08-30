@@ -512,6 +512,8 @@ struct ForgeApp {
     keymap: keymap::Keymap,
     /// The action whose shortcut is currently being re-captured in Settings.
     rebinding: Option<keymap::KeyAction>,
+    /// Whether the welcome / start window is showing.
+    welcome_open: bool,
     high_contrast: bool,
     reduced_motion: bool,
     command_palette_open: bool,
@@ -832,6 +834,7 @@ impl ForgeApp {
             format_on_save: session.format_on_save,
             keymap: keymap::Keymap::from_dto(&session.keymap),
             rebinding: None,
+            welcome_open: session.show_welcome,
             high_contrast: session.high_contrast,
             reduced_motion: session.reduced_motion,
             command_palette_open: false,
@@ -2999,6 +3002,11 @@ impl ForgeApp {
                 );
             });
             top!("Help", |ui| {
+                if ui.button("Welcome / start screen").clicked() {
+                    self.welcome_open = true;
+                    ui.close();
+                }
+                ui.separator();
                 ui.label(format!(
                     "Forge ML {APP_VERSION} - interactive Rust scientific environment"
                 ));
@@ -3278,6 +3286,87 @@ impl ForgeApp {
                 );
             });
         self.settings_open = open;
+    }
+
+    /// A start screen with quick actions, recent projects, and language-server
+    /// status. Closing it (or acting) hides it for future launches; reopen from
+    /// Help → Welcome.
+    fn welcome_window(&mut self, ctx: &egui::Context) {
+        if !self.welcome_open {
+            return;
+        }
+        let mut open = true;
+        let mut close = false;
+        egui::Window::new("Welcome to Forge ML")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .default_width(460.0)
+            .show(ctx, |ui| {
+                ui.label(
+                    RichText::new("An interactive Rust IDE for machine learning.").color(MUTED),
+                );
+                ui.add_space(10.0);
+                ui.horizontal_wrapped(|ui| {
+                    if ui.button("Open project…").clicked() {
+                        self.open_project();
+                        close = true;
+                    }
+                    if ui.button("New file").clicked() {
+                        self.create_new_file(None);
+                        close = true;
+                    }
+                    if ui.button("Sample notebook").clicked() {
+                        self.tabs.push(welcome_tab());
+                        self.active_tab = self.tabs.len() - 1;
+                        self.selected_cell = 0;
+                        close = true;
+                    }
+                    if ui.button("Import dataset…").clicked() {
+                        self.import_dataset();
+                        close = true;
+                    }
+                });
+                if !self.recent_projects.is_empty() {
+                    ui.add_space(10.0);
+                    ui.label(
+                        RichText::new("RECENT PROJECTS")
+                            .size(10.0)
+                            .strong()
+                            .color(MUTED),
+                    );
+                    for path in self.recent_projects.clone().into_iter().take(6) {
+                        if ui
+                            .add(egui::Button::new(path.display().to_string()).frame(false))
+                            .clicked()
+                        {
+                            self.request_open_project_path(path);
+                            close = true;
+                        }
+                    }
+                }
+                ui.add_space(10.0);
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("rust-analyzer").strong());
+                    ui.label(RichText::new(&self.lsp_status).size(11.0).color(MUTED));
+                });
+                if ui
+                    .small_button("Install or repair language support")
+                    .clicked()
+                {
+                    self.lsp.install();
+                    self.lsp_status = "Installing rust-analyzer and rust-src...".to_owned();
+                }
+                ui.add_space(6.0);
+                ui.label(
+                    RichText::new("Closing this hides it on future launches — reopen from Help → Welcome.")
+                        .size(10.0)
+                        .color(MUTED),
+                );
+            });
+        self.welcome_open = open && !close;
     }
 
     fn file_explorer(&mut self, ui: &mut egui::Ui) {
@@ -7934,6 +8023,7 @@ impl ForgeApp {
         self.delete_confirmation(ui.ctx());
         self.unsaved_confirmation(ui.ctx());
         self.settings_window(ui.ctx());
+        self.welcome_window(ui.ctx());
         self.dataset_window(ui.ctx());
         self.dock_floating_windows(ui.ctx());
         self.remote_input_window(ui.ctx());
@@ -8544,6 +8634,7 @@ impl eframe::App for ForgeApp {
             editor_font_size: self.editor_font_size,
             caret_blink: self.caret_blink,
             format_on_save: self.format_on_save,
+            show_welcome: self.welcome_open,
             keymap: self.keymap.to_dto(),
             high_contrast: self.high_contrast,
             reduced_motion: self.reduced_motion,
