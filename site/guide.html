@@ -37,6 +37,7 @@
     <a href="#install">Install &amp; run</a>
     <a href="#workspace">The dockable workspace</a>
     <a href="#panes">Pane reference</a>
+    <a href="#terminals">Terminals &amp; kernels</a>
     <a href="#keys">Keyboard &amp; status bar</a>
     <a href="#notebook">Notebook cells</a>
     <a href="#telemetry">Telemetry markers</a>
@@ -106,6 +107,8 @@
           <tr><td><span class="pane-ico">▶</span><strong>Console</strong></td><td>The interactive Rust (Evcxr) console with a persistent session and inline expression input.</td></tr>
           <tr><td><span class="pane-ico">↺</span><strong>History</strong></td><td>Log of previously executed console commands.</td></tr>
           <tr><td><span class="pane-ico">🐍</span><strong>Python</strong></td><td>Optional Python runtime: discover interpreters, start a kernel, create a <code>.venv</code>, run code.</td></tr>
+          <tr><td><span class="pane-ico">⌨</span><strong>Terminal</strong></td><td>A real embedded system terminal (ConPTY / forkpty) running your shell. Open several — each an independent, dockable, floatable pane.</td></tr>
+          <tr><td><span class="pane-ico">◈</span><strong>Rust kernel</strong></td><td>An independent Rust REPL with its own Evcxr session. Run several side by side, each isolated from the notebook and one another.</td></tr>
           <tr><td><span class="pane-ico">▭</span><strong>Data viewer</strong></td><td>Full virtualized table viewer for an open dataset (also available as a floating window).</td></tr>
           <tr><td><span class="pane-ico">◧</span><strong>Variables</strong></td><td>Live Evcxr variable names, Rust types, and sizes after every successful cell.</td></tr>
           <tr><td><span class="pane-ico">▤</span><strong>Data</strong></td><td>Imported datasets, quality profiles, and dataset actions.</td></tr>
@@ -125,6 +128,27 @@
         </tbody>
       </table>
       </div>
+    </section>
+
+    <section id="terminals">
+      <h2>Terminals &amp; Rust kernels</h2>
+      <p>Two families of interactive panes let you work without leaving the IDE, and you can open as many
+      of each as you like.</p>
+      <dl class="spec">
+        <dt>Embedded terminals</dt>
+        <dd>A real system terminal running your shell (ConPTY on Windows, a pty on Linux/macOS), so
+        <code>vim</code>, <code>htop</code>, and full-screen apps work. It supports truecolor, scrollback,
+        drag-select with copy, and resizes with the pane. Open more with <strong>View → New terminal</strong>
+        or by right-clicking a terminal tab.</dd>
+        <dt>Rust kernels</dt>
+        <dd>Independent Rust REPLs, each backed by its own Evcxr session with isolated state. Type an
+        expression and press Enter; use the pane's clear / restart / stop controls. Open more with
+        <strong>View → New Rust kernel</strong> or from a kernel tab. These are separate from the
+        notebook-linked Console pane.</dd>
+      </dl>
+      <div class="note">Every terminal and kernel is a first-class dock pane: tab them together, split,
+      drag anywhere, <strong>float into a window</strong>, hide, or reorder — each independently. Close one
+      with the × on its tab to end that session.</div>
     </section>
 
     <section id="keys">

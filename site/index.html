@@ -32,6 +32,7 @@
       <div class="badges">
         <span class="chip">Evcxr console</span>
         <span class="chip">Dockable panes</span>
+        <span class="chip">Terminals &amp; kernels</span>
         <span class="chip">Burn 0.22 training</span>
         <span class="chip">Millwright ONNX</span>
         <span class="chip">rust-analyzer</span>
@@ -142,8 +143,8 @@
       <div class="row2">
         <div class="rk">Dock anything<span class="tag">drag &amp; drop</span></div>
         <p>Drag a pane's tab to split a region, move it to another edge, or group it with others.
-        The editor, file tree, outline, cell rail, console, history, Python runtime, data viewer,
-        and every inspector are all first-class dockable panes.</p>
+        The editor, file tree, outline, cell rail, console, history, Python runtime, terminals,
+        Rust kernels, the data viewer, and every inspector are all first-class dockable panes.</p>
       </div>
       <div class="row2">
         <div class="rk">Show only what you need<span class="tag">View → Panes</span></div>
@@ -168,6 +169,7 @@
     indexing, and training all run off the UI thread.</p>
     <div class="grid">
       <div class="card"><span class="ico">▶</span><h3>Persistent Rust console</h3><p>An Evcxr session runs off the UI thread. Cells share state, so setup and data cells feed later ones. Reset the runtime without restarting the app.</p></div>
+      <div class="card"><span class="ico">⌨</span><h3>Terminals &amp; kernels</h3><p>Real embedded system terminals (vim, htop, and all) plus independent Rust REPL kernels — open as many as you like, each a dockable, floatable pane.</p></div>
       <div class="card"><span class="ico">▦</span><h3>Notebook cells</h3><p>Split scripts into cells with <code>//# %%</code>. Run one, everything above, or all — with per-cell status, output, compiler errors, and timing.</p></div>
       <div class="card"><span class="ico">◔</span><h3>Variables &amp; plots</h3><p>Live Evcxr variable names and Rust types after every cell. Publish metrics, vectors, and tables from <code>stdout</code> into charts and grids.</p></div>
       <div class="card"><span class="ico">⊞</span><h3>Data viewer</h3><p>Import CSV, TSV, JSON Lines, Parquet, and Arrow IPC. Virtualized two-axis grids with filter, sort, pin/hide columns, editing, and linked plots.</p></div>

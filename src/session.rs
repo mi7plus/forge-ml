@@ -97,6 +97,8 @@ pub struct SessionState {
     #[serde(default = "default_true")]
     pub caret_blink: bool,
     #[serde(default)]
+    pub format_on_save: bool,
+    #[serde(default)]
     pub high_contrast: bool,
     #[serde(default)]
     pub reduced_motion: bool,
@@ -210,6 +212,7 @@ impl Default for SessionState {
             recent_projects: Vec::new(),
             editor_font_size: default_editor_font_size(),
             caret_blink: true,
+            format_on_save: false,
             high_contrast: false,
             reduced_motion: false,
             diagnostics_opt_in: false,

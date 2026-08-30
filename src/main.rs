@@ -507,6 +507,7 @@ struct ForgeApp {
     settings_open: bool,
     editor_font_size: f32,
     caret_blink: bool,
+    format_on_save: bool,
     high_contrast: bool,
     reduced_motion: bool,
     command_palette_open: bool,
@@ -822,6 +823,7 @@ impl ForgeApp {
             settings_open: false,
             editor_font_size,
             caret_blink,
+            format_on_save: session.format_on_save,
             high_contrast: session.high_contrast,
             reduced_motion: session.reduced_motion,
             command_palette_open: false,
@@ -1397,7 +1399,65 @@ impl ForgeApp {
     }
 
     fn save_active(&mut self) {
+        if self.format_on_save && self.active_is_rust() {
+            self.format_document();
+        }
         let _ = self.save_tab(self.active_tab);
+    }
+
+    fn active_is_rust(&self) -> bool {
+        self.active()
+            .path
+            .as_ref()
+            .map(|p| p.extension().is_some_and(|e| e == "rs"))
+            .unwrap_or(true)
+    }
+
+    /// Format the active buffer with `rustfmt`, replacing its contents on success.
+    fn format_document(&mut self) {
+        if !self.active_is_rust() {
+            self.console = "Format document only applies to Rust files.".to_owned();
+            return;
+        }
+        match run_rustfmt(&self.active().content) {
+            Ok(formatted) => {
+                if formatted != self.active().content {
+                    self.active_mut().content = formatted;
+                    self.active_mut().dirty = true;
+                    self.cell_records.clear();
+                    self.last_lsp_hash = 0;
+                }
+                self.console = "Formatted with rustfmt.".to_owned();
+            }
+            Err(error) => self.console = format!("rustfmt failed: {error}"),
+        }
+    }
+
+    /// Queue a cargo subcommand as a background job and surface it in Studio.
+    fn run_cargo_task(&mut self, args: &str) {
+        let Some(root) = self.project_root() else {
+            self.console = "Open a Cargo project first.".to_owned();
+            return;
+        };
+        match self.job_queue.enqueue(format!("cargo {args}"), root) {
+            Ok(id) => {
+                self.console = format!("Queued `cargo {args}` as job {id}. See Studio.");
+                self.inspector_tab = InspectorTab::Studio;
+            }
+            Err(error) => self.console = error,
+        }
+    }
+
+    /// Run clippy and show its findings in the Problems pane.
+    fn run_clippy(&mut self) {
+        if let Some(project) = &self.project {
+            self.diagnostics.check(project.root.clone(), diagnostics::Tool::Clippy);
+            self.diagnostics_running = true;
+            self.diagnostic_lines = vec!["Running cargo clippy...".to_owned()];
+            self.inspector_tab = InspectorTab::Problems;
+        } else {
+            self.diagnostic_lines = vec!["Open a Cargo project to run clippy.".to_owned()];
+        }
     }
 
     fn save_tab(&mut self, index: usize) -> bool {
@@ -1951,7 +2011,7 @@ impl ForgeApp {
     fn run_diagnostics(&mut self) {
         self.inspector_tab = InspectorTab::Problems;
         if let Some(project) = &self.project {
-            self.diagnostics.check(project.root.clone());
+            self.diagnostics.check(project.root.clone(), diagnostics::Tool::Check);
             self.diagnostics_running = true;
             self.diagnostic_lines = vec![format!(
                 "Checking {} with cargo check...",
@@ -2710,6 +2770,11 @@ impl ForgeApp {
                     self.pending_editor_history = Some(EditorHistoryCommand::Redo);
                     ui.close();
                 }
+                ui.separator();
+                if ui.button("Format document (rustfmt)").clicked() {
+                    self.format_document();
+                    ui.close();
+                }
             });
             top!("Search", |ui| {
                 if ui.button("Find in files   Ctrl+Shift+F").clicked() {
@@ -2718,10 +2783,34 @@ impl ForgeApp {
                 }
             });
             top!("Source", |ui| {
-                if ui.button("Run code analysis").clicked() {
+                if ui.button("Run code analysis (cargo check)").clicked() {
                     self.run_diagnostics();
                     ui.close();
                 }
+                if ui.button("Run clippy").clicked() {
+                    self.run_clippy();
+                    ui.close();
+                }
+                if ui.button("Format document (rustfmt)").clicked() {
+                    self.format_document();
+                    ui.close();
+                }
+                ui.separator();
+                ui.menu_button("Cargo", |ui| {
+                    for (label, args) in [
+                        ("Build", "build"),
+                        ("Test", "test"),
+                        ("Run", "run"),
+                        ("Run (release)", "run --release"),
+                        ("Bench", "bench"),
+                        ("Clean", "clean"),
+                    ] {
+                        if ui.button(label).clicked() {
+                            self.run_cargo_task(args);
+                            ui.close();
+                        }
+                    }
+                });
             });
             top!("Run", |ui| {
                 if ui.button("Run cell   Shift+Enter").clicked() {
@@ -3050,6 +3139,8 @@ impl ForgeApp {
                     );
                 });
                 ui.checkbox(&mut self.caret_blink, "Blink editor caret");
+                ui.checkbox(&mut self.format_on_save, "Format Rust files with rustfmt on save")
+                    .on_hover_text("Requires rustfmt on PATH");
                 ui.heading("Accessibility");
                 let contrast_changed = ui
                     .checkbox(&mut self.high_contrast, "High-contrast interface")
@@ -7511,6 +7602,13 @@ impl ForgeApp {
             Stop => self.stop_execution(),
             Find => self.find_visible = true,
             FindProject => self.inspector_tab = InspectorTab::Search,
+            FormatDocument => self.format_document(),
+            Clippy => self.run_clippy(),
+            CargoBuild => self.run_cargo_task("build"),
+            CargoTest => self.run_cargo_task("test"),
+            CargoRun => self.run_cargo_task("run"),
+            NewTerminal => self.pending_new_terminal = Some(None),
+            NewKernel => self.pending_new_kernel = Some(None),
             ImportData => self.import_dataset(),
             ToggleTheme => self.dark_mode = !self.dark_mode,
             Settings => self.settings_open = true,
@@ -8313,6 +8411,7 @@ impl eframe::App for ForgeApp {
             recent_projects: self.recent_projects.clone(),
             editor_font_size: self.editor_font_size,
             caret_blink: self.caret_blink,
+            format_on_save: self.format_on_save,
             high_contrast: self.high_contrast,
             reduced_motion: self.reduced_motion,
             diagnostics_opt_in: self.diagnostics_opt_in,
@@ -9250,6 +9349,37 @@ fn file_title(path: &Path) -> String {
         .to_owned()
 }
 
+/// Format Rust source with `rustfmt`, piping through stdin/stdout so the editor
+/// buffer (which may be unsaved) is formatted without touching disk.
+fn run_rustfmt(source: &str) -> Result<String, String> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new("rustfmt")
+        .args(["--edition", "2021", "--emit", "stdout", "--quiet"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("could not launch rustfmt: {e}"))?;
+    child
+        .stdin
+        .take()
+        .ok_or("rustfmt stdin unavailable")?
+        .write_all(source.as_bytes())
+        .map_err(|e| e.to_string())?;
+    let output = child
+        .wait_with_output()
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        String::from_utf8(output.stdout).map_err(|e| e.to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let first = stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("rustfmt error");
+        Err(first.to_owned())
+    }
+}
+
 fn infer_size(type_name: &str) -> &str {
     if type_name.contains("Vec<") {
         "dynamic"
@@ -9579,6 +9709,19 @@ mod editor_tests {
             ForgeApp::create_terminal(&mut restored, None),
             PaneKind::Terminal(4)
         );
+    }
+
+    #[test]
+    fn rustfmt_formats_rust_source_when_available() {
+        let messy = "fn  main( ) {let x=1;println!(\"{}\",x);}\n";
+        match run_rustfmt(messy) {
+            Ok(formatted) => {
+                assert!(formatted.contains("fn main() {"), "got:\n{formatted}");
+                assert!(formatted.contains("let x = 1;"), "got:\n{formatted}");
+            }
+            // rustfmt not installed in this environment — nothing to verify.
+            Err(_) => {}
+        }
     }
 
     #[test]

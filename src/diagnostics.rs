@@ -3,19 +3,35 @@ use std::process::Command;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 
+/// Which cargo analysis to run for the Problems pane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tool {
+    Check,
+    Clippy,
+}
+
+impl Tool {
+    fn args(self) -> &'static [&'static str] {
+        match self {
+            Tool::Check => &["check", "--message-format=short", "--quiet"],
+            Tool::Clippy => &["clippy", "--message-format=short", "--quiet"],
+        }
+    }
+}
+
 pub struct DiagnosticsHandle {
-    request: Sender<PathBuf>,
+    request: Sender<(PathBuf, Tool)>,
     results: Receiver<Vec<String>>,
 }
 
 impl DiagnosticsHandle {
     pub fn spawn() -> Self {
-        let (request, requests) = channel::<PathBuf>();
+        let (request, requests) = channel::<(PathBuf, Tool)>();
         let (result_tx, results) = channel();
         thread::spawn(move || {
-            while let Ok(root) = requests.recv() {
+            while let Ok((root, tool)) = requests.recv() {
                 let output = Command::new("cargo")
-                    .args(["check", "--message-format=short", "--quiet"])
+                    .args(tool.args())
                     .current_dir(root)
                     .output();
                 let lines = match output {
@@ -39,8 +55,8 @@ impl DiagnosticsHandle {
         Self { request, results }
     }
 
-    pub fn check(&self, root: PathBuf) {
-        let _ = self.request.send(root);
+    pub fn check(&self, root: PathBuf, tool: Tool) {
+        let _ = self.request.send((root, tool));
     }
     pub fn try_recv(&self) -> Option<Vec<String>> {
         self.results.try_recv().ok()
