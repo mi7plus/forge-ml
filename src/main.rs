@@ -584,6 +584,10 @@ struct ForgeApp {
     class_lr: f64,
     class_test_fraction: f64,
     class_result: String,
+    onnx_model: Option<millwright::onnx::InferenceModel>,
+    onnx_model_name: String,
+    onnx_input: String,
+    onnx_result: String,
     native_burn_artifact: Option<deep_learning::NativeRegressionArtifact>,
     native_burn_inference_feature: f64,
     drift_mean_shift_threshold: f64,
@@ -919,6 +923,10 @@ impl ForgeApp {
             class_lr: 0.5,
             class_test_fraction: 0.25,
             class_result: String::new(),
+            onnx_model: None,
+            onnx_model_name: String::new(),
+            onnx_input: String::new(),
+            onnx_result: String::new(),
             native_burn_artifact,
             drift_mean_shift_threshold: drift_policy.mean_shift_threshold,
             drift_scale_ratio_lower: drift_policy.scale_ratio_lower,
@@ -4722,6 +4730,48 @@ impl ForgeApp {
         if !self.class_result.is_empty() {
             ui.label(RichText::new(&self.class_result).monospace().size(11.0));
         }
+
+        ui.separator();
+        ui.strong("ONNX inference");
+        ui.label(
+            RichText::new("Load an external ONNX model and run it inside the IDE (Millwright / tract).")
+                .size(10.0)
+                .color(MUTED),
+        );
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Load ONNX model…").clicked() {
+                self.load_onnx_model();
+            }
+            if !self.onnx_model_name.is_empty() {
+                ui.label(
+                    RichText::new(format!("model: {}", self.onnx_model_name))
+                        .size(11.0)
+                        .color(CYAN),
+                );
+            }
+        });
+        if self.onnx_model.is_some() {
+            ui.horizontal_wrapped(|ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.onnx_input)
+                        .desired_width(220.0)
+                        .hint_text("feature values (comma-separated)"),
+                );
+                if ui.button("Predict row").clicked() {
+                    self.predict_onnx_row();
+                }
+                if ui
+                    .button("Predict dataset")
+                    .on_hover_text("Score the open dataset using the classification feature columns")
+                    .clicked()
+                {
+                    self.predict_onnx_dataset();
+                }
+            });
+        }
+        if !self.onnx_result.is_empty() {
+            ui.label(RichText::new(&self.onnx_result).monospace().size(11.0));
+        }
         if let Some(artifact) = self.native_burn_artifact.clone() {
             ui.horizontal_wrapped(|ui| {
                 ui.label("Drift policy");
@@ -5385,6 +5435,130 @@ impl ForgeApp {
             }
             Err(error) => self.class_result = error,
         }
+    }
+
+    /// Load an ONNX model from disk for in-IDE inference (via Millwright/tract).
+    fn load_onnx_model(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("ONNX model", &["onnx"])
+            .set_title("Load ONNX model")
+            .pick_file()
+        else {
+            return;
+        };
+        match millwright::onnx::InferenceModel::load(&path) {
+            Ok(model) => {
+                self.onnx_model = Some(model);
+                self.onnx_model_name = file_title(&path);
+                self.onnx_result = format!("Loaded `{}`. Ready for inference.", self.onnx_model_name);
+            }
+            Err(error) => {
+                self.onnx_model = None;
+                self.onnx_result = format!("Could not load ONNX model: {error}");
+            }
+        }
+    }
+
+    /// Run the loaded ONNX model on one comma-separated feature row.
+    fn predict_onnx_row(&mut self) {
+        let Some(model) = self.onnx_model.as_ref() else {
+            self.onnx_result = "Load an ONNX model first.".to_owned();
+            return;
+        };
+        let values: Vec<f64> = self
+            .onnx_input
+            .split(',')
+            .filter_map(|token| token.trim().parse::<f64>().ok())
+            .collect();
+        if values.is_empty() {
+            self.onnx_result = "Enter comma-separated numeric feature values.".to_owned();
+            return;
+        }
+        let columns: Vec<String> = (0..values.len()).map(|i| format!("f{i}")).collect();
+        self.onnx_result = match millwright::frame::Frame::from_rows(vec![values], columns)
+            .and_then(|frame| model.predict(&frame))
+        {
+            Ok(prediction) => format!("ONNX prediction: {prediction:?}"),
+            Err(error) => format!("Inference failed: {error}"),
+        };
+    }
+
+    /// Run the loaded ONNX model over the selected dataset's feature columns
+    /// (reusing the classifier's feature-column list) and summarize predictions.
+    fn predict_onnx_dataset(&mut self) {
+        let Some(model) = self.onnx_model.as_ref() else {
+            self.onnx_result = "Load an ONNX model first.".to_owned();
+            return;
+        };
+        let result = (|| -> Result<String, String> {
+            let (name, is_table) = self
+                .selected_dataset_info()
+                .ok_or("Select a table dataset in the Data viewer first")?;
+            if !is_table {
+                return Err("ONNX batch inference requires a table dataset".into());
+            }
+            let table = &self
+                .data
+                .tables
+                .get(&name)
+                .ok_or("The selected dataset no longer exists")?
+                .table;
+            let features: Vec<String> = self
+                .class_features
+                .split(',')
+                .map(|s| s.trim().to_owned())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if features.is_empty() {
+                return Err("Set the feature columns (in the classification section) first".into());
+            }
+            let indices: Vec<usize> = features
+                .iter()
+                .map(|column| {
+                    table
+                        .columns
+                        .iter()
+                        .position(|c| c == column)
+                        .ok_or_else(|| format!("Column `{column}` was not found"))
+                })
+                .collect::<Result<_, _>>()?;
+            let mut rows: Vec<Vec<f64>> = Vec::new();
+            for row in &table.rows {
+                let mut values = Vec::with_capacity(indices.len());
+                let mut ok = true;
+                for &index in &indices {
+                    match row.get(index).and_then(|c| c.parse::<f64>().ok()) {
+                        Some(v) if v.is_finite() => values.push(v),
+                        _ => {
+                            ok = false;
+                            break;
+                        }
+                    }
+                }
+                if ok {
+                    rows.push(values);
+                }
+            }
+            if rows.len() < 1 {
+                return Err("No complete numeric rows to score".into());
+            }
+            let n = rows.len();
+            let frame = millwright::frame::Frame::from_rows(rows, features.clone())
+                .map_err(|e| e.to_string())?;
+            let predictions = model.predict(&frame).map_err(|e| e.to_string())?;
+            let preview: Vec<String> = predictions
+                .iter()
+                .take(10)
+                .map(|v| format!("{v:.4}"))
+                .collect();
+            Ok(format!(
+                "Scored {n} rows of `{name}` with `{}`.\nFirst {}: [{}]",
+                self.onnx_model_name,
+                preview.len(),
+                preview.join(", ")
+            ))
+        })();
+        self.onnx_result = result.unwrap_or_else(|error| error);
     }
 
     /// Grid-search learning rate × epochs for the classifier on the selected

@@ -10,9 +10,11 @@ help, rename, and code actions), #7 (snippet completions), #8 (fuzzy palette +
 recents + live bindings), #9 (welcome screen), and #10 (customizable keyboard
 shortcuts); and Tier 3 #11 — native multiclass classification (softmax logistic
 regression) with a confusion matrix and precision/recall/F1, plus a
-deterministic train/test split (part of #12). **Remaining in Tier 3:** the rest
-of #12 (encoding / scaling UI), #14 ONNX import, #15
-inference playground. Tier 4 (engineering health) is untouched.
+deterministic train/test split (part of #12), #13 (classifier hyperparameter
+sweep over learning rate × epochs), and #14 (ONNX import — load an arbitrary
+ONNX model and run single-row or whole-dataset inference in-IDE via Millwright /
+tract). **Remaining in Tier 3:** the rest of #12 (encoding / scaling UI) and #15
+inference-playground polish. Tier 4 (engineering health) is untouched.
 
 Related: [UX improvement plan](UX_IMPROVEMENT_PLAN.md) (the dockable-workspace
 work, now shipped).
@@ -112,8 +114,10 @@ Jupyter; Git/GitHub/packages panes; off-by-default diagnostics; and 132 tests.
 13. **Hyperparameter sweeps.** Grid / random search over epochs, learning rate,
     and layer sizes, feeding the existing Runs leaderboard and comparison
     reports.
-14. **ONNX import for in-IDE inference.** Today Forge exports ONNX and generates
-    services; add loading an arbitrary ONNX model to predict inside the IDE.
+14. **ONNX import for in-IDE inference.** _(shipped)_ Load an arbitrary ONNX
+    model (Deep-learning pane → *ONNX inference*) and predict either a single
+    comma-separated feature row or the open dataset's classification feature
+    columns, via Millwright / tract.
 15. **Inference playground polish.** Build on the existing single/batch predict
     with an interactive form and live metrics.
 
