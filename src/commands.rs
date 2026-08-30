@@ -69,23 +69,52 @@ pub const ALL: &[(Command, &str, &str)] = &[
     (Command::Storage, "Pane: Object storage", ""),
 ];
 
+/// Fuzzy subsequence score of `needle` within `haystack` (case-insensitive).
+/// Rewards consecutive and early matches; `None` if not a subsequence.
+fn fuzzy_score(needle: &str, haystack: &str) -> Option<i32> {
+    let hay: Vec<char> = haystack.to_ascii_lowercase().chars().collect();
+    let mut hi = 0usize;
+    let mut score = 0i32;
+    let mut streak = 0i32;
+    for nc in needle.to_ascii_lowercase().chars() {
+        if nc.is_whitespace() {
+            continue;
+        }
+        let mut found = false;
+        while hi < hay.len() {
+            if hay[hi] == nc {
+                found = true;
+                break;
+            }
+            hi += 1;
+            streak = 0;
+        }
+        if !found {
+            return None;
+        }
+        score += 12 + streak * 6 - (hi as i32).min(24);
+        streak += 1;
+        hi += 1;
+    }
+    Some(score)
+}
+
+/// Fuzzy-match commands against `query`, ranked best first. An empty query
+/// returns every command in its declared order.
 pub fn matches(query: &str) -> Vec<(Command, &'static str, &'static str)> {
-    let terms = query
-        .to_ascii_lowercase()
-        .split_whitespace()
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
-    ALL.iter()
-        .filter(|(_, label, shortcut)| {
-            let haystack = format!(
-                "{} {}",
-                label.to_ascii_lowercase(),
-                shortcut.to_ascii_lowercase()
-            );
-            terms.iter().all(|term| haystack.contains(term))
+    if query.trim().is_empty() {
+        return ALL.to_vec();
+    }
+    let mut scored: Vec<(i32, (Command, &'static str, &'static str))> = ALL
+        .iter()
+        .filter_map(|entry| {
+            let (_, label, shortcut) = entry;
+            let haystack = format!("{label} {shortcut}");
+            fuzzy_score(query, &haystack).map(|score| (score, *entry))
         })
-        .copied()
-        .collect()
+        .collect();
+    scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1 .1.cmp(b.1 .1)));
+    scored.into_iter().map(|(_, entry)| entry).collect()
 }
 
 #[cfg(test)]
@@ -99,5 +128,17 @@ mod tests {
         assert!(matches("ctrl shift f")
             .iter()
             .any(|v| v.0 == Command::FindProject));
+    }
+
+    #[test]
+    fn fuzzy_matches_and_ranks() {
+        // Empty query lists everything.
+        assert_eq!(matches("").len(), ALL.len());
+        // An exact prefix ranks its command first.
+        assert_eq!(matches("save").first().map(|v| v.0), Some(Command::Save));
+        // Non-contiguous subsequence still matches.
+        assert!(matches("frmt").iter().any(|v| v.0 == Command::FormatDocument));
+        // Nonsense yields nothing.
+        assert!(matches("zzqx").is_empty());
     }
 }

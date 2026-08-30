@@ -517,6 +517,8 @@ struct ForgeApp {
     command_palette_open: bool,
     command_query: String,
     command_selection: usize,
+    /// Most-recently-run commands, newest first, shown when the palette is empty.
+    recent_commands: Vec<commands::Command>,
     status_announcement: String,
     diagnostics_opt_in: bool,
     completion_popup_open: bool,
@@ -835,6 +837,7 @@ impl ForgeApp {
             command_palette_open: false,
             command_query: String::new(),
             command_selection: 0,
+            recent_commands: Vec::new(),
             status_announcement: "Forge ML ready".into(),
             diagnostics_opt_in: session.diagnostics_opt_in,
             completion_popup_open: false,
@@ -7661,8 +7664,29 @@ impl ForgeApp {
         ui.take_available_space();
     }
 
+    /// The customizable keymap action a palette command maps to, if any, so the
+    /// palette can show each command's live shortcut.
+    fn command_key_action(command: commands::Command) -> Option<keymap::KeyAction> {
+        use commands::Command as C;
+        use keymap::KeyAction as K;
+        Some(match command {
+            C::Save => K::Save,
+            C::NewFile => K::NewFile,
+            C::Find => K::FindInFile,
+            C::FindProject => K::FindInProject,
+            C::FormatDocument => K::FormatDocument,
+            C::RunCell => K::RunCell,
+            C::RunAll => K::RunAll,
+            _ => return None,
+        })
+    }
+
     fn execute_command(&mut self, command: commands::Command) {
         use commands::Command::*;
+        // Track for the palette's recent list (newest first, capped).
+        self.recent_commands.retain(|c| *c != command);
+        self.recent_commands.insert(0, command);
+        self.recent_commands.truncate(8);
         match command {
             NewFile => self.create_new_file(None),
             Save => self.save_active(),
@@ -7805,7 +7829,18 @@ impl ForgeApp {
         if !self.command_palette_open {
             return;
         }
-        let matches = commands::matches(&self.command_query);
+        let mut matches = commands::matches(&self.command_query);
+        // With an empty query, surface recently-used commands first.
+        if self.command_query.trim().is_empty() && !self.recent_commands.is_empty() {
+            let mut ordered = Vec::new();
+            for recent in &self.recent_commands {
+                if let Some(pos) = matches.iter().position(|(c, _, _)| c == recent) {
+                    ordered.push(matches.remove(pos));
+                }
+            }
+            ordered.extend(matches);
+            matches = ordered;
+        }
         if !matches.is_empty() {
             self.command_selection = self.command_selection.min(matches.len() - 1);
         } else {
@@ -7823,7 +7858,11 @@ impl ForgeApp {
             .then(|| matches.get(self.command_selection).map(|item| item.0))
             .flatten();
         let mut open = self.command_palette_open;
-        egui::Window::new("Command palette — Ctrl+Shift+P")
+        let title = format!(
+            "Command palette — {}",
+            self.keymap.display(keymap::KeyAction::CommandPalette)
+        );
+        egui::Window::new(title)
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
@@ -7835,18 +7874,35 @@ impl ForgeApp {
                         .desired_width(f32::INFINITY),
                 );
                 response.request_focus();
-                ui.label("Use ↑/↓ to select, Enter to run, Escape to close.");
+                let hint = if self.command_query.trim().is_empty() && !self.recent_commands.is_empty()
+                {
+                    "Recent commands · ↑/↓ select · Enter run · Esc close"
+                } else {
+                    "↑/↓ select · Enter run · Esc close"
+                };
+                ui.label(RichText::new(hint).size(10.0).color(MUTED));
                 ui.separator();
                 for (index, (command, label, shortcut)) in matches.iter().enumerate().take(12) {
-                    let text = if shortcut.is_empty() {
-                        (*label).to_owned()
-                    } else {
-                        format!("{label}    {shortcut}")
-                    };
-                    if ui
-                        .selectable_label(index == self.command_selection, text)
-                        .clicked()
-                    {
+                    // Prefer the live keymap binding over the static hint.
+                    let binding = Self::command_key_action(*command).map(|a| self.keymap.display(a));
+                    let shortcut = binding.as_deref().unwrap_or(shortcut);
+                    let selected = index == self.command_selection;
+                    let response = ui.selectable_label(selected, {
+                        let mut job = egui::text::LayoutJob::default();
+                        job.append(label, 0.0, egui::TextFormat::default());
+                        if !shortcut.is_empty() {
+                            job.append(
+                                &format!("    {shortcut}"),
+                                0.0,
+                                egui::TextFormat {
+                                    color: MUTED,
+                                    ..Default::default()
+                                },
+                            );
+                        }
+                        job
+                    });
+                    if response.clicked() {
                         chosen = Some(*command);
                     }
                 }
