@@ -4711,6 +4711,13 @@ impl ForgeApp {
             if ui.button("Train classifier").clicked() {
                 self.train_classifier();
             }
+            if ui
+                .button("Sweep")
+                .on_hover_text("Grid-search lr × epochs and adopt the best by held-out macro-F1")
+                .clicked()
+            {
+                self.run_classifier_sweep();
+            }
         });
         if !self.class_result.is_empty() {
             ui.label(RichText::new(&self.class_result).monospace().size(11.0));
@@ -5378,6 +5385,62 @@ impl ForgeApp {
             }
             Err(error) => self.class_result = error,
         }
+    }
+
+    /// Grid-search learning rate × epochs for the classifier on the selected
+    /// dataset, rank by held-out macro-F1, and adopt the best configuration.
+    fn run_classifier_sweep(&mut self) {
+        let result = (|| -> Result<String, String> {
+            let (name, is_table) = self
+                .selected_dataset_info()
+                .ok_or("Select a table dataset in the Data viewer first")?;
+            if !is_table {
+                return Err("Classification requires a table dataset".into());
+            }
+            let table = &self
+                .data
+                .tables
+                .get(&name)
+                .ok_or("The selected dataset no longer exists")?
+                .table;
+            let features: Vec<String> = self
+                .class_features
+                .split(',')
+                .map(|s| s.trim().to_owned())
+                .filter(|s| !s.is_empty())
+                .collect();
+            let data = classification::prepare(table, &features, self.class_target.trim())?;
+            let (train, test) = data.split(self.class_test_fraction);
+            let train = if train.features.len() >= 2 { train } else { data.clone() };
+            let learning_rates = [0.05, 0.1, 0.3, 0.5, 1.0];
+            let epoch_grid = [100usize, 300, 600];
+            let results = classification::sweep(&train, &test, &learning_rates, &epoch_grid);
+            let best = results
+                .first()
+                .cloned()
+                .ok_or("The sweep produced no results")?;
+            self.class_lr = best.learning_rate;
+            self.class_epochs = best.epochs;
+            let table_rows = results
+                .iter()
+                .take(8)
+                .map(|r| {
+                    format!(
+                        "  lr {:<5} epochs {:<4} → acc {:.3}, macro-F1 {:.3}",
+                        r.learning_rate, r.epochs, r.accuracy, r.macro_f1
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            Ok(format!(
+                "Sweep on `{name}` ({} configs) — best: lr {}, epochs {} (macro-F1 {:.3}). Adopted best config.\n{table_rows}",
+                results.len(),
+                best.learning_rate,
+                best.epochs,
+                best.macro_f1
+            ))
+        })();
+        self.class_result = result.unwrap_or_else(|error| error);
     }
 
     fn selected_native_training_data(&self) -> Result<deep_learning::NativeTrainingData, String> {

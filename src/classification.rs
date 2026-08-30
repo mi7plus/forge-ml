@@ -353,6 +353,52 @@ pub fn evaluate(predicted: &[usize], actual: &[usize], num_classes: usize) -> Me
     }
 }
 
+/// One result from a hyperparameter sweep.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SweepResult {
+    pub learning_rate: f64,
+    pub epochs: usize,
+    pub accuracy: f64,
+    pub macro_f1: f64,
+}
+
+/// Grid-search over learning rates × epoch counts. Each configuration is trained
+/// on `train` and scored on `test` (or `train` if no test set), returning the
+/// results ranked best-first by macro-F1 then accuracy.
+pub fn sweep(
+    train: &Dataset,
+    test: &Dataset,
+    learning_rates: &[f64],
+    epoch_grid: &[usize],
+) -> Vec<SweepResult> {
+    let eval_set = if test.features.is_empty() { train } else { test };
+    let mut results = Vec::new();
+    for &lr in learning_rates {
+        for &epochs in epoch_grid {
+            if let Ok(model) = Classifier::train(train, epochs, lr) {
+                let metrics = model.evaluate(eval_set);
+                results.push(SweepResult {
+                    learning_rate: lr,
+                    epochs,
+                    accuracy: metrics.accuracy,
+                    macro_f1: metrics.macro_f1,
+                });
+            }
+        }
+    }
+    results.sort_by(|a, b| {
+        b.macro_f1
+            .partial_cmp(&a.macro_f1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(
+                b.accuracy
+                    .partial_cmp(&a.accuracy)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
+    });
+    results
+}
+
 /// A heatmap plot of the confusion matrix (rows = actual, cols = predicted).
 pub fn confusion_plot(metrics: &Metrics, name: &str) -> PlotSpec {
     let matrix = metrics
@@ -432,6 +478,19 @@ mod tests {
         let (all_train, empty_test) = data.split(0.0);
         assert_eq!(all_train.features.len(), data.features.len());
         assert!(empty_test.features.is_empty());
+    }
+
+    #[test]
+    fn sweep_ranks_configurations_best_first() {
+        let data = prepare(&table(), &["x1".into(), "x2".into()], "label").unwrap();
+        let results = sweep(&data, &Dataset::empty_like(&data), &[0.1, 0.5], &[50, 400]);
+        assert_eq!(results.len(), 4);
+        // Ranked by macro-F1 descending.
+        for pair in results.windows(2) {
+            assert!(pair[0].macro_f1 >= pair[1].macro_f1);
+        }
+        // The best configuration separates the two easy classes.
+        assert!((results[0].macro_f1 - 1.0).abs() < 1e-9);
     }
 
     #[test]

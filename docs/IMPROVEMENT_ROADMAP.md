@@ -11,7 +11,7 @@ recents + live bindings), #9 (welcome screen), and #10 (customizable keyboard
 shortcuts); and Tier 3 #11 — native multiclass classification (softmax logistic
 regression) with a confusion matrix and precision/recall/F1, plus a
 deterministic train/test split (part of #12). **Remaining in Tier 3:** the rest
-of #12 (encoding / scaling UI), #13 hyperparameter sweeps, #14 ONNX import, #15
+of #12 (encoding / scaling UI), #14 ONNX import, #15
 inference playground. Tier 4 (engineering health) is untouched.
 
 Related: [UX improvement plan](UX_IMPROVEMENT_PLAN.md) (the dockable-workspace
