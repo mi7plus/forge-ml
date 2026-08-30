@@ -24,6 +24,30 @@ pub struct Reference {
     pub column: usize,
 }
 
+/// A single text replacement (LSP line/utf16-character coordinates).
+#[derive(Debug, Clone)]
+pub struct TextEdit {
+    pub start_line: usize,
+    pub start_col: usize,
+    pub end_line: usize,
+    pub end_col: usize,
+    pub new_text: String,
+}
+
+/// All edits for one file, from a workspace edit (rename / code action).
+#[derive(Debug, Clone)]
+pub struct FileEdit {
+    pub path: PathBuf,
+    pub edits: Vec<TextEdit>,
+}
+
+/// One applicable code action (only those carrying a direct edit).
+#[derive(Debug, Clone)]
+pub struct CodeAction {
+    pub title: String,
+    pub edits: Vec<FileEdit>,
+}
+
 pub enum LspCommand {
     Install,
     Sync {
@@ -62,6 +86,17 @@ pub enum LspCommand {
         text: String,
         char_offset: usize,
     },
+    Rename {
+        path: PathBuf,
+        text: String,
+        char_offset: usize,
+        new_name: String,
+    },
+    CodeActions {
+        path: PathBuf,
+        text: String,
+        char_offset: usize,
+    },
 }
 
 #[derive(Debug)]
@@ -71,7 +106,8 @@ pub enum LspEvent {
         path: PathBuf,
         items: Vec<Diagnostic>,
     },
-    Completions(Vec<String>),
+    /// Completion items as (display label, text to insert) pairs.
+    Completions(Vec<(String, String)>),
     Hover(String),
     Definition {
         path: PathBuf,
@@ -83,6 +119,8 @@ pub enum LspEvent {
     },
     References(Vec<Reference>),
     Signature(String),
+    WorkspaceEdit(Vec<FileEdit>),
+    CodeActions(Vec<CodeAction>),
     Installed(bool),
 }
 
@@ -117,6 +155,8 @@ enum Pending {
     ProbeDefinition(usize),
     References,
     Signature,
+    Rename,
+    CodeActions,
 }
 
 struct Server {
@@ -227,7 +267,7 @@ fn start_server(root: PathBuf, events: &Sender<LspEvent>) -> std::io::Result<Ser
     let root_uri = file_uri(&root);
     send(
         &mut server.stdin,
-        &json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":std::process::id(),"rootUri":root_uri,"capabilities":{"textDocument":{"completion":{"completionItem":{"snippetSupport":false}},"hover":{},"definition":{},"references":{},"signatureHelp":{},"publishDiagnostics":{}}},"clientInfo":{"name":"forge-ml","version":env!("CARGO_PKG_VERSION")}}}),
+        &json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":std::process::id(),"rootUri":root_uri,"capabilities":{"textDocument":{"completion":{"completionItem":{"snippetSupport":true}},"hover":{},"definition":{},"references":{},"signatureHelp":{},"rename":{},"codeAction":{},"publishDiagnostics":{}}},"clientInfo":{"name":"forge-ml","version":env!("CARGO_PKG_VERSION")}}}),
     )?;
     send(
         &mut server.stdin,
@@ -313,6 +353,17 @@ fn dispatch(server: &mut Server, command: LspCommand, events: &Sender<LspEvent>)
             text,
             char_offset,
         } => request_references(server, &path, &text, char_offset),
+        LspCommand::Rename {
+            path,
+            text,
+            char_offset,
+            new_name,
+        } => request_rename(server, &path, &text, char_offset, &new_name),
+        LspCommand::CodeActions {
+            path,
+            text,
+            char_offset,
+        } => request_code_actions(server, &path, &text, char_offset),
         LspCommand::Install => Ok(()),
     };
     if let Err(error) = result {
@@ -404,6 +455,136 @@ fn request_references(
     )
 }
 
+fn request_rename(
+    server: &mut Server,
+    path: &Path,
+    text: &str,
+    char_offset: usize,
+    new_name: &str,
+) -> std::io::Result<()> {
+    let id = server.next_id;
+    server.next_id += 1;
+    server.pending.insert(id, Pending::Rename);
+    let (line, character) = position(text, char_offset);
+    send(
+        &mut server.stdin,
+        &json!({"jsonrpc":"2.0","id":id,"method":"textDocument/rename","params":{"textDocument":{"uri":file_uri(path)},"position":{"line":line,"character":character},"newName":new_name}}),
+    )
+}
+
+fn request_code_actions(
+    server: &mut Server,
+    path: &Path,
+    text: &str,
+    char_offset: usize,
+) -> std::io::Result<()> {
+    let id = server.next_id;
+    server.next_id += 1;
+    server.pending.insert(id, Pending::CodeActions);
+    let (line, character) = position(text, char_offset);
+    send(
+        &mut server.stdin,
+        &json!({"jsonrpc":"2.0","id":id,"method":"textDocument/codeAction","params":{"textDocument":{"uri":file_uri(path)},"range":{"start":{"line":line,"character":character},"end":{"line":line,"character":character}},"context":{"diagnostics":[]}}}),
+    )
+}
+
+/// Parse the `edits` array of a document into [`TextEdit`]s.
+fn parse_text_edits(edits: &Value) -> Vec<TextEdit> {
+    edits
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|edit| {
+            Some(TextEdit {
+                start_line: edit.pointer("/range/start/line")?.as_u64()? as usize,
+                start_col: edit.pointer("/range/start/character")?.as_u64()? as usize,
+                end_line: edit.pointer("/range/end/line")?.as_u64()? as usize,
+                end_col: edit.pointer("/range/end/character")?.as_u64()? as usize,
+                new_text: edit.get("newText")?.as_str()?.to_owned(),
+            })
+        })
+        .collect()
+}
+
+/// Parse a LSP `WorkspaceEdit` (either `changes` map or `documentChanges`).
+fn parse_workspace_edit(edit: &Value) -> Vec<FileEdit> {
+    let mut files = Vec::new();
+    if let Some(changes) = edit.get("changes").and_then(Value::as_object) {
+        for (uri, edits) in changes {
+            if let Some(path) = uri_path(uri) {
+                files.push(FileEdit {
+                    path,
+                    edits: parse_text_edits(edits),
+                });
+            }
+        }
+    }
+    if let Some(doc_changes) = edit.get("documentChanges").and_then(Value::as_array) {
+        for change in doc_changes {
+            let Some(uri) = change
+                .pointer("/textDocument/uri")
+                .and_then(Value::as_str)
+                .and_then(uri_path)
+            else {
+                continue;
+            };
+            files.push(FileEdit {
+                path: uri,
+                edits: parse_text_edits(change.get("edits").unwrap_or(&Value::Null)),
+            });
+        }
+    }
+    files
+}
+
+/// Expand an LSP snippet into plain text: `${1:name}` → `name`, `$0`/`$1` → "",
+/// and unescape `\$`, `\}`, `\\`. Cursor placeholders are dropped.
+fn expand_snippet(snippet: &str) -> String {
+    let mut out = String::with_capacity(snippet.len());
+    let mut chars = snippet.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => {
+                if let Some(next) = chars.next() {
+                    out.push(next);
+                }
+            }
+            '$' => {
+                if chars.peek() == Some(&'{') {
+                    chars.next(); // consume '{'
+                    // Skip the tabstop number and optional ':'; keep default text.
+                    let mut seen_colon = false;
+                    let mut depth = 1;
+                    let mut default = String::new();
+                    while let Some(&nc) = chars.peek() {
+                        chars.next();
+                        match nc {
+                            '{' => depth += 1,
+                            '}' => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    break;
+                                }
+                            }
+                            ':' if !seen_colon && depth == 1 => seen_colon = true,
+                            _ if seen_colon => default.push(nc),
+                            _ => {}
+                        }
+                    }
+                    out.push_str(&default);
+                } else {
+                    // `$0`, `$1`, … — drop the placeholder number.
+                    while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
+                        chars.next();
+                    }
+                }
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// The active signature's label from a `signatureHelp` result, if any.
 fn signature_text(result: &Value) -> String {
     let signatures = result.get("signatures").and_then(Value::as_array);
@@ -463,14 +644,30 @@ fn handle_message(server: &mut Server, message: Value, events: &Sender<LspEvent>
             let array = result
                 .as_array()
                 .or_else(|| result.get("items").and_then(Value::as_array));
-            let labels = array
+            let items = array
                 .into_iter()
                 .flatten()
-                .filter_map(|item| item.get("label").and_then(Value::as_str))
+                .filter_map(|item| {
+                    let label = item.get("label").and_then(Value::as_str)?.to_owned();
+                    let is_snippet = item
+                        .get("insertTextFormat")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(1)
+                        == 2;
+                    let raw = item
+                        .get("insertText")
+                        .and_then(Value::as_str)
+                        .unwrap_or(&label);
+                    let insert = if is_snippet {
+                        expand_snippet(raw)
+                    } else {
+                        raw.to_owned()
+                    };
+                    Some((label, insert))
+                })
                 .take(80)
-                .map(str::to_owned)
                 .collect();
-            let _ = events.send(LspEvent::Completions(labels));
+            let _ = events.send(LspEvent::Completions(items));
         }
         Pending::Hover => {
             let _ = events.send(LspEvent::Hover(markup_text(&result)));
@@ -517,6 +714,23 @@ fn handle_message(server: &mut Server, message: Value, events: &Sender<LspEvent>
         }
         Pending::Signature => {
             let _ = events.send(LspEvent::Signature(signature_text(&result)));
+        }
+        Pending::Rename => {
+            let _ = events.send(LspEvent::WorkspaceEdit(parse_workspace_edit(&result)));
+        }
+        Pending::CodeActions => {
+            let actions = result
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|action| {
+                    let title = action.get("title").and_then(Value::as_str)?.to_owned();
+                    // Only actions carrying a direct edit are applied inline.
+                    let edits = action.get("edit").map(parse_workspace_edit).unwrap_or_default();
+                    (!edits.is_empty()).then_some(CodeAction { title, edits })
+                })
+                .collect();
+            let _ = events.send(LspEvent::CodeActions(actions));
         }
     }
 }
@@ -621,6 +835,31 @@ mod tests {
     fn extracts_hover_markup() {
         let value = json!({"contents":{"kind":"markdown","value":"`Vec<f32>`"}});
         assert_eq!(markup_text(&value), "`Vec<f32>`");
+    }
+
+    #[test]
+    fn expands_snippets_to_plain_text() {
+        assert_eq!(expand_snippet("push(${1:value})$0"), "push(value)");
+        assert_eq!(expand_snippet("foo($1, $2)"), "foo(, )");
+        assert_eq!(expand_snippet("write!(${1:f}, \\\"{}\\\")"), "write!(f, \"{}\")");
+    }
+
+    #[test]
+    fn parses_workspace_edit_changes() {
+        // Build the URI from a real path so it round-trips on every platform.
+        let path = std::env::temp_dir().join("forge_rename.rs");
+        let uri = file_uri(&path);
+        let edit = json!({
+            "changes": {
+                uri: [
+                    {"range":{"start":{"line":1,"character":4},"end":{"line":1,"character":7}},"newText":"foo"}
+                ]
+            }
+        });
+        let files = parse_workspace_edit(&edit);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, path);
+        assert_eq!(files[0].edits[0].new_text, "foo");
     }
 
     #[test]

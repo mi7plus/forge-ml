@@ -475,10 +475,13 @@ struct ForgeApp {
     lsp: LspHandle,
     lsp_status: String,
     lsp_diagnostics: HashMap<PathBuf, Vec<LspDiagnostic>>,
-    completions: Vec<String>,
+    completions: Vec<(String, String)>,
     hover_text: String,
     lsp_references: Vec<lsp::Reference>,
     lsp_signature: String,
+    rename_open: bool,
+    rename_input: String,
+    code_actions: Vec<lsp::CodeAction>,
     cursor_offset: usize,
     document_version: i32,
     last_lsp_hash: u64,
@@ -803,6 +806,9 @@ impl ForgeApp {
             completions: Vec::new(),
             lsp_references: Vec::new(),
             lsp_signature: String::new(),
+            rename_open: false,
+            rename_input: String::new(),
+            code_actions: Vec::new(),
             hover_text: String::new(),
             cursor_offset: 0,
             document_version: 1,
@@ -2099,6 +2105,11 @@ impl ForgeApp {
                 text,
                 char_offset,
             },
+            "codeactions" => LspCommand::CodeActions {
+                path,
+                text,
+                char_offset,
+            },
             _ => LspCommand::Definition {
                 path,
                 text,
@@ -2106,6 +2117,65 @@ impl ForgeApp {
             },
         };
         self.lsp.send(command);
+    }
+
+    /// Whether the active buffer is a plain (non-notebook) Rust file, which is
+    /// required for rename / code actions to map edits back correctly.
+    fn active_plain_rust(&self) -> bool {
+        let is_rs = self
+            .active()
+            .path
+            .as_ref()
+            .is_some_and(|p| p.extension().is_some_and(|e| e == "rs"));
+        is_rs && !is_notebook_document(&self.active().content)
+    }
+
+    fn send_rename(&mut self, new_name: String) {
+        let Some(path) = self.active().path.clone() else {
+            self.lsp_status = "Save this buffer before renaming.".to_owned();
+            return;
+        };
+        if !self.active_plain_rust() {
+            self.lsp_status = "Rename is only available in plain Rust files.".to_owned();
+            return;
+        }
+        let (text, _) = lsp_document(&self.active().content);
+        self.lsp.send(LspCommand::Rename {
+            path,
+            text,
+            char_offset: self.cursor_offset,
+            new_name,
+        });
+    }
+
+    /// Apply a workspace edit (from rename or a code action) to open buffers and
+    /// closed project files.
+    fn apply_file_edits(&mut self, files: Vec<lsp::FileEdit>) {
+        let mut touched = 0usize;
+        for file in files {
+            if file.edits.is_empty() {
+                continue;
+            }
+            if let Some(index) = self
+                .tabs
+                .iter()
+                .position(|tab| tab.path.as_deref() == Some(file.path.as_path()))
+            {
+                let mut content = self.tabs[index].content.clone();
+                apply_edits_to(&mut content, &file.edits);
+                self.tabs[index].content = content;
+                self.tabs[index].dirty = true;
+                touched += 1;
+            } else if let Ok(mut content) = std::fs::read_to_string(&file.path) {
+                apply_edits_to(&mut content, &file.edits);
+                if std::fs::write(&file.path, content).is_ok() {
+                    touched += 1;
+                }
+            }
+        }
+        self.last_lsp_hash = 0;
+        self.cell_records.clear();
+        self.console = format!("Applied edits to {touched} file(s).");
     }
 
     fn probe_definition(&mut self, char_offset: usize) {
@@ -2701,6 +2771,21 @@ impl ForgeApp {
                 LspEvent::Signature(signature) => {
                     self.lsp_signature = signature;
                 }
+                LspEvent::WorkspaceEdit(files) => {
+                    if files.is_empty() {
+                        self.lsp_status = "Nothing to rename here.".to_owned();
+                    } else {
+                        self.apply_file_edits(files);
+                    }
+                }
+                LspEvent::CodeActions(actions) => {
+                    if actions.is_empty() {
+                        self.lsp_status = "No code actions at the cursor.".to_owned();
+                    } else {
+                        self.lsp_status = format!("{} code action(s) available.", actions.len());
+                    }
+                    self.code_actions = actions;
+                }
                 LspEvent::Installed(success) => {
                     if success {
                         self.last_lsp_hash = 0;
@@ -2820,6 +2905,15 @@ impl ForgeApp {
             top!("Source", |ui| {
                 if ui.button("Find references").clicked() {
                     self.request_lsp("references");
+                    ui.close();
+                }
+                if ui.button("Rename symbol…").clicked() {
+                    self.rename_open = true;
+                    self.rename_input.clear();
+                    ui.close();
+                }
+                if ui.button("Code actions / quick fixes").clicked() {
+                    self.request_lsp("codeactions");
                     ui.close();
                 }
                 ui.separator();
@@ -3397,6 +3491,75 @@ impl ForgeApp {
         self.welcome_open = open && !close;
     }
 
+    /// Prompt for a new name and dispatch a rust-analyzer rename.
+    fn rename_window(&mut self, ctx: &egui::Context) {
+        if !self.rename_open {
+            return;
+        }
+        let mut open = true;
+        let mut apply = false;
+        let mut cancel = false;
+        egui::Window::new("Rename symbol")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label("New name for the symbol at the cursor:");
+                let response = ui.add(
+                    egui::TextEdit::singleline(&mut self.rename_input)
+                        .desired_width(260.0)
+                        .hint_text("new_name"),
+                );
+                response.request_focus();
+                if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    apply = true;
+                }
+                ui.horizontal(|ui| {
+                    apply |= ui.button("Rename").clicked();
+                    cancel |= ui.button("Cancel").clicked();
+                });
+            });
+        if apply && !self.rename_input.trim().is_empty() {
+            let name = self.rename_input.trim().to_owned();
+            self.send_rename(name);
+            self.rename_open = false;
+        } else if cancel || !open {
+            self.rename_open = false;
+        }
+    }
+
+    /// Show available code actions; applying one runs its workspace edit.
+    fn code_actions_window(&mut self, ctx: &egui::Context) {
+        if self.code_actions.is_empty() {
+            return;
+        }
+        let mut open = true;
+        let mut chosen = None;
+        egui::Window::new("Code actions")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                for (index, action) in self.code_actions.iter().enumerate() {
+                    if ui
+                        .add(egui::Button::new(&action.title).frame(false))
+                        .clicked()
+                    {
+                        chosen = Some(index);
+                    }
+                }
+            });
+        if let Some(index) = chosen {
+            let edits = self.code_actions[index].edits.clone();
+            self.apply_file_edits(edits);
+            self.code_actions.clear();
+        } else if !open {
+            self.code_actions.clear();
+        }
+    }
+
     fn file_explorer(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.label(RichText::new("FILES").size(10.0).strong().color(MUTED));
@@ -3762,18 +3925,18 @@ impl ForgeApp {
                         .id_salt("help_completion_results")
                         .max_height(180.0)
                         .show(ui, |ui| {
-                            for item in &self.completions {
+                            for (label, insert) in &self.completions {
                                 if ui
                                     .add(
                                         egui::Button::new(
-                                            RichText::new(item).monospace().size(10.0),
+                                            RichText::new(label).monospace().size(10.0),
                                         )
                                         .frame(false),
                                     )
                                     .on_hover_text("Insert completion")
                                     .clicked()
                                 {
-                                    selected = Some(item.clone());
+                                    selected = Some(insert.clone());
                                 }
                             }
                         });
@@ -7855,6 +8018,11 @@ impl ForgeApp {
             Find => self.find_visible = true,
             FindProject => self.inspector_tab = InspectorTab::Search,
             FindReferences => self.request_lsp("references"),
+            RenameSymbol => {
+                self.rename_open = true;
+                self.rename_input.clear();
+            }
+            CodeActions => self.request_lsp("codeactions"),
             FormatDocument => self.format_document(),
             Clippy => self.run_clippy(),
             CargoBuild => self.run_cargo_task("build"),
@@ -8095,6 +8263,8 @@ impl ForgeApp {
         self.unsaved_confirmation(ui.ctx());
         self.settings_window(ui.ctx());
         self.welcome_window(ui.ctx());
+        self.rename_window(ui.ctx());
+        self.code_actions_window(ui.ctx());
         self.dataset_window(ui.ctx());
         self.dock_floating_windows(ui.ctx());
         self.remote_input_window(ui.ctx());
@@ -8288,15 +8458,17 @@ impl ForgeApp {
                                         .id_salt("editor_completion_popup_list")
                                         .max_height(240.0)
                                         .show(ui, |ui| {
-                                            for item in completions {
+                                            for (label, insert) in completions {
                                                 if ui
                                                     .selectable_label(
                                                         false,
-                                                        RichText::new(&item).monospace().size(11.0),
+                                                        RichText::new(&label)
+                                                            .monospace()
+                                                            .size(11.0),
                                                     )
                                                     .clicked()
                                                 {
-                                                    selected = Some(item);
+                                                    selected = Some(insert);
                                                 }
                                             }
                                         });
@@ -9676,6 +9848,63 @@ fn file_title(path: &Path) -> String {
         .to_owned()
 }
 
+/// Convert an LSP (line, utf16-character) position to a char offset in `text`.
+fn lsp_pos_to_offset(text: &str, line: usize, character: usize) -> usize {
+    let mut char_offset = 0usize;
+    let mut current_line = 0usize;
+    let mut chars = text.chars().peekable();
+    while current_line < line {
+        match chars.next() {
+            Some('\n') => {
+                current_line += 1;
+                char_offset += 1;
+            }
+            Some(_) => char_offset += 1,
+            None => return char_offset,
+        }
+    }
+    let mut utf16 = 0usize;
+    while utf16 < character {
+        match chars.peek() {
+            Some('\n') | None => break,
+            Some(c) => {
+                utf16 += c.len_utf16();
+                char_offset += 1;
+                chars.next();
+            }
+        }
+    }
+    char_offset
+}
+
+/// Apply LSP text edits to `content` in-place (last edit first, so offsets hold).
+fn apply_edits_to(content: &mut String, edits: &[lsp::TextEdit]) {
+    let mut resolved: Vec<(usize, usize, &str)> = edits
+        .iter()
+        .map(|edit| {
+            let start = lsp_pos_to_offset(content, edit.start_line, edit.start_col);
+            let end = lsp_pos_to_offset(content, edit.end_line, edit.end_col);
+            (start, end, edit.new_text.as_str())
+        })
+        .collect();
+    resolved.sort_by(|a, b| b.0.cmp(&a.0));
+    for (start, end, new_text) in resolved {
+        let start_b = content
+            .char_indices()
+            .nth(start)
+            .map(|(b, _)| b)
+            .unwrap_or(content.len());
+        let end_b = content
+            .char_indices()
+            .nth(end)
+            .map(|(b, _)| b)
+            .unwrap_or(content.len());
+        if start_b <= end_b && end_b <= content.len() {
+            content.replace_range(start_b..end_b, new_text);
+        }
+    }
+}
+
 /// Format Rust source with `rustfmt`, piping through stdin/stdout so the editor
 /// buffer (which may be unsaved) is formatted without touching disk.
 fn run_rustfmt(source: &str) -> Result<String, String> {
@@ -10036,6 +10265,38 @@ mod editor_tests {
             ForgeApp::create_terminal(&mut restored, None),
             PaneKind::Terminal(4)
         );
+    }
+
+    #[test]
+    fn applies_lsp_text_edits_in_reverse() {
+        // Rename `x` -> `total` across two occurrences on lines 0 and 1.
+        let mut content = "let x = 1;\nlet y = x + 2;\n".to_owned();
+        let edits = vec![
+            lsp::TextEdit {
+                start_line: 0,
+                start_col: 4,
+                end_line: 0,
+                end_col: 5,
+                new_text: "total".to_owned(),
+            },
+            lsp::TextEdit {
+                start_line: 1,
+                start_col: 8,
+                end_line: 1,
+                end_col: 9,
+                new_text: "total".to_owned(),
+            },
+        ];
+        apply_edits_to(&mut content, &edits);
+        assert_eq!(content, "let total = 1;\nlet y = total + 2;\n");
+    }
+
+    #[test]
+    fn lsp_position_maps_to_char_offset() {
+        let text = "ab\ncde";
+        assert_eq!(lsp_pos_to_offset(text, 0, 0), 0);
+        assert_eq!(lsp_pos_to_offset(text, 1, 2), 5); // 'e'
+        assert_eq!(lsp_pos_to_offset(text, 1, 99), 6); // clamped to line end
     }
 
     #[test]

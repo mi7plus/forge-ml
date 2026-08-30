@@ -5,10 +5,11 @@ capable prototype to a complete Rust ML IDE. Grounded in the current codebase;
 each item notes what, why, where, and rough effort.
 
 **Shipped:** all of Tier 1 (rustfmt, clippy-in-Problems, cargo tasks, PR CI,
-site refresh); Tier 2 #8 (fuzzy palette + recents + live bindings), #9 (welcome
-screen), #10 (customizable keyboard shortcuts), and part of #6 (rust-analyzer
-find-references and signature help). **Remaining in Tier 2:** #6 rename + code
-actions, #7 snippet support. Tiers 3–4 are untouched.
+site refresh) and all of Tier 2 — #6 (rust-analyzer find-references, signature
+help, rename, and code actions), #7 (snippet completions), #8 (fuzzy palette +
+recents + live bindings), #9 (welcome screen), and #10 (customizable keyboard
+shortcuts). **Next:** Tier 3 (the ML differentiator) and Tier 4 (engineering
+health).
 
 Related: [UX improvement plan](UX_IMPROVEMENT_PLAN.md) (the dockable-workspace
 work, now shipped).
