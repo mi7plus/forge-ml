@@ -585,6 +585,8 @@ struct ForgeApp {
     class_lr: f64,
     class_test_fraction: f64,
     class_result: String,
+    class_model: Option<classification::Classifier>,
+    class_playground: Vec<f64>,
     prep_categorical: String,
     prep_encoding: prep::Encoding,
     prep_missing: prep::Missing,
@@ -929,6 +931,8 @@ impl ForgeApp {
             class_lr: 0.5,
             class_test_fraction: 0.25,
             class_result: String::new(),
+            class_model: None,
+            class_playground: Vec::new(),
             prep_categorical: String::new(),
             prep_encoding: prep::Encoding::OneHot,
             prep_missing: prep::Missing::Mean,
@@ -4801,6 +4805,7 @@ impl ForgeApp {
         if !self.class_result.is_empty() {
             ui.label(RichText::new(&self.class_result).monospace().size(11.0));
         }
+        self.classifier_playground(ui);
 
         ui.separator();
         ui.strong("ONNX inference");
@@ -5437,7 +5442,7 @@ impl ForgeApp {
     /// Train a native softmax classifier on the selected dataset and open its
     /// confusion matrix. Feature columns are comma-separated.
     fn train_classifier(&mut self) {
-        let result = (|| -> Result<(String, plot::PlotSpec), String> {
+        let result = (|| -> Result<(String, plot::PlotSpec, classification::Classifier), String> {
             let (name, is_table) = self
                 .selected_dataset_info()
                 .ok_or("Select a table dataset in the Data viewer first")?;
@@ -5488,11 +5493,13 @@ impl ForgeApp {
             );
             let plot = classification::confusion_plot(&metrics, &format!("{name} confusion"));
             plot.validate()?;
-            Ok((summary, plot))
+            Ok((summary, plot, model))
         })();
         match result {
-            Ok((summary, plot)) => {
+            Ok((summary, plot, model)) => {
                 self.class_result = summary;
+                self.class_playground = model.baseline();
+                self.class_model = Some(model);
                 if let Some(existing) = self
                     .structured_plots
                     .iter_mut()
@@ -5505,6 +5512,68 @@ impl ForgeApp {
                 self.inspector_tab = InspectorTab::Charts;
             }
             Err(error) => self.class_result = error,
+        }
+    }
+
+    /// Interactive single-example prediction: one input per feature, with live
+    /// per-class probabilities from the last-trained classifier.
+    fn classifier_playground(&mut self, ui: &mut egui::Ui) {
+        let Some(model) = self.class_model.as_ref() else {
+            return;
+        };
+        let features = model.feature_names.clone();
+        if self.class_playground.len() != features.len() {
+            self.class_playground = model.baseline();
+            if self.class_playground.len() != features.len() {
+                self.class_playground = vec![0.0; features.len()];
+            }
+        }
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.strong("Inference playground");
+            if ui
+                .small_button("Reset to average")
+                .on_hover_text("Restore each feature to its training mean")
+                .clicked()
+            {
+                self.class_playground = model.baseline();
+            }
+        });
+        ui.label(
+            RichText::new("Adjust the feature values to see live class probabilities from the trained classifier.")
+                .size(10.0)
+                .color(MUTED),
+        );
+        egui::Grid::new("forge_class_playground_inputs")
+            .num_columns(2)
+            .spacing([12.0, 4.0])
+            .show(ui, |ui| {
+                for (i, name) in features.iter().enumerate() {
+                    ui.label(RichText::new(name).size(11.0));
+                    ui.add(egui::DragValue::new(&mut self.class_playground[i]).speed(0.1));
+                    ui.end_row();
+                }
+            });
+        let proba = model.predict_proba(&self.class_playground);
+        let best = proba
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        if let Some(class) = model.classes.get(best) {
+            ui.label(
+                RichText::new(format!("Predicted: {class} ({:.1}%)", proba[best] * 100.0))
+                    .strong()
+                    .color(CYAN),
+            );
+        }
+        for (class, &p) in model.classes.iter().zip(&proba) {
+            ui.add(
+                egui::ProgressBar::new(p as f32)
+                    .desired_width(260.0)
+                    .text(RichText::new(format!("{class}  {:.1}%", p * 100.0)).size(10.0)),
+            );
         }
     }
 

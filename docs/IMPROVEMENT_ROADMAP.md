@@ -15,8 +15,10 @@ sweep over learning rate × epochs), and #14 (ONNX import — load an arbitrary
 ONNX model and run single-row or whole-dataset inference in-IDE via Millwright /
 tract), and #12 (dataset-preparation UI — categorical one-hot / ordinal
 encoding, missing-value drop / mean / zero imputation, and standardize / min-max
-scaling, writing a new numeric dataset). **Remaining in Tier 3:** #15
-inference-playground polish. Tier 4 (engineering health) is untouched.
+scaling, writing a new numeric dataset), and #15 (inference playground — an
+interactive per-feature form with live softmax class probabilities from the
+trained classifier). **Tier 3 is complete.** Tier 4 (engineering health) is
+untouched.
 
 Related: [UX improvement plan](UX_IMPROVEMENT_PLAN.md) (the dockable-workspace
 work, now shipped).
@@ -122,8 +124,10 @@ Jupyter; Git/GitHub/packages panes; off-by-default diagnostics; and 132 tests.
     model (Deep-learning pane → *ONNX inference*) and predict either a single
     comma-separated feature row or the open dataset's classification feature
     columns, via Millwright / tract.
-15. **Inference playground polish.** Build on the existing single/batch predict
-    with an interactive form and live metrics.
+15. **Inference playground polish.** _(shipped)_ After training a classifier, an
+    *Inference playground* renders one numeric input per feature (seeded to the
+    training means, with a *Reset to average* button) and shows the predicted
+    class plus a live per-class softmax probability bar as the inputs change.
 
 ## Tier 4 — Engineering health & polish
 

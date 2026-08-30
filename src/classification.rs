@@ -274,6 +274,29 @@ impl Classifier {
         })
     }
 
+    /// The per-feature training means — a natural "average example" to seed an
+    /// interactive prediction form.
+    pub fn baseline(&self) -> Vec<f64> {
+        self.means.clone()
+    }
+
+    /// Class probabilities for one raw (unstandardized) feature row, via softmax
+    /// over the standardized logits. Order matches [`Classifier::classes`].
+    pub fn predict_proba(&self, raw: &[f64]) -> Vec<f64> {
+        let k = self.classes.len();
+        let d = self.feature_names.len();
+        let mut logits = vec![0.0; k];
+        for (c, logit) in logits.iter_mut().enumerate() {
+            let mut z = self.bias[c];
+            for j in 0..d.min(raw.len()) {
+                z += self.weights[c][j] * ((raw[j] - self.means[j]) / self.scales[j]);
+            }
+            *logit = z;
+        }
+        softmax(&mut logits);
+        logits
+    }
+
     /// Predict the class id for one raw (unstandardized) feature row.
     pub fn predict(&self, raw: &[f64]) -> usize {
         let k = self.classes.len();
@@ -453,6 +476,26 @@ mod tests {
         assert!((metrics.macro_f1 - 1.0).abs() < 1e-9);
         // A clearly class-b point predicts b.
         assert_eq!(model.classes[model.predict(&[5.0, 5.0])], "b");
+    }
+
+    #[test]
+    fn predict_proba_is_a_distribution_favoring_the_class() {
+        let data = prepare(&table(), &["x1".into(), "x2".into()], "label").unwrap();
+        let model = Classifier::train(&data, 400, 0.5).unwrap();
+        let proba = model.predict_proba(&[5.0, 5.0]);
+        assert_eq!(proba.len(), model.classes.len());
+        let sum: f64 = proba.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-9, "probabilities must sum to 1");
+        // The argmax of the distribution is class b.
+        let best = proba
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .unwrap()
+            .0;
+        assert_eq!(model.classes[best], "b");
+        // Baseline has one value per feature.
+        assert_eq!(model.baseline().len(), data.feature_names.len());
     }
 
     #[test]
