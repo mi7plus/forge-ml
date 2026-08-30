@@ -610,6 +610,9 @@ struct ForgeApp {
     last_inspector_tab: InspectorTab,
     /// A tab context-menu action to apply against the tree after layout.
     pending_dock_action: Option<(TileId, DockAction)>,
+    /// Panes popped out into floating windows; their tree tiles are hidden while
+    /// they float, and shown again when docked back.
+    floating_panes: Vec<PaneKind>,
     /// Deferred definition-probe offset produced while rendering the editor pane.
     dock_pending_definition_probe: Option<usize>,
     /// Whether a Ctrl+click go-to-definition fired inside the editor pane.
@@ -911,6 +914,7 @@ impl ForgeApp {
             dock_tree: Some(load_dock_tree(session.dock_layout.as_deref())),
             dock_focus: None,
             pending_dock_action: None,
+            floating_panes: Vec::new(),
             last_inspector_tab: InspectorTab::Variables,
             dock_pending_definition_probe: None,
             dock_pending_ctrl_definition: false,
@@ -6342,6 +6346,84 @@ impl ForgeApp {
         self.docked_dataset_viewer(ui);
     }
 
+    /// Render one pane's contents. Shared by the docked tiles and the floating
+    /// pane windows so both paths stay identical.
+    fn dock_pane_body(&mut self, kind: PaneKind, ui: &mut egui::Ui) {
+        match kind {
+            PaneKind::Editor => self.editor_pane(ui),
+            PaneKind::Files => self.file_explorer(ui),
+            PaneKind::Outline => self.outline(ui),
+            PaneKind::Cells => self.cell_rail(ui),
+            PaneKind::Console => self.console_pane(ConsoleTab::Console, ui),
+            PaneKind::History => self.console_pane(ConsoleTab::History, ui),
+            PaneKind::Python => self.console_pane(ConsoleTab::Python, ui),
+            PaneKind::DataViewer => self.dock_data_viewer(ui),
+            // Inspector panes scroll as a whole; the stable id keeps each pane's
+            // scroll position remembered across focus changes and restarts.
+            PaneKind::Inspector(tab) => {
+                egui::ScrollArea::vertical()
+                    .id_salt(("dock_inspector_scroll", tab))
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| self.inspector_body(tab, ui));
+            }
+        }
+    }
+
+    /// Render every pane that has been popped out into a floating window. Each
+    /// floating pane's tree tile stays hidden; closing the window or choosing
+    /// Dock returns it to its docked position.
+    fn dock_floating_windows(&mut self, ctx: &egui::Context) {
+        if self.floating_panes.is_empty() {
+            return;
+        }
+        // A pane re-shown from View → Panes is no longer floating.
+        if let Some(tree) = self.dock_tree.as_ref() {
+            let visible: Vec<PaneKind> = self
+                .floating_panes
+                .iter()
+                .copied()
+                .filter(|kind| {
+                    Self::dock_tile_of(tree, *kind).is_some_and(|id| tree.tiles.is_visible(id))
+                })
+                .collect();
+            self.floating_panes.retain(|k| !visible.contains(k));
+        }
+
+        let mut dock_back: Vec<PaneKind> = Vec::new();
+        for kind in self.floating_panes.clone() {
+            let mut open = true;
+            let mut dock = false;
+            egui::Window::new(kind.title())
+                .id(egui::Id::new(("forge_float_pane", kind)))
+                .default_size([540.0, 420.0])
+                .min_size([300.0, 160.0])
+                .resizable(true)
+                .open(&mut open)
+                .show(ctx, |ui| {
+                    if ui
+                        .small_button("Dock")
+                        .on_hover_text("Return this pane to the workspace")
+                        .clicked()
+                    {
+                        dock = true;
+                    }
+                    ui.separator();
+                    self.dock_pane_body(kind, ui);
+                });
+            if dock || !open {
+                dock_back.push(kind);
+            }
+        }
+        for kind in dock_back {
+            self.floating_panes.retain(|k| *k != kind);
+            if let Some(tree) = self.dock_tree.as_mut() {
+                if let Some(id) = Self::dock_tile_of(tree, kind) {
+                    tree.tiles.set_visible(id, true);
+                }
+            }
+        }
+    }
+
     fn dataset_window(&mut self, ctx: &egui::Context) {
         if self.dataset_viewer_docked {
             return;
@@ -7451,6 +7533,7 @@ impl ForgeApp {
         self.unsaved_confirmation(ui.ctx());
         self.settings_window(ui.ctx());
         self.dataset_window(ui.ctx());
+        self.dock_floating_windows(ui.ctx());
         self.remote_input_window(ui.ctx());
     }
 
@@ -7677,24 +7760,7 @@ impl egui_tiles::Behavior<PaneKind> for ForgeApp {
         pane: &mut PaneKind,
     ) -> egui_tiles::UiResponse {
         ui.add_space(2.0);
-        match *pane {
-            PaneKind::Editor => self.editor_pane(ui),
-            PaneKind::Files => self.file_explorer(ui),
-            PaneKind::Outline => self.outline(ui),
-            PaneKind::Cells => self.cell_rail(ui),
-            PaneKind::Console => self.console_pane(ConsoleTab::Console, ui),
-            PaneKind::History => self.console_pane(ConsoleTab::History, ui),
-            PaneKind::Python => self.console_pane(ConsoleTab::Python, ui),
-            PaneKind::DataViewer => self.dock_data_viewer(ui),
-            // Inspector panes scroll as a whole; the stable id keeps each pane's
-            // scroll position remembered across focus changes and restarts.
-            PaneKind::Inspector(tab) => {
-                egui::ScrollArea::vertical()
-                    .id_salt(("dock_inspector_scroll", tab))
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| self.inspector_body(tab, ui));
-            }
-        }
+        self.dock_pane_body(*pane, ui);
         egui_tiles::UiResponse::None
     }
 
@@ -7717,9 +7783,20 @@ impl egui_tiles::Behavior<PaneKind> for ForgeApp {
                     .strong()
                     .color(MUTED),
             );
-            if ui
-                .button("Undock to its own panel")
-                .on_hover_text("Pop this pane out of its tab group into a new column")
+            if kind == Some(PaneKind::DataViewer) {
+                // The data viewer has its own floating window mechanism.
+                let label = if self.dataset_viewer_docked {
+                    "Undock to a floating window"
+                } else {
+                    "Dock data viewer"
+                };
+                if ui.button(label).clicked() {
+                    self.dataset_viewer_docked = !self.dataset_viewer_docked;
+                    ui.close();
+                }
+            } else if ui
+                .button("Undock to a floating window")
+                .on_hover_text("Pop this pane out into a movable window")
                 .clicked()
             {
                 self.pending_dock_action = Some((tile_id, DockAction::Undock));
@@ -7732,18 +7809,6 @@ impl egui_tiles::Behavior<PaneKind> for ForgeApp {
             {
                 self.pending_dock_action = Some((tile_id, DockAction::Hide));
                 ui.close();
-            }
-            if kind == Some(PaneKind::DataViewer) {
-                ui.separator();
-                let label = if self.dataset_viewer_docked {
-                    "Float data viewer to a window"
-                } else {
-                    "Dock data viewer"
-                };
-                if ui.button(label).clicked() {
-                    self.dataset_viewer_docked = !self.dataset_viewer_docked;
-                    ui.close();
-                }
             }
         });
         button_response
@@ -7955,8 +8020,12 @@ impl eframe::App for ForgeApp {
                     match action {
                         DockAction::Hide => tree.tiles.set_visible(tile, false),
                         DockAction::Undock => {
-                            if let Some(root) = tree.root() {
-                                tree.move_tile_to_container(tile, root, usize::MAX, false);
+                            // Float: hide the tile and render the pane in a window.
+                            if let Some(kind) = tree.tiles.get_pane(&tile).copied() {
+                                tree.tiles.set_visible(tile, false);
+                                if !self.floating_panes.contains(&kind) {
+                                    self.floating_panes.push(kind);
+                                }
                             }
                         }
                     }
