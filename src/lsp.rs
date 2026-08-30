@@ -16,6 +16,14 @@ pub struct Diagnostic {
     pub message: String,
 }
 
+/// A source location returned by a references request.
+#[derive(Debug, Clone)]
+pub struct Reference {
+    pub path: PathBuf,
+    pub line: usize,
+    pub column: usize,
+}
+
 pub enum LspCommand {
     Install,
     Sync {
@@ -44,6 +52,16 @@ pub enum LspCommand {
         text: String,
         char_offset: usize,
     },
+    References {
+        path: PathBuf,
+        text: String,
+        char_offset: usize,
+    },
+    SignatureHelp {
+        path: PathBuf,
+        text: String,
+        char_offset: usize,
+    },
 }
 
 #[derive(Debug)]
@@ -63,6 +81,8 @@ pub enum LspEvent {
         char_offset: usize,
         navigable: bool,
     },
+    References(Vec<Reference>),
+    Signature(String),
     Installed(bool),
 }
 
@@ -95,6 +115,8 @@ enum Pending {
     Hover,
     Definition,
     ProbeDefinition(usize),
+    References,
+    Signature,
 }
 
 struct Server {
@@ -205,7 +227,7 @@ fn start_server(root: PathBuf, events: &Sender<LspEvent>) -> std::io::Result<Ser
     let root_uri = file_uri(&root);
     send(
         &mut server.stdin,
-        &json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":std::process::id(),"rootUri":root_uri,"capabilities":{"textDocument":{"completion":{"completionItem":{"snippetSupport":false}},"hover":{},"definition":{},"publishDiagnostics":{}}},"clientInfo":{"name":"forge-ml","version":env!("CARGO_PKG_VERSION")}}}),
+        &json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":std::process::id(),"rootUri":root_uri,"capabilities":{"textDocument":{"completion":{"completionItem":{"snippetSupport":false}},"hover":{},"definition":{},"references":{},"signatureHelp":{},"publishDiagnostics":{}}},"clientInfo":{"name":"forge-ml","version":env!("CARGO_PKG_VERSION")}}}),
     )?;
     send(
         &mut server.stdin,
@@ -274,6 +296,23 @@ fn dispatch(server: &mut Server, command: LspCommand, events: &Sender<LspEvent>)
             &text,
             char_offset,
         ),
+        LspCommand::SignatureHelp {
+            path,
+            text,
+            char_offset,
+        } => request_at(
+            server,
+            Pending::Signature,
+            "textDocument/signatureHelp",
+            &path,
+            &text,
+            char_offset,
+        ),
+        LspCommand::References {
+            path,
+            text,
+            char_offset,
+        } => request_references(server, &path, &text, char_offset),
         LspCommand::Install => Ok(()),
     };
     if let Err(error) = result {
@@ -349,6 +388,36 @@ fn request_at(
     )
 }
 
+fn request_references(
+    server: &mut Server,
+    path: &Path,
+    text: &str,
+    char_offset: usize,
+) -> std::io::Result<()> {
+    let id = server.next_id;
+    server.next_id += 1;
+    server.pending.insert(id, Pending::References);
+    let (line, character) = position(text, char_offset);
+    send(
+        &mut server.stdin,
+        &json!({"jsonrpc":"2.0","id":id,"method":"textDocument/references","params":{"textDocument":{"uri":file_uri(path)},"position":{"line":line,"character":character},"context":{"includeDeclaration":true}}}),
+    )
+}
+
+/// The active signature's label from a `signatureHelp` result, if any.
+fn signature_text(result: &Value) -> String {
+    let signatures = result.get("signatures").and_then(Value::as_array);
+    let active = result
+        .get("activeSignature")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize;
+    signatures
+        .and_then(|sigs| sigs.get(active).or_else(|| sigs.first()))
+        .and_then(|sig| sig.get("label").and_then(Value::as_str))
+        .unwrap_or_default()
+        .to_owned()
+}
+
 fn handle_message(server: &mut Server, message: Value, events: &Sender<LspEvent>) {
     if message.get("method").and_then(Value::as_str) == Some("textDocument/publishDiagnostics") {
         let Some(params) = message.get("params") else {
@@ -421,6 +490,33 @@ fn handle_message(server: &mut Server, message: Value, events: &Sender<LspEvent>
                 char_offset,
                 navigable: definition_location(&result).is_some(),
             });
+        }
+        Pending::References => {
+            let mut references = Vec::new();
+            if let Some(items) = result.as_array() {
+                for location in items {
+                    let Some(path) = location
+                        .get("uri")
+                        .and_then(Value::as_str)
+                        .and_then(uri_path)
+                    else {
+                        continue;
+                    };
+                    let line = location
+                        .pointer("/range/start/line")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0) as usize;
+                    let column = location
+                        .pointer("/range/start/character")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0) as usize;
+                    references.push(Reference { path, line, column });
+                }
+            }
+            let _ = events.send(LspEvent::References(references));
+        }
+        Pending::Signature => {
+            let _ = events.send(LspEvent::Signature(signature_text(&result)));
         }
     }
 }
@@ -525,5 +621,19 @@ mod tests {
     fn extracts_hover_markup() {
         let value = json!({"contents":{"kind":"markdown","value":"`Vec<f32>`"}});
         assert_eq!(markup_text(&value), "`Vec<f32>`");
+    }
+
+    #[test]
+    fn picks_active_signature_label() {
+        let value = json!({
+            "signatures": [
+                {"label": "fn zero()"},
+                {"label": "fn push(&mut self, value: T)"}
+            ],
+            "activeSignature": 1
+        });
+        assert_eq!(signature_text(&value), "fn push(&mut self, value: T)");
+        // Missing signatures yields an empty string, not a panic.
+        assert_eq!(signature_text(&json!({})), "");
     }
 }

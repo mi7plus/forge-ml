@@ -477,6 +477,8 @@ struct ForgeApp {
     lsp_diagnostics: HashMap<PathBuf, Vec<LspDiagnostic>>,
     completions: Vec<String>,
     hover_text: String,
+    lsp_references: Vec<lsp::Reference>,
+    lsp_signature: String,
     cursor_offset: usize,
     document_version: i32,
     last_lsp_hash: u64,
@@ -799,6 +801,8 @@ impl ForgeApp {
             lsp_status: "rust-analyzer waiting for a Rust file.".to_owned(),
             lsp_diagnostics: HashMap::new(),
             completions: Vec::new(),
+            lsp_references: Vec::new(),
+            lsp_signature: String::new(),
             hover_text: String::new(),
             cursor_offset: 0,
             document_version: 1,
@@ -2085,6 +2089,16 @@ impl ForgeApp {
                 text,
                 char_offset,
             },
+            "references" => LspCommand::References {
+                path,
+                text,
+                char_offset,
+            },
+            "signature" => LspCommand::SignatureHelp {
+                path,
+                text,
+                char_offset,
+            },
             _ => LspCommand::Definition {
                 path,
                 text,
@@ -2678,6 +2692,15 @@ impl ForgeApp {
                         self.navigable_hover_offset = navigable.then_some(char_offset);
                     }
                 }
+                LspEvent::References(references) => {
+                    let count = references.len();
+                    self.lsp_references = references;
+                    self.inspector_tab = InspectorTab::Search;
+                    self.lsp_status = format!("{count} reference(s) found.");
+                }
+                LspEvent::Signature(signature) => {
+                    self.lsp_signature = signature;
+                }
                 LspEvent::Installed(success) => {
                     if success {
                         self.last_lsp_hash = 0;
@@ -2795,6 +2818,11 @@ impl ForgeApp {
                 }
             });
             top!("Source", |ui| {
+                if ui.button("Find references").clicked() {
+                    self.request_lsp("references");
+                    ui.close();
+                }
+                ui.separator();
                 if ui.button("Run code analysis (cargo check)").clicked() {
                     self.run_diagnostics();
                     ui.close();
@@ -6916,6 +6944,48 @@ impl ForgeApp {
     }
 
     fn project_search(&mut self, ui: &mut egui::Ui) {
+        // rust-analyzer "Find references" results, when present.
+        if !self.lsp_references.is_empty() {
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(format!("REFERENCES ({})", self.lsp_references.len()))
+                        .size(10.0)
+                        .strong()
+                        .color(MUTED),
+                );
+                if ui.small_button("Clear").clicked() {
+                    self.lsp_references.clear();
+                }
+            });
+            let mut navigate = None;
+            egui::ScrollArea::vertical()
+                .id_salt("lsp_reference_list")
+                .max_height(160.0)
+                .show(ui, |ui| {
+                    for reference in &self.lsp_references {
+                        let label = format!(
+                            "{}:{}:{}",
+                            file_title(&reference.path),
+                            reference.line + 1,
+                            reference.column + 1
+                        );
+                        if ui
+                            .add(egui::Button::new(RichText::new(label).monospace().size(11.0)).frame(false))
+                            .clicked()
+                        {
+                            navigate = Some((
+                                reference.path.clone(),
+                                reference.line,
+                                reference.column,
+                            ));
+                        }
+                    }
+                });
+            if let Some((path, line, column)) = navigate {
+                self.navigate_to(path, line, column);
+            }
+            ui.separator();
+        }
         let mut run_search = false;
         ui.horizontal(|ui| {
             let response = ui.add(
@@ -7784,6 +7854,7 @@ impl ForgeApp {
             Stop => self.stop_execution(),
             Find => self.find_visible = true,
             FindProject => self.inspector_tab = InspectorTab::Search,
+            FindReferences => self.request_lsp("references"),
             FormatDocument => self.format_document(),
             Clippy => self.run_clippy(),
             CargoBuild => self.run_cargo_task("build"),
@@ -8095,6 +8166,15 @@ impl ForgeApp {
                 if output.response.changed() {
                     self.tabs[self.active_tab].dirty = true;
                     self.cell_records.clear();
+                    // Signature help: request after '(' or ',', dismiss on ')'.
+                    let before = self.cursor_offset.checked_sub(1).and_then(|i| {
+                        self.tabs[self.active_tab].content.chars().nth(i)
+                    });
+                    match before {
+                        Some('(') | Some(',') => self.request_lsp("signature"),
+                        Some(')') => self.lsp_signature.clear(),
+                        _ => {}
+                    }
                 }
                 if let Some(diagnostics) = self
                     .active()
@@ -8154,6 +8234,29 @@ impl ForgeApp {
                         if ctrl_held && output.response.clicked_by(egui::PointerButton::Primary) {
                             self.cursor_offset = offset;
                             self.dock_pending_ctrl_definition = true;
+                        }
+                    }
+                }
+                // Signature help popup above the caret.
+                if !self.lsp_signature.is_empty() {
+                    if let Some(range) = output.cursor_range {
+                        let caret = output.galley.pos_from_cursor(range.primary);
+                        let pos = output.galley_pos + egui::vec2(caret.min.x, caret.min.y - 24.0);
+                        egui::Area::new(egui::Id::new("editor_signature_popup"))
+                            .order(egui::Order::Foreground)
+                            .fixed_pos(pos)
+                            .show(ui.ctx(), |ui| {
+                                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                    ui.label(
+                                        RichText::new(&self.lsp_signature)
+                                            .monospace()
+                                            .size(11.0)
+                                            .color(CYAN),
+                                    );
+                                });
+                            });
+                        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                            self.lsp_signature.clear();
                         }
                     }
                 }
