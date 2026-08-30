@@ -29,6 +29,7 @@ mod remote;
 mod runtime;
 mod service_monitor;
 mod session;
+mod terminal;
 mod updater;
 
 use data::DataWorkspace;
@@ -218,6 +219,9 @@ enum PaneKind {
     Console,
     History,
     Python,
+    /// A terminal instance. Each carries a unique id so several terminals can
+    /// coexist as independent, dockable/floatable tiles.
+    Terminal(u32),
     DataViewer,
     Inspector(InspectorTab),
 }
@@ -232,6 +236,7 @@ impl PaneKind {
             PaneKind::Console => "Console",
             PaneKind::History => "History",
             PaneKind::Python => "Python",
+            PaneKind::Terminal(_) => "Terminal",
             PaneKind::DataViewer => "Data viewer",
             PaneKind::Inspector(tab) => tab.label(),
         }
@@ -247,6 +252,7 @@ impl PaneKind {
             PaneKind::Console => icons::TERMINAL_WINDOW.as_str(),
             PaneKind::History => icons::CLOCK_COUNTER_CLOCKWISE.as_str(),
             PaneKind::Python => icons::CODE_SIMPLE.as_str(),
+            PaneKind::Terminal(_) => icons::TERMINAL.as_str(),
             PaneKind::DataViewer => icons::TABLE.as_str(),
             PaneKind::Inspector(tab) => tab.icon(),
         }
@@ -613,6 +619,10 @@ struct ForgeApp {
     /// Panes popped out into floating windows; their tree tiles are hidden while
     /// they float, and shown again when docked back.
     floating_panes: Vec<PaneKind>,
+    /// Live terminal sessions keyed by their pane id, spawned lazily on first show.
+    terminals: HashMap<u32, terminal::Terminal>,
+    /// A request to create a new terminal, optionally as a sibling of a tile.
+    pending_new_terminal: Option<Option<TileId>>,
     /// Deferred definition-probe offset produced while rendering the editor pane.
     dock_pending_definition_probe: Option<usize>,
     /// Whether a Ctrl+click go-to-definition fired inside the editor pane.
@@ -915,6 +925,8 @@ impl ForgeApp {
             dock_focus: None,
             pending_dock_action: None,
             floating_panes: Vec::new(),
+            terminals: HashMap::new(),
+            pending_new_terminal: None,
             last_inspector_tab: InspectorTab::Variables,
             dock_pending_definition_probe: None,
             dock_pending_ctrl_definition: false,
@@ -2821,19 +2833,46 @@ impl ForgeApp {
                             .size(10.0)
                             .color(MUTED),
                     );
-                    for kind in expected_panes() {
+                    // Fixed panes plus any live terminals in the tree.
+                    let mut kinds = expected_panes();
+                    if let Some(tree) = self.dock_tree.as_ref() {
+                        let mut terminals: Vec<PaneKind> = tree
+                            .tiles
+                            .iter()
+                            .filter_map(|(_, tile)| match tile {
+                                Tile::Pane(PaneKind::Terminal(id)) => {
+                                    Some(PaneKind::Terminal(*id))
+                                }
+                                _ => None,
+                            })
+                            .collect();
+                        terminals.sort_by_key(|k| match k {
+                            PaneKind::Terminal(id) => *id,
+                            _ => 0,
+                        });
+                        kinds.extend(terminals);
+                    }
+                    for kind in kinds {
                         let Some((mut visible, id)) = self.dock_tree.as_ref().and_then(|tree| {
                             Self::dock_tile_of(tree, kind).map(|id| (tree.tiles.is_visible(id), id))
                         }) else {
                             continue;
                         };
-                        if ui.checkbox(&mut visible, kind.title()).changed() {
+                        let label = match kind {
+                            PaneKind::Terminal(n) => format!("Terminal {n}"),
+                            other => other.title().to_owned(),
+                        };
+                        if ui.checkbox(&mut visible, label).changed() {
                             if let Some(tree) = self.dock_tree.as_mut() {
                                 tree.tiles.set_visible(id, visible);
                             }
                         }
                     }
                 });
+                if ui.button("New terminal").clicked() {
+                    self.pending_new_terminal = Some(None);
+                    ui.close();
+                }
                 if ui.button("Reset layout to default").clicked() {
                     self.dock_tree = Some(build_dock_tree());
                     ui.close();
@@ -6346,6 +6385,64 @@ impl ForgeApp {
         self.docked_dataset_viewer(ui);
     }
 
+    /// Body of one terminal pane. Spawns its shell the first time the pane is
+    /// shown, then renders and drives it each frame.
+    fn terminal_pane(&mut self, id: u32, ui: &mut egui::Ui) {
+        if !self.terminals.contains_key(&id) {
+            let cwd = self.project_root();
+            let font = self.editor_font_size.clamp(10.0, 20.0);
+            match terminal::Terminal::spawn(cwd, font) {
+                Ok(term) => {
+                    self.terminals.insert(id, term);
+                }
+                Err(error) => {
+                    ui.colored_label(RED, format!("Terminal unavailable: {error}"));
+                    return;
+                }
+            }
+        }
+        let dark = self.dark_mode;
+        if let Some(term) = self.terminals.get_mut(&id) {
+            term.ui(ui, dark);
+        }
+    }
+
+    /// The lowest unused terminal id, so a new terminal never collides with an
+    /// existing pane (including ones restored from a saved layout).
+    fn terminal_next_id(tree: &Tree<PaneKind>) -> u32 {
+        tree.tiles
+            .iter()
+            .filter_map(|(_, tile)| match tile {
+                Tile::Pane(PaneKind::Terminal(id)) => Some(*id),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0)
+            + 1
+    }
+
+    /// Create a new terminal tile, placing it as a tab sibling of `anchor` (its
+    /// container) when given, otherwise beside an existing terminal or at the root.
+    fn create_terminal(tree: &mut Tree<PaneKind>, anchor: Option<TileId>) -> PaneKind {
+        let id = Self::terminal_next_id(tree);
+        let kind = PaneKind::Terminal(id);
+        let new_tile = tree.tiles.insert_pane(kind);
+        let anchor = anchor
+            .or_else(|| {
+                // Group with an existing terminal if there is one.
+                tree.tiles.iter().find_map(|(tid, tile)| match tile {
+                    Tile::Pane(PaneKind::Terminal(_)) => Some(*tid),
+                    _ => None,
+                })
+            })
+            .and_then(|tile| tree.tiles.parent_of(tile));
+        let destination = anchor.or_else(|| tree.root());
+        if let Some(parent) = destination {
+            tree.move_tile_to_container(new_tile, parent, usize::MAX, false);
+        }
+        kind
+    }
+
     /// Render one pane's contents. Shared by the docked tiles and the floating
     /// pane windows so both paths stay identical.
     fn dock_pane_body(&mut self, kind: PaneKind, ui: &mut egui::Ui) {
@@ -6357,6 +6454,7 @@ impl ForgeApp {
             PaneKind::Console => self.console_pane(ConsoleTab::Console, ui),
             PaneKind::History => self.console_pane(ConsoleTab::History, ui),
             PaneKind::Python => self.console_pane(ConsoleTab::Python, ui),
+            PaneKind::Terminal(id) => self.terminal_pane(id, ui),
             PaneKind::DataViewer => self.dock_data_viewer(ui),
             // Inspector panes scroll as a whole; the stable id keeps each pane's
             // scroll position remembered across focus changes and restarts.
@@ -6393,7 +6491,18 @@ impl ForgeApp {
         for kind in self.floating_panes.clone() {
             let mut open = true;
             let mut dock = false;
-            egui::Window::new(kind.title())
+            let window_title = match kind {
+                PaneKind::Terminal(id) => {
+                    let live = self.terminals.get(&id).map(|t| t.title()).unwrap_or("Terminal");
+                    if live == "Terminal" {
+                        format!("Terminal {id}")
+                    } else {
+                        live.to_owned()
+                    }
+                }
+                other => other.title().to_owned(),
+            };
+            egui::Window::new(window_title)
                 .id(egui::Id::new(("forge_float_pane", kind)))
                 .default_size([540.0, 420.0])
                 .min_size([300.0, 160.0])
@@ -7765,6 +7874,17 @@ impl egui_tiles::Behavior<PaneKind> for ForgeApp {
     }
 
     fn tab_title_for_pane(&mut self, pane: &PaneKind) -> egui::WidgetText {
+        // Terminal tabs reflect the shell's live OSC title, or a numbered
+        // fallback so multiple terminals stay distinguishable.
+        if let PaneKind::Terminal(id) = *pane {
+            let live = self.terminals.get(&id).map(|t| t.title()).unwrap_or("Terminal");
+            let label = if live == "Terminal" {
+                format!("Terminal {id}")
+            } else {
+                live.to_string()
+            };
+            return format!("{}  {}", pane.icon(), label).into();
+        }
         pane.tab_label().into()
     }
 
@@ -7810,8 +7930,33 @@ impl egui_tiles::Behavior<PaneKind> for ForgeApp {
                 self.pending_dock_action = Some((tile_id, DockAction::Hide));
                 ui.close();
             }
+            if matches!(kind, Some(PaneKind::Terminal(_))) {
+                ui.separator();
+                if ui
+                    .button("New terminal")
+                    .on_hover_text("Open another terminal beside this one")
+                    .clicked()
+                {
+                    self.pending_new_terminal = Some(Some(tile_id));
+                    ui.close();
+                }
+            }
         });
         button_response
+    }
+
+    /// Terminal tabs get a close button; the others stay put and are hidden via
+    /// the View menu instead.
+    fn is_tab_closable(&self, tiles: &Tiles<PaneKind>, tile_id: TileId) -> bool {
+        matches!(tiles.get_pane(&tile_id), Some(PaneKind::Terminal(_)))
+    }
+
+    fn on_tab_close(&mut self, tiles: &mut Tiles<PaneKind>, tile_id: TileId) -> bool {
+        if let Some(PaneKind::Terminal(id)) = tiles.get_pane(&tile_id) {
+            // Kill the shell backing this terminal before the tile is removed.
+            self.terminals.remove(id);
+        }
+        true
     }
 
     fn simplification_options(&self) -> SimplificationOptions {
@@ -7851,8 +7996,9 @@ fn build_dock_tree() -> Tree<PaneKind> {
     let console = tiles.insert_pane(PaneKind::Console);
     let history = tiles.insert_pane(PaneKind::History);
     let python = tiles.insert_pane(PaneKind::Python);
+    let terminal = tiles.insert_pane(PaneKind::Terminal(1));
     let data_viewer = tiles.insert_pane(PaneKind::DataViewer);
-    let bottom = tiles.insert_tab_tile(vec![console, history, python, data_viewer]);
+    let bottom = tiles.insert_tab_tile(vec![console, history, python, terminal, data_viewer]);
 
     let mut center = Linear::new(LinearDir::Vertical, vec![editor, bottom]);
     center.shares.set_share(editor, 0.76);
@@ -7884,8 +8030,8 @@ fn reordered_active_index(active: usize, from: usize, to: usize) -> usize {
     adjusted
 }
 
-/// Every pane the workspace expects to be present, so an older or corrupt saved
-/// layout can be detected and replaced rather than leaving a pane unreachable.
+/// The fixed panes the workspace always expects. Terminals are dynamic (zero or
+/// more) and handled separately, so they are not listed here.
 fn expected_panes() -> Vec<PaneKind> {
     let mut kinds = vec![
         PaneKind::Editor,
@@ -7902,7 +8048,8 @@ fn expected_panes() -> Vec<PaneKind> {
 }
 
 /// Restore a saved dock layout, falling back to the default when it is missing,
-/// unparseable, or does not contain exactly the panes this build expects.
+/// unparseable, or does not contain the panes this build expects. Any number of
+/// terminal panes is allowed; every other pane must be a known fixed pane.
 fn load_dock_tree(serialized: Option<&str>) -> Tree<PaneKind> {
     if let Some(json) = serialized {
         if let Ok(tree) = serde_json::from_str::<Tree<PaneKind>>(json) {
@@ -7914,10 +8061,12 @@ fn load_dock_tree(serialized: Option<&str>) -> Tree<PaneKind> {
                     _ => None,
                 })
                 .collect();
-            let expected = expected_panes();
-            let complete = expected.iter().all(|kind| present.contains(kind));
-            // Reject stray/duplicate panes too, so the tree round-trips exactly.
-            if complete && present.len() == expected.len() {
+            let required = expected_panes();
+            let all_required = required.iter().all(|kind| present.contains(kind));
+            let no_strangers = present
+                .iter()
+                .all(|kind| matches!(kind, PaneKind::Terminal(_)) || required.contains(kind));
+            if all_required && no_strangers {
                 return tree;
             }
         }
@@ -8029,6 +8178,10 @@ impl eframe::App for ForgeApp {
                             }
                         }
                     }
+                }
+                if let Some(anchor) = self.pending_new_terminal.take() {
+                    let kind = Self::create_terminal(&mut tree, anchor);
+                    self.dock_focus = Some(kind);
                 }
                 self.dock_tree = Some(tree);
             });
@@ -9297,7 +9450,8 @@ mod editor_tests {
             v
         };
         assert_eq!(panes(&restored), panes(&original));
-        assert_eq!(panes(&restored).len(), expected_panes().len());
+        // The default tree is the fixed panes plus one terminal.
+        assert_eq!(panes(&restored).len(), expected_panes().len() + 1);
 
         // Missing, unparseable, or incomplete layouts fall back to the default.
         assert_eq!(panes(&load_dock_tree(None)), panes(&original));
@@ -9305,6 +9459,31 @@ mod editor_tests {
         let incomplete = Tree::new_tabs("forge_dock", vec![PaneKind::Editor]);
         let incomplete_json = serde_json::to_string(&incomplete).unwrap();
         assert_eq!(panes(&load_dock_tree(Some(&incomplete_json))), panes(&original));
+    }
+
+    #[test]
+    fn new_terminals_get_unique_ids_and_persist() {
+        let count_terminals = |tree: &Tree<PaneKind>| {
+            tree.tiles
+                .iter()
+                .filter(|(_, t)| matches!(t, Tile::Pane(PaneKind::Terminal(_))))
+                .count()
+        };
+        let mut tree = build_dock_tree();
+        assert_eq!(count_terminals(&tree), 1); // the default terminal, id 1
+        assert_eq!(ForgeApp::create_terminal(&mut tree, None), PaneKind::Terminal(2));
+        assert_eq!(ForgeApp::create_terminal(&mut tree, None), PaneKind::Terminal(3));
+        assert_eq!(count_terminals(&tree), 3);
+
+        // A layout with several terminals round-trips and is accepted on load.
+        let json = serde_json::to_string(&tree).unwrap();
+        let mut restored = load_dock_tree(Some(&json));
+        assert_eq!(count_terminals(&restored), 3);
+        // Next id keeps climbing past the restored maximum.
+        assert_eq!(
+            ForgeApp::create_terminal(&mut restored, None),
+            PaneKind::Terminal(4)
+        );
     }
 
     #[test]
