@@ -28,6 +28,7 @@ mod release;
 mod remote;
 mod runtime;
 mod service_monitor;
+mod rust_kernel;
 mod session;
 mod terminal;
 mod updater;
@@ -222,6 +223,8 @@ enum PaneKind {
     /// A terminal instance. Each carries a unique id so several terminals can
     /// coexist as independent, dockable/floatable tiles.
     Terminal(u32),
+    /// An independent Rust REPL kernel (its own Evcxr session), one per id.
+    RustConsole(u32),
     DataViewer,
     Inspector(InspectorTab),
 }
@@ -237,6 +240,7 @@ impl PaneKind {
             PaneKind::History => "History",
             PaneKind::Python => "Python",
             PaneKind::Terminal(_) => "Terminal",
+            PaneKind::RustConsole(_) => "Rust kernel",
             PaneKind::DataViewer => "Data viewer",
             PaneKind::Inspector(tab) => tab.label(),
         }
@@ -253,6 +257,7 @@ impl PaneKind {
             PaneKind::History => icons::CLOCK_COUNTER_CLOCKWISE.as_str(),
             PaneKind::Python => icons::CODE_SIMPLE.as_str(),
             PaneKind::Terminal(_) => icons::TERMINAL.as_str(),
+            PaneKind::RustConsole(_) => icons::CUBE.as_str(),
             PaneKind::DataViewer => icons::TABLE.as_str(),
             PaneKind::Inspector(tab) => tab.icon(),
         }
@@ -623,6 +628,10 @@ struct ForgeApp {
     terminals: HashMap<u32, terminal::Terminal>,
     /// A request to create a new terminal, optionally as a sibling of a tile.
     pending_new_terminal: Option<Option<TileId>>,
+    /// Independent Rust REPL kernels keyed by pane id, spawned lazily on first show.
+    kernels: HashMap<u32, rust_kernel::RustKernel>,
+    /// A request to create a new Rust kernel, optionally as a sibling of a tile.
+    pending_new_kernel: Option<Option<TileId>>,
     /// Deferred definition-probe offset produced while rendering the editor pane.
     dock_pending_definition_probe: Option<usize>,
     /// Whether a Ctrl+click go-to-definition fired inside the editor pane.
@@ -927,6 +936,8 @@ impl ForgeApp {
             floating_panes: Vec::new(),
             terminals: HashMap::new(),
             pending_new_terminal: None,
+            kernels: HashMap::new(),
+            pending_new_kernel: None,
             last_inspector_tab: InspectorTab::Variables,
             dock_pending_definition_probe: None,
             dock_pending_ctrl_definition: false,
@@ -2833,24 +2844,25 @@ impl ForgeApp {
                             .size(10.0)
                             .color(MUTED),
                     );
-                    // Fixed panes plus any live terminals in the tree.
+                    // Fixed panes plus any live terminals and Rust kernels.
                     let mut kinds = expected_panes();
                     if let Some(tree) = self.dock_tree.as_ref() {
-                        let mut terminals: Vec<PaneKind> = tree
+                        let mut dynamic: Vec<PaneKind> = tree
                             .tiles
                             .iter()
                             .filter_map(|(_, tile)| match tile {
-                                Tile::Pane(PaneKind::Terminal(id)) => {
-                                    Some(PaneKind::Terminal(*id))
+                                Tile::Pane(k @ (PaneKind::Terminal(_) | PaneKind::RustConsole(_))) => {
+                                    Some(*k)
                                 }
                                 _ => None,
                             })
                             .collect();
-                        terminals.sort_by_key(|k| match k {
-                            PaneKind::Terminal(id) => *id,
-                            _ => 0,
+                        dynamic.sort_by_key(|k| match k {
+                            PaneKind::Terminal(id) => (0, *id),
+                            PaneKind::RustConsole(id) => (1, *id),
+                            _ => (2, 0),
                         });
-                        kinds.extend(terminals);
+                        kinds.extend(dynamic);
                     }
                     for kind in kinds {
                         let Some((mut visible, id)) = self.dock_tree.as_ref().and_then(|tree| {
@@ -2860,6 +2872,7 @@ impl ForgeApp {
                         };
                         let label = match kind {
                             PaneKind::Terminal(n) => format!("Terminal {n}"),
+                            PaneKind::RustConsole(n) => format!("Rust {n}"),
                             other => other.title().to_owned(),
                         };
                         if ui.checkbox(&mut visible, label).changed() {
@@ -2871,6 +2884,10 @@ impl ForgeApp {
                 });
                 if ui.button("New terminal").clicked() {
                     self.pending_new_terminal = Some(None);
+                    ui.close();
+                }
+                if ui.button("New Rust kernel").clicked() {
+                    self.pending_new_kernel = Some(None);
                     ui.close();
                 }
                 if ui.button("Reset layout to default").clicked() {
@@ -6407,6 +6424,54 @@ impl ForgeApp {
         }
     }
 
+    /// Body of one Rust kernel pane. Spawns its Evcxr session on first show.
+    fn rust_console_pane(&mut self, id: u32, ui: &mut egui::Ui) {
+        let kernel = self
+            .kernels
+            .entry(id)
+            .or_insert_with(rust_kernel::RustKernel::spawn);
+        kernel.ui(id, ui);
+    }
+
+    /// The lowest unused id among panes of a given kind, so new instances never
+    /// collide with existing panes (including ones restored from a saved layout).
+    fn pane_next_id(tree: &Tree<PaneKind>, is_kind: impl Fn(&PaneKind) -> Option<u32>) -> u32 {
+        tree.tiles
+            .iter()
+            .filter_map(|(_, tile)| match tile {
+                Tile::Pane(pane) => is_kind(pane),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0)
+            + 1
+    }
+
+    /// Create a new Rust kernel tile, grouped with an existing kernel, else the
+    /// primary console's container, else the tab sibling of `anchor`, else root.
+    fn create_kernel(tree: &mut Tree<PaneKind>, anchor: Option<TileId>) -> PaneKind {
+        let id = Self::pane_next_id(tree, |p| match p {
+            PaneKind::RustConsole(n) => Some(*n),
+            _ => None,
+        });
+        let kind = PaneKind::RustConsole(id);
+        let new_tile = tree.tiles.insert_pane(kind);
+        let find_pane = |pred: fn(&PaneKind) -> bool| {
+            tree.tiles.iter().find_map(|(tid, tile)| match tile {
+                Tile::Pane(p) if pred(p) => Some(*tid),
+                _ => None,
+            })
+        };
+        let anchor_tile = anchor
+            .or_else(|| find_pane(|p| matches!(p, PaneKind::RustConsole(_))))
+            .or_else(|| find_pane(|p| matches!(p, PaneKind::Console)));
+        let parent = anchor_tile.and_then(|tile| tree.tiles.parent_of(tile));
+        if let Some(parent) = parent.or_else(|| tree.root()) {
+            tree.move_tile_to_container(new_tile, parent, usize::MAX, false);
+        }
+        kind
+    }
+
     /// The lowest unused terminal id, so a new terminal never collides with an
     /// existing pane (including ones restored from a saved layout).
     fn terminal_next_id(tree: &Tree<PaneKind>) -> u32 {
@@ -6455,6 +6520,7 @@ impl ForgeApp {
             PaneKind::History => self.console_pane(ConsoleTab::History, ui),
             PaneKind::Python => self.console_pane(ConsoleTab::Python, ui),
             PaneKind::Terminal(id) => self.terminal_pane(id, ui),
+            PaneKind::RustConsole(id) => self.rust_console_pane(id, ui),
             PaneKind::DataViewer => self.dock_data_viewer(ui),
             // Inspector panes scroll as a whole; the stable id keeps each pane's
             // scroll position remembered across focus changes and restarts.
@@ -6500,6 +6566,7 @@ impl ForgeApp {
                         live.to_owned()
                     }
                 }
+                PaneKind::RustConsole(id) => format!("Rust {id}"),
                 other => other.title().to_owned(),
             };
             egui::Window::new(window_title)
@@ -7885,6 +7952,9 @@ impl egui_tiles::Behavior<PaneKind> for ForgeApp {
             };
             return format!("{}  {}", pane.icon(), label).into();
         }
+        if let PaneKind::RustConsole(id) = *pane {
+            return format!("{}  Rust {id}", pane.icon()).into();
+        }
         pane.tab_label().into()
     }
 
@@ -7941,20 +8011,40 @@ impl egui_tiles::Behavior<PaneKind> for ForgeApp {
                     ui.close();
                 }
             }
+            if matches!(kind, Some(PaneKind::RustConsole(_))) {
+                ui.separator();
+                if ui
+                    .button("New Rust kernel")
+                    .on_hover_text("Open another independent Rust kernel beside this one")
+                    .clicked()
+                {
+                    self.pending_new_kernel = Some(Some(tile_id));
+                    ui.close();
+                }
+            }
         });
         button_response
     }
 
-    /// Terminal tabs get a close button; the others stay put and are hidden via
-    /// the View menu instead.
+    /// Terminal and Rust-kernel tabs get a close button; the others stay put and
+    /// are hidden via the View menu instead.
     fn is_tab_closable(&self, tiles: &Tiles<PaneKind>, tile_id: TileId) -> bool {
-        matches!(tiles.get_pane(&tile_id), Some(PaneKind::Terminal(_)))
+        matches!(
+            tiles.get_pane(&tile_id),
+            Some(PaneKind::Terminal(_)) | Some(PaneKind::RustConsole(_))
+        )
     }
 
     fn on_tab_close(&mut self, tiles: &mut Tiles<PaneKind>, tile_id: TileId) -> bool {
-        if let Some(PaneKind::Terminal(id)) = tiles.get_pane(&tile_id) {
-            // Kill the shell backing this terminal before the tile is removed.
-            self.terminals.remove(id);
+        match tiles.get_pane(&tile_id) {
+            // Kill the backing session before the tile is removed.
+            Some(PaneKind::Terminal(id)) => {
+                self.terminals.remove(id);
+            }
+            Some(PaneKind::RustConsole(id)) => {
+                self.kernels.remove(id);
+            }
+            _ => {}
         }
         true
     }
@@ -8063,9 +8153,10 @@ fn load_dock_tree(serialized: Option<&str>) -> Tree<PaneKind> {
                 .collect();
             let required = expected_panes();
             let all_required = required.iter().all(|kind| present.contains(kind));
-            let no_strangers = present
-                .iter()
-                .all(|kind| matches!(kind, PaneKind::Terminal(_)) || required.contains(kind));
+            let no_strangers = present.iter().all(|kind| {
+                matches!(kind, PaneKind::Terminal(_) | PaneKind::RustConsole(_))
+                    || required.contains(kind)
+            });
             if all_required && no_strangers {
                 return tree;
             }
@@ -8181,6 +8272,10 @@ impl eframe::App for ForgeApp {
                 }
                 if let Some(anchor) = self.pending_new_terminal.take() {
                     let kind = Self::create_terminal(&mut tree, anchor);
+                    self.dock_focus = Some(kind);
+                }
+                if let Some(anchor) = self.pending_new_kernel.take() {
+                    let kind = Self::create_kernel(&mut tree, anchor);
                     self.dock_focus = Some(kind);
                 }
                 self.dock_tree = Some(tree);
@@ -9483,6 +9578,30 @@ mod editor_tests {
         assert_eq!(
             ForgeApp::create_terminal(&mut restored, None),
             PaneKind::Terminal(4)
+        );
+    }
+
+    #[test]
+    fn new_rust_kernels_get_unique_ids_and_persist() {
+        let count_kernels = |tree: &Tree<PaneKind>| {
+            tree.tiles
+                .iter()
+                .filter(|(_, t)| matches!(t, Tile::Pane(PaneKind::RustConsole(_))))
+                .count()
+        };
+        let mut tree = build_dock_tree();
+        assert_eq!(count_kernels(&tree), 0); // none by default
+        assert_eq!(ForgeApp::create_kernel(&mut tree, None), PaneKind::RustConsole(1));
+        assert_eq!(ForgeApp::create_kernel(&mut tree, None), PaneKind::RustConsole(2));
+        assert_eq!(count_kernels(&tree), 2);
+
+        // A layout with several kernels round-trips and is accepted on load.
+        let json = serde_json::to_string(&tree).unwrap();
+        let mut restored = load_dock_tree(Some(&json));
+        assert_eq!(count_kernels(&restored), 2);
+        assert_eq!(
+            ForgeApp::create_kernel(&mut restored, None),
+            PaneKind::RustConsole(3)
         );
     }
 
