@@ -99,6 +99,8 @@ pub struct SessionState {
     #[serde(default)]
     pub format_on_save: bool,
     #[serde(default)]
+    pub keymap: Vec<crate::keymap::ChordDto>,
+    #[serde(default)]
     pub high_contrast: bool,
     #[serde(default)]
     pub reduced_motion: bool,
@@ -213,6 +215,7 @@ impl Default for SessionState {
             editor_font_size: default_editor_font_size(),
             caret_blink: true,
             format_on_save: false,
+            keymap: Vec::new(),
             high_contrast: false,
             reduced_motion: false,
             diagnostics_opt_in: false,

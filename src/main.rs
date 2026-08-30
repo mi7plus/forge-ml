@@ -28,6 +28,7 @@ mod release;
 mod remote;
 mod runtime;
 mod service_monitor;
+mod keymap;
 mod rust_kernel;
 mod session;
 mod terminal;
@@ -508,6 +509,9 @@ struct ForgeApp {
     editor_font_size: f32,
     caret_blink: bool,
     format_on_save: bool,
+    keymap: keymap::Keymap,
+    /// The action whose shortcut is currently being re-captured in Settings.
+    rebinding: Option<keymap::KeyAction>,
     high_contrast: bool,
     reduced_motion: bool,
     command_palette_open: bool,
@@ -824,6 +828,8 @@ impl ForgeApp {
             editor_font_size,
             caret_blink,
             format_on_save: session.format_on_save,
+            keymap: keymap::Keymap::from_dto(&session.keymap),
+            rebinding: None,
             high_contrast: session.high_contrast,
             reduced_motion: session.reduced_motion,
             command_palette_open: false,
@@ -3204,6 +3210,69 @@ impl ForgeApp {
                     self.reduced_motion = false;
                     configure_style(ctx, self.dark_mode, self.high_contrast);
                 }
+
+                ui.separator();
+                ui.heading("Keyboard shortcuts");
+                // Capture a new chord while a rebind is in progress.
+                if let Some(action) = self.rebinding {
+                    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        self.rebinding = None;
+                    } else if let Some(shortcut) = keymap::capture(ctx) {
+                        if shortcut.logical_key != egui::Key::Escape {
+                            match self.keymap.conflict(shortcut, action) {
+                                Some(other) => {
+                                    self.status_announcement =
+                                        format!("{} already uses that shortcut", other.label());
+                                }
+                                None => self.keymap.set(action, shortcut),
+                            }
+                            self.rebinding = None;
+                        }
+                    }
+                }
+                egui::ScrollArea::vertical()
+                    .id_salt("keymap_scroll")
+                    .max_height(220.0)
+                    .show(ui, |ui| {
+                        egui::Grid::new("keymap_grid")
+                            .num_columns(3)
+                            .striped(true)
+                            .min_col_width(120.0)
+                            .show(ui, |ui| {
+                                for action in keymap::KeyAction::ALL {
+                                    ui.label(action.label());
+                                    if self.rebinding == Some(action) {
+                                        ui.label(
+                                            RichText::new("press keys… (Esc to cancel)")
+                                                .italics()
+                                                .color(CYAN),
+                                        );
+                                    } else {
+                                        ui.label(
+                                            RichText::new(self.keymap.display(action)).monospace(),
+                                        );
+                                    }
+                                    ui.horizontal(|ui| {
+                                        if ui.small_button("Rebind").clicked() {
+                                            self.rebinding = Some(action);
+                                        }
+                                        if ui.small_button("Reset").clicked() {
+                                            self.keymap.reset(action);
+                                        }
+                                    });
+                                    ui.end_row();
+                                }
+                            });
+                    });
+                if ui.button("Restore all shortcut defaults").clicked() {
+                    self.keymap.reset_all();
+                    self.rebinding = None;
+                }
+                ui.label(
+                    RichText::new("The numeric Ctrl+1…9 pane jumps are fixed.")
+                        .size(10.0)
+                        .color(MUTED),
+                );
             });
         self.settings_open = open;
     }
@@ -7694,10 +7763,22 @@ impl ForgeApp {
     }
 
     fn accessibility_shortcuts(&mut self, ctx: &egui::Context) {
-        if ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::P)) {
+        if self.rebinding.is_some() {
+            return; // capturing a new binding; don't fire normal shortcuts
+        }
+        if self.keymap.triggered(keymap::KeyAction::CommandPalette, ctx) {
             self.command_palette_open = true;
             self.command_query.clear();
             self.command_selection = 0;
+        }
+        if self.keymap.triggered(keymap::KeyAction::CyclePane, ctx) {
+            let tabs = InspectorTab::ALL;
+            let index = tabs
+                .iter()
+                .position(|tab| *tab == self.inspector_tab)
+                .unwrap_or(0);
+            self.inspector_tab = tabs[(index + 1) % tabs.len()];
+            self.status_announcement = "Moved to next inspector pane".into();
         }
         // Ctrl+1..=9 jump straight to the first nine inspector panes.
         const NUM_KEYS: [egui::Key; 9] = [
@@ -7717,15 +7798,6 @@ impl ForgeApp {
                 self.inspector_tab = tab;
                 self.status_announcement = format!("{} pane selected", tab.label());
             }
-        }
-        if ctx.input(|i| i.key_pressed(egui::Key::F6)) {
-            let tabs = InspectorTab::ALL;
-            let index = tabs
-                .iter()
-                .position(|tab| *tab == self.inspector_tab)
-                .unwrap_or(0);
-            self.inspector_tab = tabs[(index + 1) % tabs.len()];
-            self.status_announcement = "Moved to next inspector pane".into();
         }
     }
 
@@ -8274,20 +8346,27 @@ impl eframe::App for ForgeApp {
             self.last_inspector_tab = self.inspector_tab;
             self.dock_focus = Some(PaneKind::Inspector(self.inspector_tab));
         }
-        let save = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S));
-        let new_file = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::N));
-        let find = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F));
-        let find_in_files =
-            ui.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::F));
-        let complete = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Space));
-        let run = ui.input(|i| i.modifiers.shift && i.key_pressed(egui::Key::Enter));
-        let run_all = ui
-            .input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Enter));
+        // Shortcut handling runs through the customizable keymap, and is paused
+        // while the user is capturing a new binding in Settings.
+        use keymap::KeyAction;
+        let ctx = ui.ctx().clone();
+        let paused = self.rebinding.is_some();
+        let save = !paused && self.keymap.triggered(KeyAction::Save, &ctx);
+        let new_file = !paused && self.keymap.triggered(KeyAction::NewFile, &ctx);
+        let find = !paused && self.keymap.triggered(KeyAction::FindInFile, &ctx);
+        let find_in_files = !paused && self.keymap.triggered(KeyAction::FindInProject, &ctx);
+        let complete = !paused && self.keymap.triggered(KeyAction::RequestCompletion, &ctx);
+        let run = !paused && self.keymap.triggered(KeyAction::RunCell, &ctx);
+        let run_all = !paused && self.keymap.triggered(KeyAction::RunAll, &ctx);
+        let format_doc = !paused && self.keymap.triggered(KeyAction::FormatDocument, &ctx);
         if save {
             self.save_active();
         }
         if new_file {
             self.create_new_file(None);
+        }
+        if format_doc {
+            self.format_document();
         }
         if find_in_files {
             self.inspector_tab = InspectorTab::Search;
@@ -8295,9 +8374,6 @@ impl eframe::App for ForgeApp {
             self.find_visible = true;
         }
         if complete {
-            ui.input_mut(|input| {
-                input.consume_key(egui::Modifiers::COMMAND, egui::Key::Space);
-            });
             self.request_lsp("complete");
             self.lsp_status = "Requesting completions...".to_owned();
         }
@@ -8412,6 +8488,7 @@ impl eframe::App for ForgeApp {
             editor_font_size: self.editor_font_size,
             caret_blink: self.caret_blink,
             format_on_save: self.format_on_save,
+            keymap: self.keymap.to_dto(),
             high_contrast: self.high_contrast,
             reduced_motion: self.reduced_motion,
             diagnostics_opt_in: self.diagnostics_opt_in,
