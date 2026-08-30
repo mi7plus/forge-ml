@@ -198,6 +198,14 @@ impl InspectorTab {
     }
 }
 
+/// An action requested from a dock tab's right-click menu, applied against the
+/// full tree after layout (the tab hook only has access to `Tiles`).
+#[derive(Clone, Copy, PartialEq)]
+enum DockAction {
+    Hide,
+    Undock,
+}
+
 /// A dockable surface in the [`egui_tiles`] workspace tree. Each pane maps to an
 /// existing render method; the tree owns their layout, so panes can be split,
 /// re-docked between regions, floated, or hidden without bespoke panel code.
@@ -600,6 +608,11 @@ struct ForgeApp {
     /// Last observed `inspector_tab`; when it changes, the matching dock pane is
     /// brought to the front so legacy `inspector_tab = ...` navigation still works.
     last_inspector_tab: InspectorTab,
+    /// A tab context-menu action to apply against the tree after layout.
+    pending_dock_action: Option<(TileId, DockAction)>,
+    /// Panes popped out into floating windows; their tree tiles are hidden while
+    /// they float, and shown again when docked back.
+    floating_panes: Vec<PaneKind>,
     /// Deferred definition-probe offset produced while rendering the editor pane.
     dock_pending_definition_probe: Option<usize>,
     /// Whether a Ctrl+click go-to-definition fired inside the editor pane.
@@ -900,6 +913,8 @@ impl ForgeApp {
             pending_editor_history: None,
             dock_tree: Some(load_dock_tree(session.dock_layout.as_deref())),
             dock_focus: None,
+            pending_dock_action: None,
+            floating_panes: Vec::new(),
             last_inspector_tab: InspectorTab::Variables,
             dock_pending_definition_probe: None,
             dock_pending_ctrl_definition: false,
@@ -2586,15 +2601,27 @@ impl ForgeApp {
     }
 
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
-        // egui::MenuBar coordinates the top-level menus so that, once one menu is
-        // open, hovering a sibling opens it without a second click. Bare
-        // `ui.menu_button` calls in a plain `ui.horizontal` do not share that
-        // state. MenuBar::ui already lays its content out horizontally, so we do
-        // not nest another horizontal layout here.
+        // MenuBar lays the top menus out horizontally, but egui 0.36 only opens a
+        // top-level menu on click. `top!` adds the familiar menu-bar behavior:
+        // once any menu is open, moving the pointer onto a sibling opens it
+        // (egui keeps a single popup open, so this switches without a click).
         egui::MenuBar::new().ui(ui, |ui| {
+            macro_rules! top {
+                ($label:expr, |$ui:ident| $body:block) => {{
+                    let resp = ui.menu_button($label, |$ui| $body).response;
+                    let pid = resp.id.with("popup");
+                    let ctx = resp.ctx.clone();
+                    if resp.contains_pointer()
+                        && egui::Popup::is_any_open(&ctx)
+                        && !egui::Popup::is_id_open(&ctx, pid)
+                    {
+                        egui::Popup::open_id(&ctx, pid);
+                    }
+                }};
+            }
             ui.label(RichText::new("FORGE ML").strong().color(RED));
             ui.separator();
-            ui.menu_button("File", |ui| {
+            top!("File", |ui| {
                 if ui.button("New file...   Ctrl+N").clicked() {
                     self.create_new_file(None);
                     ui.close();
@@ -2651,7 +2678,7 @@ impl ForgeApp {
                     ui.close();
                 }
             });
-            ui.menu_button("Edit", |ui| {
+            top!("Edit", |ui| {
                 if ui.button("Undo   Ctrl+Z").clicked() {
                     self.pending_editor_history = Some(EditorHistoryCommand::Undo);
                     ui.close();
@@ -2661,19 +2688,19 @@ impl ForgeApp {
                     ui.close();
                 }
             });
-            ui.menu_button("Search", |ui| {
+            top!("Search", |ui| {
                 if ui.button("Find in files   Ctrl+Shift+F").clicked() {
                     self.inspector_tab = InspectorTab::Search;
                     ui.close();
                 }
             });
-            ui.menu_button("Source", |ui| {
+            top!("Source", |ui| {
                 if ui.button("Run code analysis").clicked() {
                     self.run_diagnostics();
                     ui.close();
                 }
             });
-            ui.menu_button("Run", |ui| {
+            top!("Run", |ui| {
                 if ui.button("Run cell   Shift+Enter").clicked() {
                     self.enqueue_cells([self.selected_cell]);
                     ui.close();
@@ -2701,7 +2728,7 @@ impl ForgeApp {
                     ui.close();
                 }
             });
-            ui.menu_button("Debug", |ui| {
+            top!("Debug", |ui| {
                 if ui.button("Run code analysis (cargo check)").clicked() {
                     self.run_diagnostics();
                     self.inspector_tab = InspectorTab::Problems;
@@ -2727,7 +2754,7 @@ impl ForgeApp {
                         .color(MUTED),
                 );
             });
-            ui.menu_button("Tools", |ui| {
+            top!("Tools", |ui| {
                 if ui
                     .add_enabled(
                         self.integration_pending == 0,
@@ -2776,7 +2803,7 @@ impl ForgeApp {
                     ui.close();
                 }
             });
-            ui.menu_button("View", |ui| {
+            top!("View", |ui| {
                 let label = if self.dark_mode {
                     "Use light theme"
                 } else {
@@ -2817,7 +2844,7 @@ impl ForgeApp {
                         .color(MUTED),
                 );
             });
-            ui.menu_button("Help", |ui| {
+            top!("Help", |ui| {
                 ui.label(format!(
                     "Forge ML {APP_VERSION} - interactive Rust scientific environment"
                 ));
@@ -6319,6 +6346,84 @@ impl ForgeApp {
         self.docked_dataset_viewer(ui);
     }
 
+    /// Render one pane's contents. Shared by the docked tiles and the floating
+    /// pane windows so both paths stay identical.
+    fn dock_pane_body(&mut self, kind: PaneKind, ui: &mut egui::Ui) {
+        match kind {
+            PaneKind::Editor => self.editor_pane(ui),
+            PaneKind::Files => self.file_explorer(ui),
+            PaneKind::Outline => self.outline(ui),
+            PaneKind::Cells => self.cell_rail(ui),
+            PaneKind::Console => self.console_pane(ConsoleTab::Console, ui),
+            PaneKind::History => self.console_pane(ConsoleTab::History, ui),
+            PaneKind::Python => self.console_pane(ConsoleTab::Python, ui),
+            PaneKind::DataViewer => self.dock_data_viewer(ui),
+            // Inspector panes scroll as a whole; the stable id keeps each pane's
+            // scroll position remembered across focus changes and restarts.
+            PaneKind::Inspector(tab) => {
+                egui::ScrollArea::vertical()
+                    .id_salt(("dock_inspector_scroll", tab))
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| self.inspector_body(tab, ui));
+            }
+        }
+    }
+
+    /// Render every pane that has been popped out into a floating window. Each
+    /// floating pane's tree tile stays hidden; closing the window or choosing
+    /// Dock returns it to its docked position.
+    fn dock_floating_windows(&mut self, ctx: &egui::Context) {
+        if self.floating_panes.is_empty() {
+            return;
+        }
+        // A pane re-shown from View → Panes is no longer floating.
+        if let Some(tree) = self.dock_tree.as_ref() {
+            let visible: Vec<PaneKind> = self
+                .floating_panes
+                .iter()
+                .copied()
+                .filter(|kind| {
+                    Self::dock_tile_of(tree, *kind).is_some_and(|id| tree.tiles.is_visible(id))
+                })
+                .collect();
+            self.floating_panes.retain(|k| !visible.contains(k));
+        }
+
+        let mut dock_back: Vec<PaneKind> = Vec::new();
+        for kind in self.floating_panes.clone() {
+            let mut open = true;
+            let mut dock = false;
+            egui::Window::new(kind.title())
+                .id(egui::Id::new(("forge_float_pane", kind)))
+                .default_size([540.0, 420.0])
+                .min_size([300.0, 160.0])
+                .resizable(true)
+                .open(&mut open)
+                .show(ctx, |ui| {
+                    if ui
+                        .small_button("Dock")
+                        .on_hover_text("Return this pane to the workspace")
+                        .clicked()
+                    {
+                        dock = true;
+                    }
+                    ui.separator();
+                    self.dock_pane_body(kind, ui);
+                });
+            if dock || !open {
+                dock_back.push(kind);
+            }
+        }
+        for kind in dock_back {
+            self.floating_panes.retain(|k| *k != kind);
+            if let Some(tree) = self.dock_tree.as_mut() {
+                if let Some(id) = Self::dock_tile_of(tree, kind) {
+                    tree.tiles.set_visible(id, true);
+                }
+            }
+        }
+    }
+
     fn dataset_window(&mut self, ctx: &egui::Context) {
         if self.dataset_viewer_docked {
             return;
@@ -7428,6 +7533,7 @@ impl ForgeApp {
         self.unsaved_confirmation(ui.ctx());
         self.settings_window(ui.ctx());
         self.dataset_window(ui.ctx());
+        self.dock_floating_windows(ui.ctx());
         self.remote_input_window(ui.ctx());
     }
 
@@ -7654,29 +7760,58 @@ impl egui_tiles::Behavior<PaneKind> for ForgeApp {
         pane: &mut PaneKind,
     ) -> egui_tiles::UiResponse {
         ui.add_space(2.0);
-        match *pane {
-            PaneKind::Editor => self.editor_pane(ui),
-            PaneKind::Files => self.file_explorer(ui),
-            PaneKind::Outline => self.outline(ui),
-            PaneKind::Cells => self.cell_rail(ui),
-            PaneKind::Console => self.console_pane(ConsoleTab::Console, ui),
-            PaneKind::History => self.console_pane(ConsoleTab::History, ui),
-            PaneKind::Python => self.console_pane(ConsoleTab::Python, ui),
-            PaneKind::DataViewer => self.dock_data_viewer(ui),
-            // Inspector panes scroll as a whole; the stable id keeps each pane's
-            // scroll position remembered across focus changes and restarts.
-            PaneKind::Inspector(tab) => {
-                egui::ScrollArea::vertical()
-                    .id_salt(("dock_inspector_scroll", tab))
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| self.inspector_body(tab, ui));
-            }
-        }
+        self.dock_pane_body(*pane, ui);
         egui_tiles::UiResponse::None
     }
 
     fn tab_title_for_pane(&mut self, pane: &PaneKind) -> egui::WidgetText {
         pane.tab_label().into()
+    }
+
+    /// Right-click a tab for hide / undock actions. The tree isn't available
+    /// here, so the chosen action is recorded and applied after layout.
+    fn on_tab_button(
+        &mut self,
+        tiles: &mut Tiles<PaneKind>,
+        tile_id: TileId,
+        button_response: egui::Response,
+    ) -> egui::Response {
+        let kind = tiles.get_pane(&tile_id).copied();
+        button_response.context_menu(|ui| {
+            ui.label(
+                RichText::new(kind.map(|k| k.title()).unwrap_or("Pane"))
+                    .strong()
+                    .color(MUTED),
+            );
+            if kind == Some(PaneKind::DataViewer) {
+                // The data viewer has its own floating window mechanism.
+                let label = if self.dataset_viewer_docked {
+                    "Undock to a floating window"
+                } else {
+                    "Dock data viewer"
+                };
+                if ui.button(label).clicked() {
+                    self.dataset_viewer_docked = !self.dataset_viewer_docked;
+                    ui.close();
+                }
+            } else if ui
+                .button("Undock to a floating window")
+                .on_hover_text("Pop this pane out into a movable window")
+                .clicked()
+            {
+                self.pending_dock_action = Some((tile_id, DockAction::Undock));
+                ui.close();
+            }
+            if ui
+                .button("Hide pane")
+                .on_hover_text("Bring it back from View → Panes")
+                .clicked()
+            {
+                self.pending_dock_action = Some((tile_id, DockAction::Hide));
+                ui.close();
+            }
+        });
+        button_response
     }
 
     fn simplification_options(&self) -> SimplificationOptions {
@@ -7880,6 +8015,21 @@ impl eframe::App for ForgeApp {
                     }
                 }
                 tree.ui(self, ui);
+                // Apply a tab context-menu action now that the full tree is in hand.
+                if let Some((tile, action)) = self.pending_dock_action.take() {
+                    match action {
+                        DockAction::Hide => tree.tiles.set_visible(tile, false),
+                        DockAction::Undock => {
+                            // Float: hide the tile and render the pane in a window.
+                            if let Some(kind) = tree.tiles.get_pane(&tile).copied() {
+                                tree.tiles.set_visible(tile, false);
+                                if !self.floating_panes.contains(&kind) {
+                                    self.floating_panes.push(kind);
+                                }
+                            }
+                        }
+                    }
+                }
                 self.dock_tree = Some(tree);
             });
         self.after_editor(ui);
