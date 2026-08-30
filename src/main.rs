@@ -29,6 +29,7 @@ mod remote;
 mod runtime;
 mod service_monitor;
 mod session;
+mod terminal;
 mod updater;
 
 use data::DataWorkspace;
@@ -218,6 +219,7 @@ enum PaneKind {
     Console,
     History,
     Python,
+    Terminal,
     DataViewer,
     Inspector(InspectorTab),
 }
@@ -232,6 +234,7 @@ impl PaneKind {
             PaneKind::Console => "Console",
             PaneKind::History => "History",
             PaneKind::Python => "Python",
+            PaneKind::Terminal => "Terminal",
             PaneKind::DataViewer => "Data viewer",
             PaneKind::Inspector(tab) => tab.label(),
         }
@@ -247,6 +250,7 @@ impl PaneKind {
             PaneKind::Console => icons::TERMINAL_WINDOW.as_str(),
             PaneKind::History => icons::CLOCK_COUNTER_CLOCKWISE.as_str(),
             PaneKind::Python => icons::CODE_SIMPLE.as_str(),
+            PaneKind::Terminal => icons::TERMINAL.as_str(),
             PaneKind::DataViewer => icons::TABLE.as_str(),
             PaneKind::Inspector(tab) => tab.icon(),
         }
@@ -613,6 +617,8 @@ struct ForgeApp {
     /// Panes popped out into floating windows; their tree tiles are hidden while
     /// they float, and shown again when docked back.
     floating_panes: Vec<PaneKind>,
+    /// The embedded system terminal, spawned lazily the first time its pane shows.
+    terminal: Option<terminal::Terminal>,
     /// Deferred definition-probe offset produced while rendering the editor pane.
     dock_pending_definition_probe: Option<usize>,
     /// Whether a Ctrl+click go-to-definition fired inside the editor pane.
@@ -915,6 +921,7 @@ impl ForgeApp {
             dock_focus: None,
             pending_dock_action: None,
             floating_panes: Vec::new(),
+            terminal: None,
             last_inspector_tab: InspectorTab::Variables,
             dock_pending_definition_probe: None,
             dock_pending_ctrl_definition: false,
@@ -6346,6 +6353,26 @@ impl ForgeApp {
         self.docked_dataset_viewer(ui);
     }
 
+    /// Body of the embedded system-terminal pane. Spawns the shell the first
+    /// time the pane is shown, then renders and drives it each frame.
+    fn terminal_pane(&mut self, ui: &mut egui::Ui) {
+        if self.terminal.is_none() {
+            let cwd = self.project_root();
+            let font = self.editor_font_size.clamp(10.0, 20.0);
+            match terminal::Terminal::spawn(cwd, font) {
+                Ok(term) => self.terminal = Some(term),
+                Err(error) => {
+                    ui.colored_label(RED, format!("Terminal unavailable: {error}"));
+                    return;
+                }
+            }
+        }
+        let dark = self.dark_mode;
+        if let Some(term) = self.terminal.as_mut() {
+            term.ui(ui, dark);
+        }
+    }
+
     /// Render one pane's contents. Shared by the docked tiles and the floating
     /// pane windows so both paths stay identical.
     fn dock_pane_body(&mut self, kind: PaneKind, ui: &mut egui::Ui) {
@@ -6357,6 +6384,7 @@ impl ForgeApp {
             PaneKind::Console => self.console_pane(ConsoleTab::Console, ui),
             PaneKind::History => self.console_pane(ConsoleTab::History, ui),
             PaneKind::Python => self.console_pane(ConsoleTab::Python, ui),
+            PaneKind::Terminal => self.terminal_pane(ui),
             PaneKind::DataViewer => self.dock_data_viewer(ui),
             // Inspector panes scroll as a whole; the stable id keeps each pane's
             // scroll position remembered across focus changes and restarts.
@@ -7765,6 +7793,12 @@ impl egui_tiles::Behavior<PaneKind> for ForgeApp {
     }
 
     fn tab_title_for_pane(&mut self, pane: &PaneKind) -> egui::WidgetText {
+        // The terminal tab reflects the shell's live OSC title when set.
+        if *pane == PaneKind::Terminal {
+            if let Some(term) = self.terminal.as_ref() {
+                return format!("{}  {}", pane.icon(), term.title()).into();
+            }
+        }
         pane.tab_label().into()
     }
 
@@ -7851,8 +7885,9 @@ fn build_dock_tree() -> Tree<PaneKind> {
     let console = tiles.insert_pane(PaneKind::Console);
     let history = tiles.insert_pane(PaneKind::History);
     let python = tiles.insert_pane(PaneKind::Python);
+    let terminal = tiles.insert_pane(PaneKind::Terminal);
     let data_viewer = tiles.insert_pane(PaneKind::DataViewer);
-    let bottom = tiles.insert_tab_tile(vec![console, history, python, data_viewer]);
+    let bottom = tiles.insert_tab_tile(vec![console, history, python, terminal, data_viewer]);
 
     let mut center = Linear::new(LinearDir::Vertical, vec![editor, bottom]);
     center.shares.set_share(editor, 0.76);
@@ -7895,6 +7930,7 @@ fn expected_panes() -> Vec<PaneKind> {
         PaneKind::Console,
         PaneKind::History,
         PaneKind::Python,
+        PaneKind::Terminal,
         PaneKind::DataViewer,
     ];
     kinds.extend(InspectorTab::ALL.iter().map(|tab| PaneKind::Inspector(*tab)));
