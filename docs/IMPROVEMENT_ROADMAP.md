@@ -17,8 +17,11 @@ tract), and #12 (dataset-preparation UI — categorical one-hot / ordinal
 encoding, missing-value drop / mean / zero imputation, and standardize / min-max
 scaling, writing a new numeric dataset), and #15 (inference playground — an
 interactive per-feature form with live softmax class probabilities from the
-trained classifier). **Tier 3 is complete.** Tier 4 (engineering health) is
-untouched.
+trained classifier). **Tier 3 is complete.** **Tier 4 is complete too** — #16
+(the `main.rs` split into a `ui/` module tree, ~11k → ~4.1k lines) and #17
+(a `CHANGELOG.md` plus a homepage screenshot gallery with a capture guide).
+
+**All roadmap tiers are now shipped.**
 
 Related: [UX improvement plan](UX_IMPROVEMENT_PLAN.md) (the dockable-workspace
 work, now shipped).
@@ -142,8 +145,14 @@ Jupyter; Git/GitHub/packages panes; off-by-default diagnostics; and 132 tests.
     `ui::shortcuts`, and `ui::editor_pane`. `main.rs` now keeps the app struct,
     constructor, lifecycle/background polling, LSP wiring, and the `egui_tiles`
     /`eframe::App` trait impls. Cross-module entry points are `pub(crate)`.
-17. **Real screenshots** on the homepage (the SVG mockup is a good placeholder,
-    but a captured screenshot converts better) and a `CHANGELOG.md`.
+17. **Real screenshots** on the homepage and a `CHANGELOG.md`. _(shipped)_
+    Added [`CHANGELOG.md`](../CHANGELOG.md) (Keep a Changelog format) and a
+    **Screenshots** gallery on the homepage that loads PNGs from
+    [`site/screenshots/`](../site/screenshots), degrading to styled placeholders
+    until captures are added; a [capture guide](../site/screenshots/README.md)
+    lists the six recommended shots, window size, and file names. Capturing the
+    actual PNGs is a desktop step (the running GUI can't be screenshotted
+    headlessly); the hero SVG mockup remains as the immediate visual.
 
 ---
 

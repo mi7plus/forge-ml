@@ -137,6 +137,23 @@ h3 { font-size: 1.06rem; margin: 1.5em 0 .4em; }
 .card p { margin: 0; color: var(--muted); font-size: .92rem; }
 .card .ico { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 9px; background: var(--red-soft); color: var(--red); font-size: 1.15rem; margin-bottom: 12px; }
 
+/* Screenshot gallery */
+.shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; margin-top: 28px; }
+.shot {
+  margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  overflow: hidden; box-shadow: var(--shadow-sm); transition: border-color .15s ease, transform .12s ease;
+}
+.shot:hover { border-color: var(--border-strong); transform: translateY(-2px); }
+.shot img { display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; object-fit: cover; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.shot.pending img { display: none; }
+.shot.pending::before {
+  content: "\25F2  screenshot coming soon"; display: flex; align-items: center; justify-content: center;
+  aspect-ratio: 16 / 10; color: var(--muted); font-size: .86rem; letter-spacing: .04em; border-bottom: 1px solid var(--border);
+  background: repeating-linear-gradient(135deg, var(--surface-2), var(--surface-2) 11px, var(--surface) 11px, var(--surface) 22px);
+}
+.shot figcaption { display: flex; flex-direction: column; gap: 2px; padding: 12px 16px; font-weight: 600; font-size: .95rem; }
+.shot figcaption span { font-weight: 400; color: var(--muted); font-size: .84rem; }
+
 /* Split feature rows */
 .rows { display: grid; gap: 18px; margin-top: 26px; }
 .row2 { display: grid; grid-template-columns: 200px 1fr; gap: 20px; align-items: start; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
