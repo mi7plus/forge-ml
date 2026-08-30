@@ -131,8 +131,15 @@ Jupyter; Git/GitHub/packages panes; off-by-default diagnostics; and 132 tests.
 
 ## Tier 4 — Engineering health & polish
 
-16. **Split `main.rs`** into `ui/` submodules (menus, panes, editor, dock,
-    behavior). At ~9.8k lines it is the main friction point for further work.
+16. **Split `main.rs`** into `ui/` submodules. _(in progress)_ A `ui/` module
+    tree now holds the presentation helpers — `ui::theme` (palette, visuals,
+    styled buttons/frames), `ui::plotting` (axis transforms, histogram, box
+    summary, heatmap), `ui::editing` (word/offset math, LSP position mapping and
+    edit application, caret and inline-diagnostic painting, rustfmt, file-tree
+    rendering), and `ui::grid` (row filter/sort indexing and column-window
+    virtualization). This has taken `main.rs` from ~11.0k to ~10.1k lines;
+    remaining work is extracting the large `ForgeApp` method clusters (menus,
+    panes, dock behavior) into further `ui/` submodules.
 17. **Real screenshots** on the homepage (the SVG mockup is a good placeholder,
     but a captured screenshot converts better) and a `CHANGELOG.md`.
 

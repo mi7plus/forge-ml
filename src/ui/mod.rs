@@ -2,5 +2,6 @@
 //! rendering helpers split out of the main application module.
 
 pub mod editing;
+pub mod grid;
 pub mod plotting;
 pub mod theme;
