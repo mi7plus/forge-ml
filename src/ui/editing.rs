@@ -1,0 +1,441 @@
+//! Editor and text helpers: word/offset math, LSP position mapping and edit
+//! application, caret and inline-diagnostic painting, rustfmt, and the file-tree
+//! explorer rendering.
+
+use crate::lsp::{self, Diagnostic as LspDiagnostic};
+use crate::project::{self, FileNode};
+use crate::ui::theme::{CYAN, EMBER, MUTED, RED, TEXT};
+use crate::{EditorTab, ExplorerAction};
+use eframe::egui;
+use egui::{Color32, RichText, Stroke};
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::path::{Path, PathBuf};
+
+pub fn safe_file_stem(value: &str) -> String {
+    let stem = value
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if stem.is_empty() {
+        "plot".into()
+    } else {
+        stem
+    }
+}
+
+pub fn word_start_at(text: &str, offset: usize) -> Option<usize> {
+    let chars = text.chars().collect::<Vec<_>>();
+    let is_word = |character: char| character.is_alphanumeric() || character == '_';
+    let mut index = offset.min(chars.len());
+    if index == chars.len()
+        || !chars
+            .get(index)
+            .is_some_and(|character| is_word(*character))
+    {
+        if index == 0 || !is_word(chars[index - 1]) {
+            return None;
+        }
+        index -= 1;
+    }
+    while index > 0 && is_word(chars[index - 1]) {
+        index -= 1;
+    }
+    Some(index)
+}
+
+pub fn char_to_byte(text: &str, char_offset: usize) -> usize {
+    text.char_indices()
+        .nth(char_offset)
+        .map(|(byte, _)| byte)
+        .unwrap_or(text.len())
+}
+
+pub fn line_column(text: &str, char_offset: usize) -> (usize, usize) {
+    let mut line = 1;
+    let mut column = 1;
+    for character in text.chars().take(char_offset) {
+        if character == '\n' {
+            line += 1;
+            column = 1;
+        } else {
+            column += 1;
+        }
+    }
+    (line, column)
+}
+
+pub fn csv_field(value: &str) -> String {
+    if value
+        .chars()
+        .any(|character| matches!(character, ',' | '"' | '\n' | '\r'))
+    {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_owned()
+    }
+}
+
+pub fn paint_editor_caret(
+    ui: &egui::Ui,
+    output: &egui::text_edit::TextEditOutput,
+    cursor: egui::text::CCursor,
+    dark: bool,
+    blink: bool,
+) {
+    if blink {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(50));
+    }
+    let bright_phase = !blink || ui.input(|input| input.time) % 1.0 < 0.65;
+    let local = output.galley.pos_from_cursor(cursor);
+    let x = output.galley_pos.x + local.min.x;
+    let top = output.galley_pos.y + local.min.y - 1.0;
+    let bottom = output.galley_pos.y + local.max.y + 1.0;
+    let segment = [egui::pos2(x, top), egui::pos2(x, bottom)];
+    let outline = if dark {
+        Color32::from_rgb(3, 7, 12)
+    } else {
+        Color32::WHITE
+    };
+    let caret = if dark && bright_phase {
+        Color32::from_rgb(118, 224, 255)
+    } else if dark {
+        Color32::from_rgb(59, 129, 153)
+    } else if bright_phase {
+        Color32::from_rgb(0, 45, 84)
+    } else {
+        Color32::from_rgb(60, 105, 135)
+    };
+    let outline_width = if bright_phase { 5.0 } else { 3.0 };
+    let caret_width = if bright_phase { 3.0 } else { 1.5 };
+    ui.painter()
+        .line_segment(segment, Stroke::new(outline_width, outline));
+    ui.painter()
+        .line_segment(segment, Stroke::new(caret_width, caret));
+}
+
+pub fn paint_navigable_word(
+    ui: &egui::Ui,
+    output: &egui::text_edit::TextEditOutput,
+    text: &str,
+    offset: usize,
+) {
+    let chars = text.chars().collect::<Vec<_>>();
+    let is_word = |character: char| character.is_alphanumeric() || character == '_';
+    let mut start = offset.min(chars.len());
+    let mut end = start;
+    while start > 0 && is_word(chars[start - 1]) {
+        start -= 1;
+    }
+    while end < chars.len() && is_word(chars[end]) {
+        end += 1;
+    }
+    if start == end {
+        return;
+    }
+    let start_rect = output
+        .galley
+        .pos_from_cursor(egui::text::CCursor::new(start));
+    let end_rect = output.galley.pos_from_cursor(egui::text::CCursor::new(end));
+    if start_rect.min.y == end_rect.min.y {
+        let y = start_rect.max.y - 1.0;
+        ui.painter().line_segment(
+            [
+                output.galley_pos + egui::vec2(start_rect.min.x, y),
+                output.galley_pos + egui::vec2(end_rect.min.x, y),
+            ],
+            Stroke::new(1.5, CYAN),
+        );
+    }
+}
+
+pub fn paint_inline_diagnostics(
+    ui: &egui::Ui,
+    output: &egui::text_edit::TextEditOutput,
+    text: &str,
+    diagnostics: &[LspDiagnostic],
+) {
+    let chars = text.chars().collect::<Vec<_>>();
+    let painter = ui.painter().with_clip_rect(output.text_clip_rect);
+    for diagnostic in diagnostics {
+        let line_start = text
+            .split_inclusive('\n')
+            .take(diagnostic.line as usize)
+            .map(str::chars)
+            .map(Iterator::count)
+            .sum::<usize>();
+        let mut start = (line_start + diagnostic.column as usize).min(chars.len());
+        while start < chars.len() && chars[start].is_whitespace() && chars[start] != '\n' {
+            start += 1;
+        }
+        let mut end = start;
+        while end < chars.len()
+            && (chars[end].is_alphanumeric() || chars[end] == '_' || chars[end] == ':')
+        {
+            end += 1;
+        }
+        if end == start {
+            end = (start + 1).min(chars.len());
+        }
+        let start_rect = output
+            .galley
+            .pos_from_cursor(egui::text::CCursor::new(start));
+        let end_rect = output.galley.pos_from_cursor(egui::text::CCursor::new(end));
+        if start_rect.min.y != end_rect.min.y {
+            continue;
+        }
+        let left = output.galley_pos.x + start_rect.min.x;
+        let right = (output.galley_pos.x + end_rect.min.x).max(left + 5.0);
+        let baseline = output.galley_pos.y + start_rect.max.y - 1.0;
+        let color = match diagnostic.severity {
+            1 => RED,
+            2 => EMBER,
+            _ => CYAN,
+        };
+        let mut points = Vec::new();
+        let mut x = left;
+        let mut high = true;
+        while x <= right {
+            points.push(egui::pos2(x, baseline + if high { -1.5 } else { 1.0 }));
+            high = !high;
+            x += 3.0;
+        }
+        points.push(egui::pos2(right, baseline));
+        painter.add(egui::Shape::line(points, Stroke::new(1.4, color)));
+        let hover_rect = egui::Rect::from_min_max(
+            egui::pos2(left, output.galley_pos.y + start_rect.min.y),
+            egui::pos2(right, output.galley_pos.y + start_rect.max.y + 3.0),
+        );
+        if ui
+            .ctx()
+            .pointer_hover_pos()
+            .is_some_and(|pointer| hover_rect.contains(pointer))
+        {
+            output
+                .response
+                .response
+                .clone()
+                .on_hover_text_at_pointer(&diagnostic.message);
+        }
+    }
+}
+
+pub fn welcome_tab() -> EditorTab {
+    EditorTab {
+        path: None,
+        title: "experiment.rs".to_owned(),
+        dirty: false,
+        disk_hash: None,
+        external_change_pending: false,
+        content: r#"//# %% setup
+let learning_rate = 0.03_f32;
+let epochs = 12;
+
+//# %% dataset
+let samples = vec![0.2_f32, 0.7, 1.1, 1.8, 2.4];
+println!("forge_vector:samples=0.2,0.7,1.1,1.8,2.4");
+
+//# %% training
+for epoch in 0..epochs {
+    let loss = (-0.35 * epoch as f64).exp();
+    println!("forge_metric:loss={}", loss);
+}
+"training complete""#
+            .to_owned(),
+    }
+}
+
+pub fn blank_tab() -> EditorTab {
+    EditorTab {
+        path: None,
+        title: "Untitled.rs".to_owned(),
+        content: String::new(),
+        dirty: false,
+        disk_hash: None,
+        external_change_pending: false,
+    }
+}
+
+pub fn content_hash(content: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    content.hash(&mut hasher);
+    hasher.finish()
+}
+
+pub fn file_title(path: &Path) -> String {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("untitled")
+        .to_owned()
+}
+
+/// Convert an LSP (line, utf16-character) position to a char offset in `text`.
+pub fn lsp_pos_to_offset(text: &str, line: usize, character: usize) -> usize {
+    let mut char_offset = 0usize;
+    let mut current_line = 0usize;
+    let mut chars = text.chars().peekable();
+    while current_line < line {
+        match chars.next() {
+            Some('\n') => {
+                current_line += 1;
+                char_offset += 1;
+            }
+            Some(_) => char_offset += 1,
+            None => return char_offset,
+        }
+    }
+    let mut utf16 = 0usize;
+    while utf16 < character {
+        match chars.peek() {
+            Some('\n') | None => break,
+            Some(c) => {
+                utf16 += c.len_utf16();
+                char_offset += 1;
+                chars.next();
+            }
+        }
+    }
+    char_offset
+}
+
+/// Apply LSP text edits to `content` in-place (last edit first, so offsets hold).
+pub fn apply_edits_to(content: &mut String, edits: &[lsp::TextEdit]) {
+    let mut resolved: Vec<(usize, usize, &str)> = edits
+        .iter()
+        .map(|edit| {
+            let start = lsp_pos_to_offset(content, edit.start_line, edit.start_col);
+            let end = lsp_pos_to_offset(content, edit.end_line, edit.end_col);
+            (start, end, edit.new_text.as_str())
+        })
+        .collect();
+    resolved.sort_by(|a, b| b.0.cmp(&a.0));
+    for (start, end, new_text) in resolved {
+        let start_b = content
+            .char_indices()
+            .nth(start)
+            .map(|(b, _)| b)
+            .unwrap_or(content.len());
+        let end_b = content
+            .char_indices()
+            .nth(end)
+            .map(|(b, _)| b)
+            .unwrap_or(content.len());
+        if start_b <= end_b && end_b <= content.len() {
+            content.replace_range(start_b..end_b, new_text);
+        }
+    }
+}
+
+/// Format Rust source with `rustfmt`, piping through stdin/stdout so the editor
+/// buffer (which may be unsaved) is formatted without touching disk.
+pub fn run_rustfmt(source: &str) -> Result<String, String> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new("rustfmt")
+        .args(["--edition", "2021", "--emit", "stdout", "--quiet"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("could not launch rustfmt: {e}"))?;
+    child
+        .stdin
+        .take()
+        .ok_or("rustfmt stdin unavailable")?
+        .write_all(source.as_bytes())
+        .map_err(|e| e.to_string())?;
+    let output = child
+        .wait_with_output()
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        String::from_utf8(output.stdout).map_err(|e| e.to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let first = stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("rustfmt error");
+        Err(first.to_owned())
+    }
+}
+
+pub fn infer_size(type_name: &str) -> &str {
+    if type_name.contains("Vec<") {
+        "dynamic"
+    } else if type_name.starts_with('[') {
+        "array"
+    } else {
+        "scalar"
+    }
+}
+
+pub fn draw_file_nodes(
+    ui: &mut egui::Ui,
+    nodes: &[FileNode],
+    selected: Option<&Path>,
+) -> Option<ExplorerAction> {
+    let mut action = None;
+    for node in nodes {
+        if let Some(children) = &node.children {
+            let shown = egui::CollapsingHeader::new(RichText::new(&node.name).color(TEXT))
+                .show(ui, |ui| draw_file_nodes(ui, children, selected));
+            shown.header_response.context_menu(|ui| {
+                if ui.button("New file here...").clicked() {
+                    action = Some(ExplorerAction::NewFile(node.path.clone()));
+                    ui.close();
+                }
+            });
+            if let Some(child_action) = shown.body_returned.flatten() {
+                action = Some(child_action);
+            }
+        } else {
+            let editable = project::is_editable(&node.path);
+            let active = selected == Some(node.path.as_path());
+            let marker = node
+                .git_status
+                .as_deref()
+                .map(|status| format!(" [{status}]"))
+                .unwrap_or_default();
+            let response = ui.selectable_label(
+                active,
+                RichText::new(format!("  {}{marker}", node.name))
+                    .monospace()
+                    .size(11.0)
+                    .color(if active {
+                        CYAN
+                    } else if editable {
+                        TEXT
+                    } else {
+                        MUTED
+                    }),
+            );
+            if response.clicked() && editable {
+                action = Some(ExplorerAction::Open(node.path.clone()));
+            }
+            response.context_menu(|ui| {
+                if ui
+                    .button(RichText::new("Delete file...").color(RED))
+                    .clicked()
+                {
+                    action = Some(ExplorerAction::Delete(node.path.clone()));
+                    ui.close();
+                }
+            });
+        }
+    }
+    action
+}
+
+pub fn collect_editable_files(nodes: &[FileNode], paths: &mut Vec<PathBuf>) {
+    for node in nodes {
+        if let Some(children) = &node.children {
+            collect_editable_files(children, paths);
+        } else if project::is_editable(&node.path) {
+            paths.push(node.path.clone());
+        }
+    }
+}
