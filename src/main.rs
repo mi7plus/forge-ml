@@ -582,6 +582,7 @@ struct ForgeApp {
     class_target: String,
     class_epochs: usize,
     class_lr: f64,
+    class_test_fraction: f64,
     class_result: String,
     native_burn_artifact: Option<deep_learning::NativeRegressionArtifact>,
     native_burn_inference_feature: f64,
@@ -916,6 +917,7 @@ impl ForgeApp {
             class_target: String::new(),
             class_epochs: 300,
             class_lr: 0.5,
+            class_test_fraction: 0.25,
             class_result: String::new(),
             native_burn_artifact,
             drift_mean_shift_threshold: drift_policy.mean_shift_threshold,
@@ -4699,6 +4701,13 @@ impl ForgeApp {
                     .range(0.001..=10.0)
                     .prefix("lr "),
             );
+            ui.add(
+                egui::DragValue::new(&mut self.class_test_fraction)
+                    .speed(0.01)
+                    .range(0.0..=0.9)
+                    .prefix("test ")
+                    .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)),
+            );
             if ui.button("Train classifier").clicked() {
                 self.train_classifier();
             }
@@ -5322,8 +5331,15 @@ impl ForgeApp {
             let data = classification::prepare(table, &features, self.class_target.trim())?;
             let rows = data.features.len();
             let classes = data.class_names.len();
-            let model = classification::Classifier::train(&data, self.class_epochs, self.class_lr)?;
-            let metrics = model.evaluate(&data);
+            let (train, test) = data.split(self.class_test_fraction);
+            let train = if train.features.len() >= 2 { train } else { data.clone() };
+            let model = classification::Classifier::train(&train, self.class_epochs, self.class_lr)?;
+            let (eval_set, eval_label) = if !test.features.is_empty() {
+                (&test, format!("held-out test ({} rows)", test.features.len()))
+            } else {
+                (&train, "training set".to_owned())
+            };
+            let metrics = model.evaluate(eval_set);
             let per_class = model
                 .classes
                 .iter()
@@ -5337,7 +5353,7 @@ impl ForgeApp {
                 .collect::<Vec<_>>()
                 .join("\n");
             let summary = format!(
-                "Softmax classifier on `{name}` — {rows} rows, {classes} classes, {} features.\nAccuracy {:.3} · macro-F1 {:.3}\n{per_class}",
+                "Softmax classifier on `{name}` — {rows} rows, {classes} classes, {} features.\nEvaluated on {eval_label}: accuracy {:.3} · macro-F1 {:.3}\n{per_class}",
                 data.feature_names.len(),
                 metrics.accuracy,
                 metrics.macro_f1

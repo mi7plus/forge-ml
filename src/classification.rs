@@ -134,6 +134,41 @@ pub fn prepare(
     })
 }
 
+impl Dataset {
+    /// Deterministically split into (train, test) by a stable per-row hash, so
+    /// the same data always yields the same split. Class ids and names are
+    /// preserved. Falls back to an empty test set if the split would empty train.
+    pub fn split(&self, test_fraction: f64) -> (Dataset, Dataset) {
+        let frac = test_fraction.clamp(0.0, 0.9);
+        let mut train = self.empty_like();
+        let mut test = self.empty_like();
+        for (i, (row, &label)) in self.features.iter().zip(&self.labels).enumerate() {
+            let bucket = ((i as u64).wrapping_mul(2_654_435_761) >> 13) % 1000;
+            let dst = if (bucket as f64) < frac * 1000.0 {
+                &mut test
+            } else {
+                &mut train
+            };
+            dst.features.push(row.clone());
+            dst.labels.push(label);
+        }
+        if train.features.is_empty() {
+            // Degenerate split; keep everything in train.
+            return (self.clone(), self.empty_like());
+        }
+        (train, test)
+    }
+
+    fn empty_like(&self) -> Dataset {
+        Dataset {
+            features: Vec::new(),
+            labels: Vec::new(),
+            feature_names: self.feature_names.clone(),
+            class_names: self.class_names.clone(),
+        }
+    }
+}
+
 fn softmax(logits: &mut [f64]) {
     let max = logits.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     let mut sum = 0.0;
@@ -383,6 +418,20 @@ mod tests {
         // class 1: tp=2, predicted=3 -> precision 2/3; actual=2 -> recall 1.
         assert!((m.per_class[1].precision - 2.0 / 3.0).abs() < 1e-9);
         assert!((m.per_class[1].recall - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn split_is_deterministic_and_preserves_classes() {
+        let data = prepare(&table(), &["x1".into(), "x2".into()], "label").unwrap();
+        let (train, test) = data.split(0.5);
+        assert_eq!(train.class_names, data.class_names);
+        assert_eq!(train.features.len() + test.features.len(), data.features.len());
+        let (train_again, _) = data.split(0.5);
+        assert_eq!(train.labels, train_again.labels);
+        // A zero test fraction keeps everything for training.
+        let (all_train, empty_test) = data.split(0.0);
+        assert_eq!(all_train.features.len(), data.features.len());
+        assert!(empty_test.features.is_empty());
     }
 
     #[test]
