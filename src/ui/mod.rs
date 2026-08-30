@@ -2,8 +2,10 @@
 //! rendering helpers split out of the main application module.
 
 pub mod data_view;
+pub mod dock;
 pub mod editing;
 pub mod editor;
+pub mod editor_pane;
 pub mod grid;
 pub mod menus;
 pub mod ml_lab;
@@ -12,4 +14,5 @@ pub mod panes;
 pub mod plotting;
 pub mod scm;
 pub mod services;
+pub mod shortcuts;
 pub mod theme;

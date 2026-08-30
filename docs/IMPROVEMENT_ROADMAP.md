@@ -131,15 +131,17 @@ Jupyter; Git/GitHub/packages panes; off-by-default diagnostics; and 132 tests.
 
 ## Tier 4 — Engineering health & polish
 
-16. **Split `main.rs`** into `ui/` submodules. _(in progress)_ A `ui/` module
-    tree now holds the presentation helpers — `ui::theme` (palette, visuals,
-    styled buttons/frames), `ui::plotting` (axis transforms, histogram, box
-    summary, heatmap), `ui::editing` (word/offset math, LSP position mapping and
-    edit application, caret and inline-diagnostic painting, rustfmt, file-tree
-    rendering), and `ui::grid` (row filter/sort indexing and column-window
-    virtualization). This has taken `main.rs` from ~11.0k to ~10.1k lines;
-    remaining work is extracting the large `ForgeApp` method clusters (menus,
-    panes, dock behavior) into further `ui/` submodules.
+16. **Split `main.rs`** into `ui/` submodules. _(shipped)_ A `ui/` module tree
+    holds the presentation layer as `impl crate::ForgeApp` blocks, taking
+    `main.rs` from ~11.0k to ~4.1k lines. Helpers: `ui::theme`, `ui::plotting`,
+    `ui::editing`, `ui::grid`. Pane/menu clusters: `ui::ml_lab` (Deep-learning
+    lab), `ui::services` (storage, deploy, SQL, Millwright Studio), `ui::scm`
+    (Git/Crates/GitHub), `ui::data_view` (data pane + dataset viewers),
+    `ui::notebook_io`, `ui::panes` (search, experiments, charts, console),
+    `ui::menus`, `ui::editor` (explorer, tabs, outline), `ui::dock`,
+    `ui::shortcuts`, and `ui::editor_pane`. `main.rs` now keeps the app struct,
+    constructor, lifecycle/background polling, LSP wiring, and the `egui_tiles`
+    /`eframe::App` trait impls. Cross-module entry points are `pub(crate)`.
 17. **Real screenshots** on the homepage (the SVG mockup is a good placeholder,
     but a captured screenshot converts better) and a `CHANGELOG.md`.
 
