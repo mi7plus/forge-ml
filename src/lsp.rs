@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Diagnostic {
@@ -167,9 +167,16 @@ struct Server {
     next_id: u64,
     pending: HashMap<u64, Pending>,
     open_versions: HashMap<PathBuf, i32>,
-    /// Active `$/progress` tokens (indexing, cache priming, …). When this drains
-    /// to empty, rust-analyzer has finished and is ready.
+    /// Active `$/progress` tokens (indexing, cache priming, …).
     progress: std::collections::HashSet<String>,
+    /// True once any progress has been reported (so we don't announce "ready"
+    /// before rust-analyzer has even started working).
+    progress_seen: bool,
+    /// When the active progress set last became empty; readiness is only
+    /// declared after it has stayed empty for a debounce (phases have gaps).
+    idle_since: Option<Instant>,
+    /// True once "ready" has been announced for the current work.
+    announced_ready: bool,
 }
 
 impl Drop for Server {
@@ -218,6 +225,18 @@ fn worker(commands: Receiver<LspCommand>, events: Sender<LspEvent>) {
         if let Some(active) = &mut server {
             while let Ok(message) = active.incoming.try_recv() {
                 handle_message(active, message, &events);
+            }
+            // Announce readiness only after rust-analyzer has stayed idle (no
+            // active progress) for a debounce window, so brief gaps between
+            // indexing phases don't cause a premature "ready".
+            if active.progress_seen && !active.announced_ready && active.progress.is_empty() {
+                if let Some(since) = active.idle_since {
+                    if since.elapsed() >= Duration::from_millis(2500) {
+                        active.announced_ready = true;
+                        let _ =
+                            events.send(LspEvent::Status("rust-analyzer ready ✓".to_owned()));
+                    }
+                }
             }
         }
         match commands.recv_timeout(Duration::from_millis(30)) {
@@ -312,6 +331,9 @@ fn start_server(root: PathBuf, events: &Sender<LspEvent>) -> std::io::Result<Ser
         pending: HashMap::new(),
         open_versions: HashMap::new(),
         progress: std::collections::HashSet::new(),
+        progress_seen: false,
+        idle_since: None,
+        announced_ready: false,
     };
     let root_uri = file_uri(&root);
     send(
@@ -689,6 +711,9 @@ fn handle_message(server: &mut Server, message: Value, events: &Sender<LspEvent>
         match kind {
             "begin" | "report" => {
                 server.progress.insert(token);
+                server.progress_seen = true;
+                server.idle_since = None;
+                server.announced_ready = false;
                 let title = value
                     .and_then(|v| v.get("title"))
                     .and_then(Value::as_str)
@@ -708,7 +733,9 @@ fn handle_message(server: &mut Server, message: Value, events: &Sender<LspEvent>
             "end" => {
                 server.progress.remove(&token);
                 if server.progress.is_empty() {
-                    let _ = events.send(LspEvent::Status("rust-analyzer ready ✓".to_owned()));
+                    // Start the debounce; "ready" is announced from the worker
+                    // loop only if no new phase begins within the window.
+                    server.idle_since = Some(Instant::now());
                 }
             }
             _ => {}

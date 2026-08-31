@@ -740,7 +740,7 @@ impl ForgeApp {
         if elapsed < 0.6 {
             return true;
         }
-        if elapsed >= 45.0 {
+        if elapsed >= 75.0 {
             return false;
         }
         let dismissed = ctx.input(|i| {
