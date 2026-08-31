@@ -515,6 +515,8 @@ struct ForgeApp {
     ui_scale: f32,
     /// When the splash overlay started; `None` once it has been dismissed.
     splash_start: Option<Instant>,
+    /// Set once rust-analyzer reports it has finished indexing.
+    lsp_ready: bool,
     editor_needs_initial_focus: bool,
     explorer_height: f32,
     pending_delete: Option<PathBuf>,
@@ -721,9 +723,15 @@ fn resolve_palette(
 }
 
 impl ForgeApp {
+    /// Whether the workspace/rust-analyzer for the active tab is still loading.
+    fn workspace_indexing(&self) -> bool {
+        self.project.is_some() && self.active_plain_rust() && !self.lsp_ready
+    }
+
     /// Whether the startup splash overlay should still be shown. It stays up for
-    /// a brief minimum, then until the Rust runtime finishes booting (or a hard
-    /// cap), and can be dismissed early with a click or key press.
+    /// a brief minimum, then until the Rust runtime has booted and rust-analyzer
+    /// has finished indexing the workspace (bounded by a hard cap), and can be
+    /// dismissed early with a click or key press.
     fn splash_active(&self, ctx: &egui::Context) -> bool {
         let Some(start) = self.splash_start else {
             return false;
@@ -732,7 +740,7 @@ impl ForgeApp {
         if elapsed < 0.6 {
             return true;
         }
-        if elapsed >= 5.0 {
+        if elapsed >= 45.0 {
             return false;
         }
         let dismissed = ctx.input(|i| {
@@ -741,28 +749,54 @@ impl ForgeApp {
                 || i.key_pressed(egui::Key::Enter)
                 || i.key_pressed(egui::Key::Space)
         });
-        !dismissed && matches!(self.run_state, RunState::Booting)
+        if dismissed {
+            return false;
+        }
+        matches!(self.run_state, RunState::Booting) || self.workspace_indexing()
     }
 
-    /// Paint the centered startup splash into the full-window `ui`.
+    /// Paint the centered startup splash (brand, spinner, live phase, project)
+    /// into the full-window `ui`.
     fn draw_splash(&self, ui: &mut egui::Ui) {
         ui.vertical_centered(|ui| {
-            ui.add_space((ui.available_height() * 0.30).max(40.0));
+            ui.add_space((ui.available_height() * 0.28).max(36.0));
             ui.label(RichText::new("FORGE ML").size(46.0).strong().color(RED));
             ui.label(
                 RichText::new("Rust compute studio")
                     .size(14.0)
                     .color(MUTED),
             );
-            ui.add_space(28.0);
+            if let Some(name) = self
+                .project
+                .as_ref()
+                .and_then(|project| project.root.file_name())
+                .and_then(|name| name.to_str())
+            {
+                ui.add_space(4.0);
+                ui.label(RichText::new(format!("Loading {name}")).size(12.0).color(TEXT));
+            }
+            ui.add_space(26.0);
             ui.add(egui::Spinner::new().size(30.0).color(accent()));
             ui.add_space(12.0);
             let status = if matches!(self.run_state, RunState::Booting) {
-                "Starting the Rust runtime…"
+                "Starting the Rust runtime…".to_owned()
+            } else if self.workspace_indexing() {
+                let s = self.lsp_status.replace('\n', " ");
+                if s.is_empty() {
+                    "Initializing rust-analyzer…".to_owned()
+                } else {
+                    s
+                }
             } else {
-                "Ready"
+                "Ready".to_owned()
             };
             ui.label(RichText::new(status).size(12.0).color(MUTED));
+            ui.add_space(6.0);
+            ui.label(
+                RichText::new("Click or press any key to skip")
+                    .size(10.0)
+                    .color(MUTED),
+            );
             ui.add_space(4.0);
             ui.label(
                 RichText::new(format!("v{APP_VERSION}"))
@@ -1090,6 +1124,7 @@ impl ForgeApp {
             theme_dirty: false,
             ui_scale,
             splash_start: Some(Instant::now()),
+            lsp_ready: false,
             editor_needs_initial_focus: true,
             explorer_height,
             pending_delete: None,
@@ -3025,7 +3060,12 @@ impl ForgeApp {
         }
         while let Some(event) = self.lsp.try_recv() {
             match event {
-                LspEvent::Status(status) => self.lsp_status = status,
+                LspEvent::Status(status) => {
+                    if status.contains("ready") {
+                        self.lsp_ready = true;
+                    }
+                    self.lsp_status = status;
+                }
                 LspEvent::Diagnostics { path, mut items } => {
                     if self.tabs.iter().any(|tab| {
                         tab.path.as_ref() == Some(&path) && is_notebook_document(&tab.content)
@@ -3578,6 +3618,8 @@ impl eframe::App for ForgeApp {
         // ticking underneath so it progresses to Ready.
         if self.splash_active(ui.ctx()) {
             self.poll_background(ui.ctx());
+            // Kick rust-analyzer so it starts indexing behind the splash.
+            self.sync_lsp();
             self.draw_splash(ui);
             ui.ctx().request_repaint();
             return;
