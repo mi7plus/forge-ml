@@ -313,8 +313,9 @@ pub fn configure_style(ctx: &egui::Context, palette: &Palette, high_contrast: bo
     visuals.widgets.active.bg_fill = mix(colors.raised, accent, if dark { 0.28 } else { 0.34 });
     visuals.widgets.active.fg_stroke = Stroke::new(1.0, EMBER);
     if high_contrast {
-        visuals.override_text_color = Some(if dark { Color32::WHITE } else { Color32::BLACK });
-        visuals.weak_text_color = visuals.override_text_color;
+        // Keep the palette's text color (so themes still apply) but strengthen
+        // outlines and weak text for readability.
+        visuals.weak_text_color = Some(colors.text);
         visuals.widgets.noninteractive.fg_stroke.width = 2.0;
         visuals.widgets.inactive.fg_stroke.width = 2.0;
         visuals.widgets.hovered.fg_stroke.width = 2.5;

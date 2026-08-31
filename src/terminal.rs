@@ -218,7 +218,7 @@ impl Terminal {
 
     /// Render the terminal into the available space and handle its input.
     /// Returns true if a repaint should be scheduled.
-    pub fn ui(&mut self, ui: &mut egui::Ui, dark: bool) -> bool {
+    pub fn ui(&mut self, ui: &mut egui::Ui, _dark: bool) -> bool {
         let mut changed = self.pump(ui.ctx());
 
         if let Some(message) = self.exited.clone() {
@@ -236,19 +236,12 @@ impl Terminal {
             });
         }
 
-        let (default_fg, default_bg, cursor_color) = if dark {
-            (
-                Color32::from_rgb(0xcf, 0xd4, 0xda),
-                Color32::from_rgb(0x0e, 0x11, 0x14),
-                Color32::from_rgb(0x39, 0x8d, 0xcc),
-            )
-        } else {
-            (
-                Color32::from_rgb(0x1a, 0x1c, 0x1f),
-                Color32::from_rgb(0xfb, 0xfb, 0xfd),
-                Color32::from_rgb(0x0b, 0x8f, 0xa8),
-            )
-        };
+        // The terminal follows the active theme: pane background, default text,
+        // and cursor come from the palette (ANSI-colored output is unaffected).
+        let palette = crate::ui::theme::active_palette();
+        let rgb = |c: [u8; 3]| Color32::from_rgb(c[0], c[1], c[2]);
+        let (default_fg, default_bg, cursor_color) =
+            (rgb(palette.text), rgb(palette.background), rgb(palette.accent));
 
         let font = FontId::monospace(self.font_size);
         let (char_w, row_h) = ui.ctx().fonts_mut(|f| {
