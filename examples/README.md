@@ -14,6 +14,26 @@ Files under `notebooks/` contain Forge `//# %%` cells. Open one in the editor an
 - `notebooks/native_regression.rs` fits a univariate model inline and emits a loss curve, an original-unit equation, MAE/RMSE/R2, and actual-vs-predicted vectors, mirroring the native-regression workflow.
 - `notebooks/structured_plots.rs` emits versioned `forge_plot:` JSON across several plot families (line, scatter, bars, histogram) plus legacy metric/vector markers, to exercise the Plots pane and its exports.
 
+### ML notebooks (Millwright + Burn)
+
+Runnable notebook versions of the six ML examples, each self-contained — the
+dataset is embedded, so they compile and run inside the editor with no file
+paths. The first cell is a `:dep` line that pulls in only the features it needs
+(so the first compile is as small as possible); run cells top-to-bottom with
+`Shift+Enter`.
+
+- `notebooks/millwright_regression.rs` — `LinearRegression` on tips (`smartcore-backend`).
+- `notebooks/millwright_classification.rs` — `RandomForest` on iris (`smartcore-backend`).
+- `notebooks/millwright_clustering.rs` — `KMeans` on iris (`linfa-backend`).
+- `notebooks/burn_regression.rs` — single-layer linear model, SGD (`std,train,flex`).
+- `notebooks/burn_classification.rs` — MLP 4→16→3, cross-entropy (`std,train,flex`).
+- `notebooks/burn_clustering.rs` — k-means from Burn tensor ops (`std,flex`).
+
+The first `:dep` compile of a crate takes a while (Burn's is the largest); it is
+cached afterwards, and instant once the offline runtime bundle ships. These
+mirror the `cargo run --example …` versions below, which read the CSVs from
+`data/` instead of embedding them.
+
 These notebook files are nested deliberately. Cargo does not treat them as standalone example binaries, because interactive cell bodies are not ordinary `main` functions.
 
 To test experiment comparison, run the baseline cell in `experiment_comparison.rs`, enter `baseline` in the Plots run-name field, and choose **Save run**. Clear or restart the runtime, run the tuned cell, save it as `tuned`, then select `loss` or `accuracy` in Runs.

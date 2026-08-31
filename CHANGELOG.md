@@ -12,6 +12,12 @@ grouped under the **0.98.0** release below.
 ## [Unreleased]
 
 ### Added
+- **ML example notebooks.** Notebook versions of all six ML examples under
+  `examples/notebooks/` (Millwright and Burn × regression/classification/
+  clustering), runnable in the editor with `Shift+Enter`. Each is self-contained:
+  the dataset is embedded and the first cell is a `:dep` line requesting only the
+  features it needs, so nothing has to be downloaded by hand and the first
+  compile is as small as possible. All six are compile-verified.
 - **Offline runtime bundle.** The packaged installer can run notebook `:dep`
   cells and generated projects for Millwright/Burn with no network and no
   user-installed Rust toolchain. The app (`src/offline.rs`) detects a bundled
