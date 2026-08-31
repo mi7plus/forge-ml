@@ -7,11 +7,14 @@ all it takes to replace one.
 
 ## Capture these files
 
+`workspace.png` and `terminals-kernels.png` are already captured from a live
+session; the four below still show placeholders until added.
+
 | File | Pane / view to capture |
 | --- | --- |
-| `workspace.png` | The default dockable layout — file navigator, editor with `//# %%` notebook cells, an inspector on the right, and the console docked below. |
+| `workspace.png` | ✅ Captured — the dockable layout with the editor, file navigator, and notebook cell rail. |
+| `terminals-kernels.png` | ✅ Captured — an embedded terminal and the variables inspector docked beside the editor. For an even better shot, add a second terminal and a Rust kernel on the same row. |
 | `classification.png` | Deep-learning pane after **Train classifier**, showing accuracy / per-class F1, with the confusion-matrix heatmap in the Charts tab. |
-| `terminals-kernels.png` | Two or three embedded terminals and a Rust kernel open as separate docked panes on one row. |
 | `data-viewer.png` | The data viewer on an imported dataset — filter box, a sorted column, and a pinned column visible. |
 | `playground.png` | The **Inference playground** with the per-feature form and the live per-class probability bars. |
 | `plots.png` | A live training-loss line chart plus the Experiments/Runs board comparing a couple of runs. |

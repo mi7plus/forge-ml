@@ -150,9 +150,9 @@ Jupyter; Git/GitHub/packages panes; off-by-default diagnostics; and 132 tests.
     **Screenshots** gallery on the homepage that loads PNGs from
     [`site/screenshots/`](../site/screenshots), degrading to styled placeholders
     until captures are added; a [capture guide](../site/screenshots/README.md)
-    lists the six recommended shots, window size, and file names. Capturing the
-    actual PNGs is a desktop step (the running GUI can't be screenshotted
-    headlessly); the hero SVG mockup remains as the immediate visual.
+    lists the six recommended shots, window size, and file names. Two real
+    captures (`workspace.png`, `terminals-kernels.png`) are in place; the other
+    four are staged shots a maintainer can drop in from a live session.
 
 ---
 
