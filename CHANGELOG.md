@@ -9,7 +9,7 @@ embedded terminals and kernels, an editor/LSP tooling sweep, and an ML modelling
 sweep — followed by an internal restructuring of the application code. Those are
 grouped under the **0.98.0** release below.
 
-## [Unreleased]
+## [0.99.0] — 2026-08-31
 
 ### Fixed
 - Editor tabs are selectable again — clicking any tab switches to it. The
