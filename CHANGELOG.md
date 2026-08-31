@@ -18,9 +18,11 @@ grouped under the **0.98.0** release below.
   and export/import them as JSON. The active theme and custom themes persist with
   the session. The whole IDE follows the palette, including the **code-editor
   background**, the **terminal**, and **floating-window headers**; the three
-  status colors (warn/ok/error) stay fixed for legibility. Ships built-in
-  **Nord**, **Dracula**, **Solarized Dark/Light**, **Gruvbox Dark**, and
-  **Rosé Pine** themes alongside Dark and Light.
+  status colors (warn/ok/error) stay fixed for legibility. Ships 14 built-in
+  themes alongside Dark and Light: **Nord**, **Dracula**, **Solarized
+  Dark/Light**, **Gruvbox Dark**, **Rosé Pine**, **One Dark Pro**, **Tokyo
+  Night**, **Monokai**, **Night Owl**, **Cobalt2**, plus **Crimson**,
+  **Matrix**, and **Hacker**.
 - **Interface scale.** A Settings → Appearance slider scales *all* text and
   controls across the whole IDE (not just the editor), from 80% to 160%,
   persisted with the session.
