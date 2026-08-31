@@ -261,7 +261,8 @@ impl crate::ForgeApp {
                 };
                 if ui.button(label).clicked() {
                     self.dark_mode = !self.dark_mode;
-                    configure_style(ui.ctx(), self.dark_mode, self.high_contrast);
+                    self.active_theme = None;
+                    self.apply_theme(ui.ctx());
                     ui.close();
                 }
                 ui.separator();
@@ -450,6 +451,207 @@ impl crate::ForgeApp {
         });
     }
 
+    /// The theme builder: pick a theme, edit the seven base colors with live
+    /// preview, save/duplicate/delete custom themes, and export/import them.
+    fn theme_builder(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(4.0);
+        ui.collapsing("Theme builder", |ui| {
+            // Theme picker — built-in Dark/Light plus every custom theme.
+            let current = self
+                .active_theme
+                .clone()
+                .unwrap_or_else(|| if self.dark_mode { "Dark" } else { "Light" }.to_owned());
+            enum Pick {
+                Builtin(bool),
+                Custom(String),
+            }
+            let mut pick: Option<Pick> = None;
+            egui::ComboBox::from_id_salt("forge_theme_select")
+                .selected_text(&current)
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_label(self.active_theme.is_none() && !self.dark_mode, "Light")
+                        .clicked()
+                    {
+                        pick = Some(Pick::Builtin(false));
+                    }
+                    if ui
+                        .selectable_label(self.active_theme.is_none() && self.dark_mode, "Dark")
+                        .clicked()
+                    {
+                        pick = Some(Pick::Builtin(true));
+                    }
+                    for theme in &self.custom_themes {
+                        let active = self.active_theme.as_deref() == Some(theme.name.as_str());
+                        if ui.selectable_label(active, &theme.name).clicked() {
+                            pick = Some(Pick::Custom(theme.name.clone()));
+                        }
+                    }
+                });
+            if let Some(pick) = pick {
+                match pick {
+                    Pick::Builtin(dark) => {
+                        self.dark_mode = dark;
+                        self.active_theme = None;
+                    }
+                    Pick::Custom(name) => self.active_theme = Some(name),
+                }
+                self.theme_draft =
+                    resolve_palette(&self.active_theme, &self.custom_themes, self.dark_mode);
+                self.apply_theme(ui.ctx());
+            }
+
+            ui.add_space(6.0);
+            // Color slots — edit the draft palette with a live preview.
+            let mut changed = false;
+            egui::Grid::new("forge_theme_slots")
+                .num_columns(2)
+                .spacing([10.0, 4.0])
+                .show(ui, |ui| {
+                    for (label, rgb) in self.theme_draft.slots() {
+                        ui.label(RichText::new(label).size(11.0));
+                        ui.horizontal(|ui| {
+                            if egui::color_picker::color_edit_button_srgb(ui, rgb).changed() {
+                                changed = true;
+                            }
+                            ui.label(
+                                RichText::new(crate::ui::theme::Palette::to_hex(*rgb))
+                                    .monospace()
+                                    .size(10.0)
+                                    .color(MUTED),
+                            );
+                        });
+                        ui.end_row();
+                    }
+                });
+            if ui
+                .checkbox(&mut self.theme_draft.dark, "Dark widget base")
+                .on_hover_text("Whether egui's built-in widgets use their dark or light baseline")
+                .changed()
+            {
+                changed = true;
+            }
+            if changed {
+                configure_style(ui.ctx(), &self.theme_draft, self.high_contrast);
+                // Keep an active custom theme's stored palette in sync with edits.
+                if let Some(name) = self.active_theme.clone() {
+                    if let Some(theme) =
+                        self.custom_themes.iter_mut().find(|theme| theme.name == name)
+                    {
+                        theme.palette = self.theme_draft.clone();
+                    }
+                }
+            }
+
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.theme_new_name)
+                        .desired_width(150.0)
+                        .hint_text("new theme name"),
+                );
+                let name = self.theme_new_name.trim().to_owned();
+                if ui
+                    .add_enabled(!name.is_empty(), egui::Button::new("Save as"))
+                    .clicked()
+                {
+                    self.custom_themes.retain(|theme| theme.name != name);
+                    self.custom_themes.push(NamedTheme {
+                        name: name.clone(),
+                        palette: self.theme_draft.clone(),
+                    });
+                    self.active_theme = Some(name);
+                    self.theme_new_name.clear();
+                    self.apply_theme(ui.ctx());
+                }
+            });
+            ui.horizontal(|ui| {
+                if ui
+                    .button("Reset draft")
+                    .on_hover_text("Discard edits and reload the active theme")
+                    .clicked()
+                {
+                    self.theme_draft =
+                        resolve_palette(&self.active_theme, &self.custom_themes, self.dark_mode);
+                    self.apply_theme(ui.ctx());
+                }
+                if let Some(name) = self.active_theme.clone() {
+                    if ui
+                        .button("Delete")
+                        .on_hover_text(format!("Delete the '{name}' theme"))
+                        .clicked()
+                    {
+                        self.custom_themes.retain(|theme| theme.name != name);
+                        self.active_theme = None;
+                        self.theme_draft = resolve_palette(
+                            &self.active_theme,
+                            &self.custom_themes,
+                            self.dark_mode,
+                        );
+                        self.apply_theme(ui.ctx());
+                    }
+                }
+                if ui.button("Export…").clicked() {
+                    self.export_theme();
+                }
+                if ui.button("Import…").clicked() {
+                    self.import_theme(ui.ctx());
+                }
+            });
+        });
+    }
+
+    /// Write the current draft palette to a `.json` theme file.
+    fn export_theme(&mut self) {
+        let name = self
+            .active_theme
+            .clone()
+            .unwrap_or_else(|| if self.dark_mode { "dark" } else { "light" }.to_owned());
+        let theme = NamedTheme {
+            name: name.clone(),
+            palette: self.theme_draft.clone(),
+        };
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Forge theme", &["json"])
+            .set_file_name(format!("{name}.forge-theme.json"))
+            .save_file()
+        else {
+            return;
+        };
+        self.console = match serde_json::to_string_pretty(&theme)
+            .map_err(|e| e.to_string())
+            .and_then(|text| std::fs::write(&path, text).map_err(|e| e.to_string()))
+        {
+            Ok(()) => format!("Exported theme to {}", path.display()),
+            Err(error) => format!("Could not export theme: {error}"),
+        };
+    }
+
+    /// Load a `.json` theme file, add it to the custom themes, and activate it.
+    fn import_theme(&mut self, ctx: &egui::Context) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Forge theme", &["json"])
+            .pick_file()
+        else {
+            return;
+        };
+        match std::fs::read_to_string(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|text| serde_json::from_str::<NamedTheme>(&text).map_err(|e| e.to_string()))
+        {
+            Ok(theme) => {
+                let name = theme.name.clone();
+                self.custom_themes.retain(|existing| existing.name != name);
+                self.theme_draft = theme.palette.clone();
+                self.custom_themes.push(theme);
+                self.active_theme = Some(name);
+                self.apply_theme(ctx);
+                self.console = "Imported theme.".to_owned();
+            }
+            Err(error) => self.console = format!("Could not import theme: {error}"),
+        }
+    }
+
     pub(crate) fn settings_window(&mut self, ctx: &egui::Context) {
         if !self.settings_open {
             return;
@@ -470,8 +672,12 @@ impl crate::ForgeApp {
                 });
                 if dark != self.dark_mode {
                     self.dark_mode = dark;
-                    configure_style(ctx, self.dark_mode, self.high_contrast);
+                    self.active_theme = None;
+                    self.theme_draft =
+                        resolve_palette(&self.active_theme, &self.custom_themes, self.dark_mode);
+                    self.apply_theme(ctx);
                 }
+                self.theme_builder(ui);
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.label("Editor font size");
@@ -493,7 +699,7 @@ impl crate::ForgeApp {
                     "Reduce motion and disable blinking",
                 );
                 if contrast_changed {
-                    configure_style(ctx, self.dark_mode, self.high_contrast);
+                    self.apply_theme(ctx);
                 }
                 ui.heading("Privacy & diagnostics");
                 let consent_changed = ui
@@ -545,7 +751,7 @@ impl crate::ForgeApp {
                     self.caret_blink = default_true();
                     self.high_contrast = false;
                     self.reduced_motion = false;
-                    configure_style(ctx, self.dark_mode, self.high_contrast);
+                    self.apply_theme(ctx);
                 }
 
                 ui.separator();

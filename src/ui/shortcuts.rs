@@ -53,7 +53,11 @@ impl crate::ForgeApp {
             NewTerminal => self.pending_new_terminal = Some(None),
             NewKernel => self.pending_new_kernel = Some(None),
             ImportData => self.import_dataset(),
-            ToggleTheme => self.dark_mode = !self.dark_mode,
+            ToggleTheme => {
+                self.dark_mode = !self.dark_mode;
+                self.active_theme = None;
+                self.theme_dirty = true;
+            }
             Settings => self.settings_open = true,
             Variables => self.inspector_tab = InspectorTab::Variables,
             Data => self.inspector_tab = InspectorTab::Data,
@@ -261,7 +265,7 @@ impl crate::ForgeApp {
         if let Some(command) = chosen {
             self.command_palette_open = false;
             self.execute_command(command);
-            configure_style(ctx, self.dark_mode, self.high_contrast);
+            self.apply_theme(ctx);
         }
     }
 }

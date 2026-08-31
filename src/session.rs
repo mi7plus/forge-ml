@@ -155,6 +155,12 @@ pub struct SessionState {
     /// Serialized `egui_tiles` dock layout (JSON). `None` restores the default.
     #[serde(default)]
     pub dock_layout: Option<String>,
+    /// Name of the active custom theme (`None` = built-in Dark/Light).
+    #[serde(default)]
+    pub active_theme: Option<String>,
+    /// User-authored themes available in the theme builder.
+    #[serde(default)]
+    pub custom_themes: Vec<crate::ui::theme::NamedTheme>,
 }
 
 impl SessionState {
@@ -245,6 +251,8 @@ impl Default for SessionState {
             native_training_feature: String::new(),
             native_training_target: String::new(),
             dock_layout: None,
+            active_theme: None,
+            custom_themes: Vec::new(),
         }
     }
 }

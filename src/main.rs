@@ -500,6 +500,16 @@ struct ForgeApp {
     navigable_hover_offset: Option<usize>,
     definition_probe_pending: bool,
     dark_mode: bool,
+    /// Active custom theme name (`None` = the built-in Dark/Light per `dark_mode`).
+    active_theme: Option<String>,
+    /// User-authored themes available in the theme builder.
+    custom_themes: Vec<ui::theme::NamedTheme>,
+    /// Draft palette the theme builder edits before saving.
+    theme_draft: ui::theme::Palette,
+    theme_new_name: String,
+    /// Set when the theme changed without an egui context to hand; the render
+    /// loop re-applies the palette on the next frame.
+    theme_dirty: bool,
     editor_needs_initial_focus: bool,
     explorer_height: f32,
     pending_delete: Option<PathBuf>,
@@ -680,6 +690,33 @@ struct ForgeApp {
     dock_pending_ctrl_definition: bool,
 }
 
+/// Resolve the palette to apply: a named custom theme if one is active and
+/// still exists, otherwise the built-in Dark/Light palette per `dark`.
+fn resolve_palette(
+    active: &Option<String>,
+    customs: &[ui::theme::NamedTheme],
+    dark: bool,
+) -> ui::theme::Palette {
+    if let Some(name) = active {
+        if let Some(theme) = customs.iter().find(|theme| &theme.name == name) {
+            return theme.palette.clone();
+        }
+    }
+    if dark {
+        ui::theme::Palette::dark()
+    } else {
+        ui::theme::Palette::light()
+    }
+}
+
+impl ForgeApp {
+    /// Resolve the active theme and apply its palette to the egui context.
+    pub(crate) fn apply_theme(&self, ctx: &egui::Context) {
+        let palette = resolve_palette(&self.active_theme, &self.custom_themes, self.dark_mode);
+        configure_style(ctx, &palette, self.high_contrast);
+    }
+}
+
 impl ForgeApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut fonts = egui::FontDefinitions::default();
@@ -689,7 +726,10 @@ impl ForgeApp {
             .storage
             .and_then(|storage| eframe::get_value::<SessionState>(storage, STORAGE_KEY))
             .unwrap_or_default();
-        configure_style(&cc.egui_ctx, session.dark_mode, session.high_contrast);
+        let custom_themes = session.custom_themes.clone();
+        let active_theme = session.active_theme.clone();
+        let theme_palette = resolve_palette(&active_theme, &custom_themes, session.dark_mode);
+        configure_style(&cc.egui_ctx, &theme_palette, session.high_contrast);
         let dark_mode = session.dark_mode;
         let explorer_height = if session.explorer_height > 0.0 {
             session.explorer_height
@@ -845,6 +885,11 @@ impl ForgeApp {
             navigable_hover_offset: None,
             definition_probe_pending: false,
             dark_mode,
+            theme_draft: theme_palette.clone(),
+            active_theme,
+            custom_themes,
+            theme_new_name: String::new(),
+            theme_dirty: false,
             editor_needs_initial_focus: true,
             explorer_height,
             pending_delete: None,
@@ -3265,6 +3310,10 @@ fn load_dock_tree(serialized: Option<&str>) -> Tree<PaneKind> {
 
 impl eframe::App for ForgeApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if self.theme_dirty {
+            self.apply_theme(ui.ctx());
+            self.theme_dirty = false;
+        }
         self.accessibility_shortcuts(ui.ctx());
         self.command_palette(ui.ctx());
         self.poll_background(ui.ctx());
@@ -3447,6 +3496,8 @@ impl eframe::App for ForgeApp {
                 .dock_tree
                 .as_ref()
                 .and_then(|tree| serde_json::to_string(tree).ok()),
+            active_theme: self.active_theme.clone(),
+            custom_themes: self.custom_themes.clone(),
         };
         eframe::set_value(storage, STORAGE_KEY, &state);
     }
