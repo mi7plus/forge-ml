@@ -90,14 +90,13 @@ impl RuntimeHandle {
 /// runtime bundle is active we turn on offline mode (so cargo never reaches for
 /// the network) and grant a large compilation cache so the pre-built Millwright
 /// and Burn artifacts are reused instead of recompiled on first use.
-fn configure_context(context: &mut evcxr::EvalContext) {
+fn configure_context(context: &mut evcxr::CommandContext) {
     if crate::offline::detect().is_some() {
-        let mut state = context.state();
-        state.set_offline_mode(true);
-        // 8 GiB is ample for the blessed dependency set and keeps prebuilt
-        // Millwright/Burn artifacts resident across resets instead of recompiling.
-        state.set_cache_bytes(8 * 1024 * 1024 * 1024);
-        let _ = context.eval_with_state("", state);
+        // These are handled by CommandContext's `:` command layer.
+        let _ = context.execute(":offline 1");
+        // 8192 MiB (8 GiB) is ample for the blessed dependency set and keeps
+        // prebuilt Millwright/Burn artifacts resident across resets.
+        let _ = context.execute(":cache 8192");
     }
 }
 
@@ -111,7 +110,10 @@ fn runtime_loop(
     // Millwright/Burn resolve and build with no network or system toolchain.
     crate::offline::activate();
 
-    let (mut context, mut streams) = match evcxr::EvalContext::new() {
+    // CommandContext (not the lower-level EvalContext) is required so notebook
+    // `:` commands — notably `:dep` — are honored; EvalContext would compile a
+    // `:dep` line as Rust and never link the crate.
+    let (mut context, mut streams) = match evcxr::CommandContext::new() {
         Ok(runtime) => runtime,
         Err(error) => {
             let _ = results.send(CellResult::RuntimeError(format!("{error:?}")));
@@ -128,7 +130,7 @@ fn runtime_loop(
         match command {
             CellCommand::Execute { cell_id, code } => {
                 let started = Instant::now();
-                let evaluation = context.eval(&code);
+                let evaluation = context.execute(&code);
                 thread::sleep(Duration::from_millis(5));
                 let stdout = streams.stdout.try_iter().collect::<Vec<_>>().join("\n");
                 let stderr = streams.stderr.try_iter().collect::<Vec<_>>().join("\n");
@@ -172,7 +174,7 @@ fn runtime_loop(
                     }
                 }
             }
-            CellCommand::Reset => match evcxr::EvalContext::new() {
+            CellCommand::Reset => match evcxr::CommandContext::new() {
                 Ok((new_context, new_streams)) => {
                     context = new_context;
                     streams = new_streams;
