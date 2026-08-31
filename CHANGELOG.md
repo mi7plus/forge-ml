@@ -17,7 +17,8 @@ grouped under the **0.98.0** release below.
   live preview and hex readout, save / duplicate / delete named custom themes,
   and export/import them as JSON. The active theme and custom themes persist with
   the session. The whole IDE follows the palette, including the **code-editor
-  background**, the **terminal**, and **floating-window headers**; the three
+  background** and **syntax colors** (keywords, strings, comments, functions,
+  types, numbers), the **terminal**, and **floating-window headers**; the three
   status colors (warn/ok/error) stay fixed for legibility. Ships 14 built-in
   themes alongside Dark and Light: **Nord**, **Dracula**, **Solarized
   Dark/Light**, **Gruvbox Dark**, **Rosé Pine**, **One Dark Pro**, **Tokyo

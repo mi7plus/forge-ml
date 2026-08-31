@@ -566,6 +566,33 @@ impl crate::ForgeApp {
                         ui.end_row();
                     }
                 });
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new("Code editor syntax")
+                    .size(10.0)
+                    .strong()
+                    .color(MUTED),
+            );
+            egui::Grid::new("forge_theme_syntax_slots")
+                .num_columns(2)
+                .spacing([10.0, 4.0])
+                .show(ui, |ui| {
+                    for (label, rgb) in self.theme_draft.syntax_slots() {
+                        ui.label(RichText::new(label).size(11.0));
+                        ui.horizontal(|ui| {
+                            if egui::color_picker::color_edit_button_srgb(ui, rgb).changed() {
+                                changed = true;
+                            }
+                            ui.label(
+                                RichText::new(crate::ui::theme::Palette::to_hex(*rgb))
+                                    .monospace()
+                                    .size(10.0)
+                                    .color(MUTED),
+                            );
+                        });
+                        ui.end_row();
+                    }
+                });
             if ui
                 .checkbox(&mut self.theme_draft.dark, "Dark widget base")
                 .on_hover_text("Whether egui's built-in widgets use their dark or light baseline")

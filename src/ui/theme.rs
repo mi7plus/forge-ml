@@ -25,6 +25,52 @@ fn default_accent() -> [u8; 3] {
     DEFAULT_ACCENT
 }
 
+// Default code-editor syntax colors (used when a saved theme predates the
+// syntax fields). Tuned for dark backgrounds; light themes override them.
+fn syn_keyword_default() -> [u8; 3] {
+    [198, 120, 221]
+}
+fn syn_string_default() -> [u8; 3] {
+    [152, 195, 121]
+}
+fn syn_comment_default() -> [u8; 3] {
+    [122, 132, 142]
+}
+fn syn_function_default() -> [u8; 3] {
+    [97, 175, 239]
+}
+fn syn_type_default() -> [u8; 3] {
+    [229, 192, 123]
+}
+fn syn_number_default() -> [u8; 3] {
+    [209, 154, 102]
+}
+
+/// Cohesive editor syntax colors derived from a theme's accent and mutedness,
+/// so every built-in theme gets readable highlighting without hand-tuning six
+/// colors per theme. Returns [keyword, string, comment, function, type, number].
+fn derive_syntax(accent: [u8; 3], muted: [u8; 3], dark: bool) -> [[u8; 3]; 6] {
+    if dark {
+        [
+            accent,          // keyword takes the theme's accent
+            [152, 195, 121], // string — soft green
+            muted,           // comment — the muted color
+            [97, 175, 239],  // function — blue
+            [229, 192, 123], // type — warm yellow
+            [209, 154, 102], // number — orange
+        ]
+    } else {
+        [
+            accent,
+            [80, 161, 79],
+            muted,
+            [64, 120, 242],
+            [193, 132, 1],
+            [152, 104, 1],
+        ]
+    }
+}
+
 /// The themeable primary accent (highlights, selection, links), from the active
 /// palette. Named `accent()` at call sites that formerly used the `CYAN` const.
 pub fn accent() -> Color32 {
@@ -45,6 +91,19 @@ pub struct Palette {
     /// The primary accent (selection, links, highlights).
     #[serde(default = "default_accent")]
     pub accent: [u8; 3],
+    // Code-editor syntax colors.
+    #[serde(default = "syn_keyword_default")]
+    pub syn_keyword: [u8; 3],
+    #[serde(default = "syn_string_default")]
+    pub syn_string: [u8; 3],
+    #[serde(default = "syn_comment_default")]
+    pub syn_comment: [u8; 3],
+    #[serde(default = "syn_function_default")]
+    pub syn_function: [u8; 3],
+    #[serde(default = "syn_type_default")]
+    pub syn_type: [u8; 3],
+    #[serde(default = "syn_number_default")]
+    pub syn_number: [u8; 3],
     #[serde(default)]
     pub dark: bool,
 }
@@ -61,6 +120,12 @@ impl Palette {
             text: [226, 231, 238],
             muted: [164, 174, 188],
             accent: DEFAULT_ACCENT,
+            syn_keyword: [198, 120, 221],
+            syn_string: [152, 195, 121],
+            syn_comment: [122, 132, 142],
+            syn_function: [97, 175, 239],
+            syn_type: [229, 192, 123],
+            syn_number: [209, 154, 102],
             dark: true,
         }
     }
@@ -76,6 +141,12 @@ impl Palette {
             text: [25, 30, 38],
             muted: [76, 86, 99],
             accent: DEFAULT_ACCENT,
+            syn_keyword: [166, 38, 164],
+            syn_string: [80, 161, 79],
+            syn_comment: [160, 161, 167],
+            syn_function: [64, 120, 242],
+            syn_type: [193, 132, 1],
+            syn_number: [152, 104, 1],
             dark: false,
         }
     }
@@ -92,6 +163,18 @@ impl Palette {
             ("Text", &mut self.text),
             ("Muted", &mut self.muted),
             ("Accent", &mut self.accent),
+        ]
+    }
+
+    /// The editable code-editor syntax color slots.
+    pub fn syntax_slots(&mut self) -> [(&'static str, &mut [u8; 3]); 6] {
+        [
+            ("Keywords", &mut self.syn_keyword),
+            ("Strings", &mut self.syn_string),
+            ("Comments", &mut self.syn_comment),
+            ("Functions", &mut self.syn_function),
+            ("Types", &mut self.syn_type),
+            ("Numbers", &mut self.syn_number),
         ]
     }
 
@@ -124,6 +207,8 @@ pub fn extra_builtin_themes() -> Vec<NamedTheme> {
         accent: [u8; 3],
         dark: bool,
     ) -> NamedTheme {
+        let [syn_keyword, syn_string, syn_comment, syn_function, syn_type, syn_number] =
+            derive_syntax(accent, muted, dark);
         NamedTheme {
             name: name.to_owned(),
             palette: Palette {
@@ -135,6 +220,12 @@ pub fn extra_builtin_themes() -> Vec<NamedTheme> {
                 text,
                 muted,
                 accent,
+                syn_keyword,
+                syn_string,
+                syn_comment,
+                syn_function,
+                syn_type,
+                syn_number,
                 dark,
             },
         }
@@ -299,8 +390,20 @@ pub fn editor_color_theme(palette: &Palette) -> ColorTheme {
         ColorTheme::GITHUB_LIGHT
     };
     ColorTheme {
+        name: base.name,
+        dark: palette.dark,
         bg: interned_hex(palette.background),
-        ..base
+        cursor: interned_hex(palette.accent),
+        selection: interned_hex(palette.raised),
+        comments: interned_hex(palette.syn_comment),
+        functions: interned_hex(palette.syn_function),
+        keywords: interned_hex(palette.syn_keyword),
+        literals: interned_hex(palette.syn_number),
+        numerics: interned_hex(palette.syn_number),
+        punctuation: interned_hex(palette.text),
+        strs: interned_hex(palette.syn_string),
+        types: interned_hex(palette.syn_type),
+        special: interned_hex(palette.accent),
     }
 }
 
