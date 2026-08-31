@@ -1,0 +1,35 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Forge ML">
+  <defs>
+    <linearGradient id="heat" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#FFB861"/>
+      <stop offset="0.5" stop-color="#FF7A33"/>
+      <stop offset="1" stop-color="#E0342A"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="0.5" y1="1" x2="0.5" y2="0">
+      <stop offset="0" stop-color="#FF7A33"/>
+      <stop offset="1" stop-color="#FFA351"/>
+    </linearGradient>
+  </defs>
+
+  <!-- symmetric neural spark crown rising from the anvil -->
+  <g stroke="url(#edge)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M256 150 L198 196"/>
+    <path d="M256 150 L314 196"/>
+    <path d="M198 196 L314 196"/>
+    <path d="M198 196 L224 250"/>
+    <path d="M314 196 L288 250"/>
+  </g>
+  <g fill="#FF8A3D">
+    <circle cx="198" cy="196" r="14"/>
+    <circle cx="314" cy="196" r="14"/>
+    <circle cx="256" cy="150" r="18" fill="#FF9A45"/>
+  </g>
+
+  <!-- symmetric anvil -->
+  <g fill="url(#heat)">
+    <!-- working surface -->
+    <path d="M150 252 L362 252 Q374 252 374 264 L374 286 L138 286 L138 264 Q138 252 150 252 Z"/>
+    <!-- pedestal + flared base -->
+    <path d="M232 286 L280 286 L280 316 L338 360 Q343 371 332 371 L180 371 Q169 371 174 360 L232 316 Z"/>
+  </g>
+</svg>

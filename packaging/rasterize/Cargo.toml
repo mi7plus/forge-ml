@@ -1,0 +1,10 @@
+[package]
+name = "rasterize"
+version = "0.0.0"
+edition = "2021"
+[workspace]
+
+[dependencies]
+resvg = "0.44"
+ico = "0.3"
+icns = "0.3"

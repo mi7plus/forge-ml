@@ -1,0 +1,47 @@
+<svg width="880" height="240" viewBox="0 0 880 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Forge ML">
+  <defs>
+    <linearGradient id="heat" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#FFB861"/>
+      <stop offset="0.5" stop-color="#FF7A33"/>
+      <stop offset="1" stop-color="#E0342A"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="0.5" y1="1" x2="0.5" y2="0">
+      <stop offset="0" stop-color="#FF7A33"/>
+      <stop offset="1" stop-color="#FFA351"/>
+    </linearGradient>
+    <linearGradient id="word1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF9A4D"/>
+      <stop offset="1" stop-color="#F0512A"/>
+    </linearGradient>
+    <linearGradient id="word2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF7A33"/>
+      <stop offset="1" stop-color="#D42B25"/>
+    </linearGradient>
+  </defs>
+
+  <!-- transparent mark on the left -->
+  <g transform="translate(24,12) scale(0.42)">
+    <g stroke="url(#edge)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none">
+      <path d="M256 150 L198 196"/>
+      <path d="M256 150 L314 196"/>
+      <path d="M198 196 L314 196"/>
+      <path d="M198 196 L224 250"/>
+      <path d="M314 196 L288 250"/>
+    </g>
+    <g fill="#FF8A3D">
+      <circle cx="198" cy="196" r="14"/>
+      <circle cx="314" cy="196" r="14"/>
+      <circle cx="256" cy="150" r="18" fill="#FF9A45"/>
+    </g>
+    <g fill="url(#heat)">
+      <path d="M150 252 L362 252 Q374 252 374 264 L374 286 L138 286 L138 264 Q138 252 150 252 Z"/>
+      <path d="M232 286 L280 286 L280 316 L338 360 Q343 371 332 371 L180 371 Q169 371 174 360 L232 316 Z"/>
+    </g>
+  </g>
+
+  <!-- wordmark: flowed as tspans so the words can never overlap -->
+  <text x="212" y="150" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-weight="800" font-size="106" letter-spacing="-1">
+    <tspan fill="url(#word1)">Forge</tspan><tspan fill="url(#word2)"> ML</tspan>
+  </text>
+  <text x="214" y="194" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-weight="600" font-size="25" letter-spacing="6.5" fill="#B77A4E">RUST · COMPUTE · STUDIO</text>
+</svg>

@@ -119,17 +119,43 @@ fn main() -> eframe::Result<()> {
     // This hook turns that child into a headless runtime before eframe can open a window.
     evcxr::runtime_hook();
     let app_name = format!("Forge ML {APP_VERSION}");
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title(format!("Forge ML {APP_VERSION} - Rust compute studio"))
+        .with_inner_size([1380.0, 860.0])
+        .with_min_inner_size([980.0, 640.0]);
+    if let Some(icon) = load_app_icon() {
+        viewport = viewport.with_icon(icon);
+    }
     eframe::run_native(
         &app_name,
         eframe::NativeOptions {
-            viewport: egui::ViewportBuilder::default()
-                .with_title(format!("Forge ML {APP_VERSION} - Rust compute studio"))
-                .with_inner_size([1380.0, 860.0])
-                .with_min_inner_size([980.0, 640.0]),
+            viewport,
             ..Default::default()
         },
         Box::new(|cc| Ok(Box::new(ForgeApp::new(cc)))),
     )
+}
+
+/// The window/taskbar icon, decoded from the embedded badge PNG.
+fn load_app_icon() -> Option<egui::IconData> {
+    eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon-256.png")).ok()
+}
+
+/// Decode the transparent Forge mark into a texture for the splash screen.
+fn load_splash_logo(ctx: &egui::Context) -> Option<egui::TextureHandle> {
+    let bytes = include_bytes!("../assets/mark-256.png");
+    let decoder = png::Decoder::new(std::io::Cursor::new(&bytes[..]));
+    let mut reader = decoder.read_info().ok()?;
+    let mut buf = vec![0; reader.output_buffer_size()?];
+    let info = reader.next_frame(&mut buf).ok()?;
+    if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
+        return None;
+    }
+    let image = egui::ColorImage::from_rgba_unmultiplied(
+        [info.width as usize, info.height as usize],
+        &buf[..info.buffer_size()],
+    );
+    Some(ctx.load_texture("forge_mark", image, egui::TextureOptions::LINEAR))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
@@ -516,6 +542,8 @@ struct ForgeApp {
     ui_scale: f32,
     /// When the splash overlay started; `None` once it has been dismissed.
     splash_start: Option<Instant>,
+    /// The Forge mark, decoded once for the splash screen.
+    splash_logo: Option<egui::TextureHandle>,
     /// Set once rust-analyzer reports it has finished indexing.
     lsp_ready: bool,
     editor_needs_initial_focus: bool,
@@ -763,7 +791,11 @@ impl ForgeApp {
     /// into the full-window `ui`.
     fn draw_splash(&self, ui: &mut egui::Ui) {
         ui.vertical_centered(|ui| {
-            ui.add_space((ui.available_height() * 0.28).max(36.0));
+            ui.add_space((ui.available_height() * 0.22).max(28.0));
+            if let Some(logo) = &self.splash_logo {
+                ui.add(egui::Image::new((logo.id(), egui::vec2(104.0, 104.0))));
+                ui.add_space(8.0);
+            }
             ui.label(RichText::new("FORGE ML").size(46.0).strong().color(RED));
             ui.label(
                 RichText::new("Rust compute studio")
@@ -1128,6 +1160,7 @@ impl ForgeApp {
             theme_dirty: false,
             ui_scale,
             splash_start: Some(Instant::now()),
+            splash_logo: load_splash_logo(&cc.egui_ctx),
             lsp_ready: false,
             editor_needs_initial_focus: true,
             explorer_height,

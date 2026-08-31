@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo-wordmark.svg" alt="Forge ML" width="440">
+</p>
+
 # Forge ML
 
 Forge ML is an experimental desktop compute studio for interactive Rust machine-learning work.
