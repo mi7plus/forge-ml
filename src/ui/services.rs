@@ -772,6 +772,38 @@ impl crate::ForgeApp {
         });
     }
 
+    /// Fit the designed pipeline in-process on the table selected in the Data
+    /// viewer, streaming the result into the training telemetry and console.
+    /// Entirely self-contained — no toolchain or network.
+    fn run_pipeline_in_process(&mut self, export_onnx: Option<&std::path::Path>) {
+        let Some((name, is_table)) = self.selected_dataset_info() else {
+            self.console = "Select a table dataset in the Data viewer first.".into();
+            return;
+        };
+        if !is_table {
+            self.console = "In-process training needs a table dataset, not a vector.".into();
+            return;
+        }
+        let Some(table) = self.data.tables.get(&name).map(|dataset| dataset.table.clone()) else {
+            self.console = "The selected dataset no longer exists.".into();
+            return;
+        };
+        match millwright_studio::train_pipeline_in_process(
+            &self.pipeline_design,
+            table.as_ref(),
+            &name,
+            export_onnx,
+        ) {
+            Ok((events, summary)) => {
+                for event in events {
+                    millwright_studio::record_training_event(&mut self.training_events, event);
+                }
+                self.console = summary;
+            }
+            Err(error) => self.console = error,
+        }
+    }
+
     pub(crate) fn millwright_studio(&mut self, ui: &mut egui::Ui) {
         ui.heading("Millwright Studio");
         ui.horizontal(|ui| {
@@ -835,6 +867,35 @@ impl crate::ForgeApp {
             self.active_tab = self.tabs.len() - 1;
             self.selected_cell = 0;
         }
+        ui.separator();
+        ui.label(
+            RichText::new(
+                "Train in Forge (no toolchain or network) on the table selected in the Data viewer:",
+            )
+            .size(11.0)
+            .color(MUTED),
+        );
+        ui.horizontal(|ui| {
+            let train = ui
+                .button("Train pipeline in Forge")
+                .on_hover_text("Fit this pipeline in-process on the selected dataset")
+                .clicked();
+            let train_export = ui
+                .button("Train & export ONNX")
+                .on_hover_text("Fit in-process, then export the model to models/<name>.onnx")
+                .clicked();
+            if train || train_export {
+                let export_path = train_export.then(|| {
+                    let mut base = self
+                        .project_root()
+                        .unwrap_or_else(std::env::temp_dir);
+                    base.push("models");
+                    base.push(format!("{}.onnx", self.pipeline_design.name));
+                    base
+                });
+                self.run_pipeline_in_process(export_path.as_deref());
+            }
+        });
         ui.separator();
         ui.strong("Training progress");
         ui.horizontal(|ui| {

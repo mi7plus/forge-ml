@@ -801,6 +801,195 @@ impl PipelineDesign {
     }
 }
 
+/// Monotonic counter so each in-process training run gets a distinct run id.
+static NEXT_INPROCESS_RUN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
+
+/// Which estimator a pipeline step maps to, and the task it implies.
+fn estimator_task(step: &PipelineStep) -> Option<(&'static str, millwright::evaluate::Task)> {
+    use millwright::evaluate::Task;
+    match step {
+        PipelineStep::LinearRegression => Some(("Linear regression", Task::Regression)),
+        PipelineStep::LogisticRegression => Some(("Logistic regression", Task::Classification)),
+        PipelineStep::RandomForest => Some(("Random forest", Task::Classification)),
+        _ => None,
+    }
+}
+
+/// Train the designed pipeline **in-process** against an in-memory table, with no
+/// Rust toolchain or network — the whole point of the self-contained installer.
+/// Returns the training-telemetry events (so the Studio's run/plots/report views
+/// light up exactly as they do for streamed runs) plus a human-readable summary.
+///
+/// When `export_onnx` is `Some`, the fitted pipeline is also exported to that
+/// path; an export failure is reported as a note, not a hard error, since not
+/// every estimator has an ONNX adapter.
+pub fn train_pipeline_in_process(
+    design: &PipelineDesign,
+    table: &forge_protocol::TableData,
+    dataset_name: &str,
+    export_onnx: Option<&std::path::Path>,
+) -> Result<(Vec<TrainingEvent>, String), String> {
+    use millwright::evaluate::{Evaluate, Task};
+    use millwright::prelude::{
+        Estimator, LinearRegression, LogisticRegression, OneHotEncoder, RandomForest,
+        SimpleImputer, StandardScaler,
+    };
+    use std::sync::atomic::Ordering;
+
+    // Exactly one estimator step, which also fixes the task.
+    let mut estimator_step = None;
+    for step in &design.steps {
+        if let Some(info) = estimator_task(step) {
+            if estimator_step.is_some() {
+                return Err("A pipeline can have only one estimator step.".into());
+            }
+            estimator_step = Some((step, info));
+        }
+    }
+    let Some((_, (estimator_label, task))) = estimator_step else {
+        return Err(
+            "Add an estimator step (Linear/Logistic regression or Random forest) before training."
+                .into(),
+        );
+    };
+    let target = design.target.trim();
+    if target.is_empty() {
+        return Err("Set the target column before training.".into());
+    }
+    if !table.columns.iter().any(|c| c == target) {
+        return Err(format!("Target column `{target}` is not in `{dataset_name}`."));
+    }
+
+    // Round-trip through a temporary CSV so Millwright does the dtype inference
+    // and categorical handling (identical to the generated-cell workflow),
+    // rather than us re-implementing it.
+    let dataset = table_to_dataset(table, target)?;
+    let rows = dataset.features().nrows();
+    if rows < 4 {
+        return Err(format!("Need at least 4 rows to train; `{dataset_name}` has {rows}."));
+    }
+
+    // Deterministic interleaved 80/20 split (every 5th row held out) so a
+    // class-grouped dataset keeps every class in both partitions.
+    let (train_idx, test_idx): (Vec<usize>, Vec<usize>) = (0..rows).partition(|i| i % 5 != 0);
+    let train = dataset.select(&train_idx);
+    let test = dataset.select(&test_idx);
+
+    let mut pipeline = millwright::pipeline::Pipeline::new();
+    for step in &design.steps {
+        pipeline = match step {
+            PipelineStep::Impute => pipeline.step("impute", SimpleImputer::mean()),
+            PipelineStep::Standardize => pipeline.step("scale", StandardScaler::new()),
+            PipelineStep::OneHotEncode => pipeline.step("encode", OneHotEncoder::infer()),
+            PipelineStep::RandomForest => pipeline.estimator("model", RandomForest::new()),
+            PipelineStep::LogisticRegression => {
+                pipeline.estimator("model", LogisticRegression::new())
+            }
+            PipelineStep::LinearRegression => pipeline.estimator("model", LinearRegression::new()),
+        };
+    }
+
+    pipeline
+        .fit(&train)
+        .map_err(|error| format!("Training failed: {error}"))?;
+    let report = pipeline
+        .evaluate_as(&test, task)
+        .map_err(|error| format!("Evaluation failed: {error}"))?;
+
+    let (score_name, score) = match task {
+        Task::Regression => ("r2", report.get("r2").unwrap_or(f64::NAN)),
+        _ => ("accuracy", report.get("accuracy").unwrap_or(f64::NAN)),
+    };
+
+    let steps_label = design
+        .steps
+        .iter()
+        .map(|s| s.label())
+        .collect::<Vec<_>>()
+        .join(" → ");
+    let run_id = format!(
+        "millwright-inproc-{}",
+        NEXT_INPROCESS_RUN.fetch_add(1, Ordering::Relaxed)
+    );
+    let events = vec![
+        TrainingEvent::RunContext {
+            run_id: run_id.clone(),
+        },
+        TrainingEvent::Started {
+            job: format!(
+                "In-process Millwright · {estimator_label} on {dataset_name} ({} train / {} test rows)",
+                train_idx.len(),
+                test_idx.len()
+            ),
+            total_trials: 1,
+        },
+        TrainingEvent::TrialStarted {
+            trial: 1,
+            parameters: steps_label.clone(),
+        },
+        TrainingEvent::TrialCompleted { trial: 1, score },
+        TrainingEvent::Completed { best_score: score },
+    ];
+
+    let metrics = report
+        .metrics()
+        .iter()
+        .map(|(name, value)| format!("  {name:<10} = {value:.4}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut summary = format!(
+        "In-process Millwright {estimator_label} on `{dataset_name}` (target `{target}`).\n\
+         Pipeline: {steps_label}\n\
+         Train {} rows · test {} rows · {score_name} = {score:.4}\n{metrics}",
+        train_idx.len(),
+        test_idx.len(),
+    );
+
+    if let Some(path) = export_onnx {
+        use millwright::onnx::ExportOnnx;
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        match pipeline.export_onnx(path) {
+            Ok(()) => summary.push_str(&format!("\nExported ONNX model to {}", path.display())),
+            Err(error) => summary.push_str(&format!(
+                "\nNote: ONNX export unavailable for this estimator ({error})"
+            )),
+        }
+    }
+
+    Ok((events, summary))
+}
+
+/// Build a numeric Millwright `Dataset` from an in-memory table by round-tripping
+/// through a temporary CSV, which lets Millwright infer column dtypes and encode
+/// categoricals natively.
+fn table_to_dataset(
+    table: &forge_protocol::TableData,
+    target: &str,
+) -> Result<millwright::frame::Dataset, String> {
+    let mut path = std::env::temp_dir();
+    path.push(format!(
+        "forge-inproc-{}.csv",
+        NEXT_INPROCESS_RUN.load(std::sync::atomic::Ordering::Relaxed)
+    ));
+    let result = (|| -> Result<millwright::frame::Dataset, String> {
+        let mut writer = csv::Writer::from_path(&path).map_err(|e| e.to_string())?;
+        writer
+            .write_record(&table.columns)
+            .map_err(|e| e.to_string())?;
+        for row in &table.rows {
+            writer.write_record(row).map_err(|e| e.to_string())?;
+        }
+        writer.flush().map_err(|e| e.to_string())?;
+        drop(writer);
+        let mw_table = millwright::table::Table::from_csv(&path).map_err(|e| e.to_string())?;
+        mw_table.into_dataset(target).map_err(|e| e.to_string())
+    })();
+    let _ = std::fs::remove_file(&path);
+    result
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EvaluationReport {
     pub accuracy: Option<f64>,
@@ -854,6 +1043,72 @@ pub fn parse_runtime_output(output: &str) -> (Vec<TrainingEvent>, Vec<Evaluation
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A tiny, linearly separable two-class table, plus a matching regression
+    /// column, for exercising the in-process runner.
+    fn toy_table() -> forge_protocol::TableData {
+        let mut rows = Vec::new();
+        for i in 0..40 {
+            // class 0 sits near x≈0, class 1 near x≈10; y is a linear function.
+            let x = (i % 20) as f64 * 0.2;
+            let (feat, class) = if i < 20 { (x, 0) } else { (10.0 + x, 1) };
+            let y = 2.0 * feat + 1.0;
+            rows.push(vec![format!("{feat}"), format!("{class}"), format!("{y}")]);
+        }
+        forge_protocol::TableData {
+            columns: vec!["feat".into(), "class".into(), "y".into()],
+            rows,
+        }
+    }
+
+    fn design(target: &str, steps: Vec<PipelineStep>) -> PipelineDesign {
+        PipelineDesign {
+            name: "toy".into(),
+            target: target.into(),
+            steps,
+        }
+    }
+
+    #[test]
+    fn in_process_classification_learns_separable_classes() {
+        // `class` is the target; `feat` and `y` are the features.
+        let table = toy_table();
+        let design = design(
+            "class",
+            vec![PipelineStep::Standardize, PipelineStep::LogisticRegression],
+        );
+        let (events, summary) =
+            train_pipeline_in_process(&design, &table, "toy", None).expect("training succeeds");
+        assert!(matches!(events.first(), Some(TrainingEvent::RunContext { .. })));
+        let score = events.iter().find_map(|e| match e {
+            TrainingEvent::Completed { best_score } => Some(*best_score),
+            _ => None,
+        });
+        assert_eq!(score, Some(1.0), "separable classes should be perfectly learned");
+        assert!(summary.contains("accuracy"));
+    }
+
+    #[test]
+    fn in_process_regression_reports_r2() {
+        let table = toy_table();
+        let design = design("y", vec![PipelineStep::LinearRegression]);
+        let (events, summary) =
+            train_pipeline_in_process(&design, &table, "toy", None).expect("training succeeds");
+        let score = events.iter().find_map(|e| match e {
+            TrainingEvent::Completed { best_score } => Some(*best_score),
+            _ => None,
+        });
+        assert!(score.unwrap() > 0.99, "a linear target should fit near-perfectly");
+        assert!(summary.contains("r2"));
+    }
+
+    #[test]
+    fn in_process_requires_an_estimator() {
+        let table = toy_table();
+        let design = design("class", vec![PipelineStep::Standardize]);
+        assert!(train_pipeline_in_process(&design, &table, "toy", None).is_err());
+    }
+
     #[test]
     fn generates_pipeline_code_in_step_order() {
         let design = PipelineDesign {

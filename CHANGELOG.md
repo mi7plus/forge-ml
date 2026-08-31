@@ -11,6 +11,17 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+### Added
+- **In-process Millwright training.** The Millwright Studio can now train a
+  designed pipeline **inside Forge** — *Train pipeline in Forge* and *Train &
+  export ONNX* fit the pipeline on the table selected in the Data viewer using
+  the compiled-in classical backends, with no Rust toolchain or network. Results
+  stream into the existing training telemetry (run overview, plots, report) and
+  the console shows held-out metrics (accuracy for classifiers, R² for
+  regressors) from a deterministic 80/20 split. The "generate notebook cell"
+  buttons remain for producing a portable Evcxr cell. This closes the last ML
+  path that would otherwise compile Millwright on the end user's machine.
+
 ### Changed
 - **Millwright is now fully native.** The `smartcore-backend` and `linfa-backend`
   classical-model backends (LinearRegression, LogisticRegression, RandomForest,
