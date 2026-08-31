@@ -530,7 +530,18 @@ impl crate::ForgeApp {
                 .spacing([10.0, 4.0])
                 .show(ui, |ui| {
                     for (label, rgb) in self.theme_draft.slots() {
-                        ui.label(RichText::new(label).size(11.0));
+                        let hint = match label {
+                            "Background" => "Editor and dock/canvas background",
+                            "Surface" => "Top toolbar, bottom status bar, and floating windows",
+                            "Raised" => "Inputs, buttons, cards, and dropdowns",
+                            "Menu" => "The menu bar (File / Edit / …)",
+                            "Border" => "Outlines and separators",
+                            "Text" => "Primary text and toolbar icons",
+                            "Muted" => "Secondary / dimmed text",
+                            "Accent" => "Selection, links, highlights, and active items",
+                            _ => "",
+                        };
+                        ui.label(RichText::new(label).size(11.0)).on_hover_text(hint);
                         ui.horizontal(|ui| {
                             if egui::color_picker::color_edit_button_srgb(ui, rgb).changed() {
                                 changed = true;
