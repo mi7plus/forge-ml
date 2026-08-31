@@ -86,11 +86,31 @@ impl RuntimeHandle {
     }
 }
 
+/// Apply Forge's evcxr defaults to a freshly created context. When an offline
+/// runtime bundle is active we turn on offline mode (so cargo never reaches for
+/// the network) and grant a large compilation cache so the pre-built Millwright
+/// and Burn artifacts are reused instead of recompiled on first use.
+fn configure_context(context: &mut evcxr::EvalContext) {
+    if crate::offline::detect().is_some() {
+        let mut state = context.state();
+        state.set_offline_mode(true);
+        // 8 GiB is ample for the blessed dependency set and keeps prebuilt
+        // Millwright/Burn artifacts resident across resets instead of recompiling.
+        state.set_cache_bytes(8 * 1024 * 1024 * 1024);
+        let _ = context.eval_with_state("", state);
+    }
+}
+
 fn runtime_loop(
     commands: Receiver<CellCommand>,
     results: Sender<CellResult>,
     process: Arc<Mutex<Option<Arc<Mutex<std::process::Child>>>>>,
 ) {
+    // If this build ships an offline runtime bundle, point cargo/rustc (and thus
+    // evcxr) at it before starting the kernel, so notebook `:dep` cells for
+    // Millwright/Burn resolve and build with no network or system toolchain.
+    crate::offline::activate();
+
     let (mut context, mut streams) = match evcxr::EvalContext::new() {
         Ok(runtime) => runtime,
         Err(error) => {
@@ -98,6 +118,7 @@ fn runtime_loop(
             return;
         }
     };
+    configure_context(&mut context);
     if let Ok(mut slot) = process.lock() {
         *slot = Some(context.process_handle());
     }
@@ -155,6 +176,7 @@ fn runtime_loop(
                 Ok((new_context, new_streams)) => {
                     context = new_context;
                     streams = new_streams;
+                    configure_context(&mut context);
                     if let Ok(mut slot) = process.lock() {
                         *slot = Some(context.process_handle());
                     }

@@ -17,6 +17,7 @@ mod millwright_studio;
 mod model_registry;
 mod notebook;
 mod object_storage;
+mod offline;
 mod packages;
 mod pane_layout;
 mod performance;

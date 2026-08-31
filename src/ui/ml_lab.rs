@@ -122,6 +122,11 @@ impl crate::ForgeApp {
             "Burn {} embedded · Flex CPU, WGPU, training, and metrics compiled into Forge",
             deep_learning::BURN_VERSION
         ));
+        ui.label(RichText::new(crate::offline::status_line()).size(10.0).color(MUTED))
+            .on_hover_text(
+                "Notebook `:dep` cells for Millwright/Burn build offline when the bundled Rust \
+                 runtime is present; otherwise they need a system toolchain and network.",
+            );
         ui.label(&self.sql_output);
 
         ui.separator();

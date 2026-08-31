@@ -12,6 +12,16 @@ grouped under the **0.98.0** release below.
 ## [Unreleased]
 
 ### Added
+- **Offline runtime bundle (foundation).** Groundwork so the packaged installer
+  can run notebook `:dep` cells and generated projects for Millwright/Burn with
+  no network and no user-installed Rust toolchain. The app (`src/offline.rs`)
+  detects a bundled `forge-runtime/` toolchain + vendored dependency cache next
+  to the executable and points evcxr at it (offline cargo, `CARGO_HOME` on the
+  vendored sources, a large persistent compile cache); it is an inert no-op in
+  development builds. Ships `packaging/build-offline-bundle.{sh,ps1}` to stage
+  the bundle, a pinned `rust-toolchain.toml`, `Packager.toml` resource wiring,
+  and `docs/OFFLINE_RUNTIME.md`. The ML Lab shows whether the offline runtime is
+  active. (Producing the per-platform bundles is a release-pipeline step.)
 - **In-process Millwright training.** The Millwright Studio can now train a
   designed pipeline **inside Forge** — *Train pipeline in Forge* and *Train &
   export ONNX* fit the pipeline on the table selected in the Data viewer using

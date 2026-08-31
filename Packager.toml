@@ -6,7 +6,10 @@ description = "A scientific Rust IDE for interactive machine-learning developmen
 category = "DeveloperTool"
 licenseFile = "LICENSE"
 beforePackagingCommand = "cargo build --release"
-resources = ["packaging/resources/rust-analyzer*"]
+# The offline Rust runtime (toolchain + vendored Millwright/Burn dependency
+# cache) is staged by packaging/build-offline-bundle.{sh,ps1} before packaging;
+# shipping it lets notebook `:dep` cells build offline with no user toolchain.
+resources = ["packaging/resources/rust-analyzer*", "packaging/forge-runtime/**/*"]
 
 [nsis]
 installMode = "currentUser"
