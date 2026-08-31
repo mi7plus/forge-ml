@@ -21,14 +21,14 @@
 
   <!-- transparent mark on the left -->
   <g transform="translate(24,12) scale(0.42)">
-    <g stroke="url(#edge)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <g transform="translate(256,250) scale(1.3) translate(-256,-250)" stroke="url(#edge)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none">
       <path d="M256 150 L198 196"/>
       <path d="M256 150 L314 196"/>
       <path d="M198 196 L314 196"/>
       <path d="M198 196 L224 250"/>
       <path d="M314 196 L288 250"/>
     </g>
-    <g fill="#FF8A3D">
+    <g transform="translate(256,250) scale(1.3) translate(-256,-250)" fill="#FF8A3D">
       <circle cx="198" cy="196" r="14"/>
       <circle cx="314" cy="196" r="14"/>
       <circle cx="256" cy="150" r="18" fill="#FF9A45"/>
