@@ -417,6 +417,24 @@ impl crate::ForgeApp {
                 self.request_lsp("definition");
             }
             ui.separator();
+            if toolbar_icon_button(ui, icons::PAINT_BRUSH_BROAD, "Format document (rustfmt)")
+                .clicked()
+            {
+                self.format_document();
+            }
+            if toolbar_icon_button(ui, icons::MAGNIFYING_GLASS, "Find & replace (Ctrl+F)").clicked()
+            {
+                self.find_visible = true;
+            }
+            if toolbar_icon_button(ui, icons::COMMAND, "Command palette (Ctrl+Shift+P)").clicked() {
+                self.command_palette_open = true;
+                self.command_query.clear();
+                self.command_selection = 0;
+            }
+            if toolbar_icon_button(ui, icons::TERMINAL, "New terminal").clicked() {
+                self.pending_new_terminal = Some(None);
+            }
+            ui.separator();
             let ready = !matches!(self.run_state, RunState::Running(_) | RunState::Booting);
             if enabled_toolbar_icon_button(
                 ui,
@@ -451,7 +469,20 @@ impl crate::ForgeApp {
                 self.stop_execution();
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(14.0);
+                if toolbar_icon_button(ui, icons::GEAR, "Settings").clicked() {
+                    self.settings_open = true;
+                }
+                let (theme_icon, theme_tip) = if self.dark_mode {
+                    (icons::SUN, "Switch to light theme")
+                } else {
+                    (icons::MOON, "Switch to dark theme")
+                };
+                if toolbar_icon_button(ui, theme_icon, theme_tip).clicked() {
+                    self.dark_mode = !self.dark_mode;
+                    self.active_theme = None;
+                    self.apply_theme(ui.ctx());
+                }
+                ui.add_space(10.0);
                 ui.label(
                     RichText::new(
                         self.project

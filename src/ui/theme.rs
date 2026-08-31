@@ -463,6 +463,21 @@ pub fn compact_icon_button(
     .on_hover_text(tooltip)
 }
 
+pub fn enabled_compact_icon_button(
+    ui: &mut egui::Ui,
+    enabled: bool,
+    icon: egui_phosphor_icons::Icon,
+    tooltip: &str,
+) -> egui::Response {
+    ui.add_enabled(
+        enabled,
+        egui::Button::new(icon.regular().size(13.0))
+            .small()
+            .min_size(egui::vec2(22.0, 20.0)),
+    )
+    .on_hover_text(tooltip)
+}
+
 pub fn status_row(ui: &mut egui::Ui, label: &str, value: &str, color: Color32) {
     ui.horizontal(|ui| {
         ui.label(RichText::new(label).size(11.0).color(MUTED));

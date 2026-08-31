@@ -10,11 +10,12 @@ use egui::RichText;
 impl crate::ForgeApp {
     pub(crate) fn file_explorer(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
+            use egui_phosphor_icons::icons;
             ui.label(RichText::new("FILES").size(10.0).strong().color(MUTED));
-            if ui.small_button("Open").clicked() {
+            if compact_icon_button(ui, icons::FOLDER_OPEN, "Open project…").clicked() {
                 self.open_project();
             }
-            if ui.small_button("New").clicked() {
+            if compact_icon_button(ui, icons::FILE_PLUS, "New file…").clicked() {
                 self.create_new_file(None);
             }
             let selected_file = self.active().path.clone().filter(|path| {
@@ -22,13 +23,17 @@ impl crate::ForgeApp {
                     .as_ref()
                     .is_some_and(|project| path.starts_with(&project.root) && path.is_file())
             });
-            if ui
-                .add_enabled(selected_file.is_some(), egui::Button::new("Delete").small())
-                .clicked()
+            if enabled_compact_icon_button(
+                ui,
+                selected_file.is_some(),
+                icons::TRASH,
+                "Delete the selected file",
+            )
+            .clicked()
             {
                 self.pending_delete = selected_file;
             }
-            if ui.small_button("Refresh").clicked() {
+            if compact_icon_button(ui, icons::ARROWS_CLOCKWISE, "Refresh the file tree").clicked() {
                 if let Some(project) = &mut self.project {
                     let _ = project.refresh();
                 }
