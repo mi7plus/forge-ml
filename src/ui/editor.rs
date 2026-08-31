@@ -220,23 +220,24 @@ impl crate::ForgeApp {
                             TEXT
                         };
                         let selected = index == self.active_tab;
-                        // Each tab is a drag source (reorder) whose inner label
-                        // still reports clicks and middle-clicks (close) when not
-                        // being dragged.
-                        let dnd_id = egui::Id::new(("editor_tab_dnd", index));
-                        let inner = ui.dnd_drag_source(dnd_id, index, |ui| {
-                            ui.selectable_label(selected, RichText::new(title).color(color))
-                        });
-                        let label = inner
-                            .inner
-                            .on_hover_text("Drag to reorder · middle-click to close");
+                        // A single click-and-drag widget: clicks switch tabs,
+                        // middle-clicks close, drags reorder. (Wrapping in
+                        // dnd_drag_source occluded the label's click sense, so
+                        // selecting a tab stopped working with multiple tabs.)
+                        let label = ui
+                            .selectable_label(selected, RichText::new(title).color(color))
+                            .interact(egui::Sense::click_and_drag())
+                            .on_hover_text("Click to open · drag to reorder · middle-click to close");
                         if label.clicked() {
                             select = Some(index);
                         }
                         if label.middle_clicked() {
                             close = Some(index);
                         }
-                        if let Some(from) = inner.response.dnd_release_payload::<usize>() {
+                        if label.dragged() {
+                            egui::DragAndDrop::set_payload(ui.ctx(), index);
+                        }
+                        if let Some(from) = label.dnd_release_payload::<usize>() {
                             reorder = Some((*from, index));
                         }
                         if selected

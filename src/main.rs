@@ -1256,20 +1256,14 @@ impl ForgeApp {
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let (line, column) =
-                    line_column(&self.active().content, self.cursor_offset);
-                ui.label(
-                    RichText::new(format!("Ln {line}, Col {column}"))
-                        .monospace()
-                        .size(11.0)
-                        .color(MUTED),
-                );
-                ui.separator();
-                let mut lsp = self.lsp_status.replace('\n', " ");
-                if lsp.chars().count() > 60 {
-                    lsp = format!("{}…", lsp.chars().take(59).collect::<String>());
-                }
-                ui.label(RichText::new(lsp).size(11.0).color(MUTED));
+                let full = self.lsp_status.replace('\n', " ");
+                let shown = if full.chars().count() > 60 {
+                    format!("{}…", full.chars().take(59).collect::<String>())
+                } else {
+                    full.clone()
+                };
+                ui.label(RichText::new(shown).size(11.0).color(MUTED))
+                    .on_hover_text(&full);
             });
         });
     }

@@ -80,9 +80,19 @@ impl crate::ForgeApp {
                     }
                 }
                 ui.add_space(5.0);
+                // Grow the editor to fill the pane down to a one-line status
+                // strip at the bottom, instead of a fixed 32-row box.
+                let editor_status_h = self.editor_font_size + 10.0;
+                let editor_row_h = ui
+                    .ctx()
+                    .fonts_mut(|f| f.row_height(&egui::FontId::monospace(self.editor_font_size)))
+                    .max(10.0);
+                let editor_rows = (((ui.available_height() - editor_status_h) / editor_row_h)
+                    .floor() as i64)
+                    .max(3) as usize;
                 let output = CodeEditor::default()
                     .id_source(format!("editor_{}", self.active_tab))
-                    .with_rows(32)
+                    .with_rows(editor_rows)
                     .with_fontsize(self.editor_font_size)
                     .with_theme(crate::ui::theme::editor_color_theme(
                         &crate::ui::theme::active_palette(),
@@ -133,6 +143,28 @@ impl crate::ForgeApp {
                         );
                     }
                 }
+                // Editor status strip pinned under the editor (Ln/Col + language).
+                let (caret_line, caret_col) =
+                    line_column(&self.tabs[self.active_tab].content, self.cursor_offset);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(format!("Ln {caret_line}, Col {caret_col}"))
+                            .monospace()
+                            .size(11.0)
+                            .color(MUTED),
+                    );
+                    ui.separator();
+                    let chars = self.tabs[self.active_tab].content.chars().count();
+                    ui.label(
+                        RichText::new(format!("{chars} chars"))
+                            .size(11.0)
+                            .color(MUTED),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let lang = if self.active_is_rust() { "Rust" } else { "Plain text" };
+                        ui.label(RichText::new(lang).size(11.0).color(MUTED));
+                    });
+                });
                 let ctrl_held = ui.input(|input| input.modifiers.ctrl);
                 let hovered_offset = if output.response.hovered() {
                     ui.ctx().pointer_hover_pos().and_then(|pointer| {

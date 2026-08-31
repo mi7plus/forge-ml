@@ -401,6 +401,19 @@ fn resolve_binary() -> PathBuf {
             }
         }
     }
+    // A `rustup component add rust-analyzer` install lands in the toolchain's
+    // bin dir, which isn't on PATH by default; ask rustup for its real path.
+    if let Ok(output) = Command::new("rustup")
+        .args(["which", "rust-analyzer"])
+        .output()
+    {
+        if output.status.success() {
+            let path = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
+            if path.is_file() {
+                return path;
+            }
+        }
+    }
     PathBuf::from(name)
 }
 

@@ -11,6 +11,24 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+### Fixed
+- Editor tabs are selectable again — clicking any tab switches to it. The
+  drag-to-reorder source had been occluding each tab's click sense, so only the
+  last-opened file could be focused.
+- rust-analyzer is now found when installed via `rustup component add
+  rust-analyzer` (its toolchain bin dir isn't on PATH); the resolver falls back
+  to `rustup which rust-analyzer`.
+
+### Changed
+- The code editor grows to fill its pane down to a one-line status strip
+  (Ln/Col, character count, language) at the bottom, instead of a fixed-height
+  box. The Ln/Col readout moved from the IDE footer into that editor strip.
+- Footer status text (e.g. the language-server message) shows in full on hover
+  when it doesn't fit.
+- Terminal ANSI colors follow the active theme — the 16 base colors are mapped
+  onto the palette (semantics preserved: 1=red, 2=green, …) so prompts, `ls`,
+  and git output match the IDE; the 256-color cube keeps standard xterm values.
+
 ### Added
 - **Theme builder.** A new *Theme builder* in Settings → Appearance: pick a theme,
   edit eight colors — the seven base colors plus the primary **accent** — with a

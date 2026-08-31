@@ -643,7 +643,7 @@ fn resolve_color(
             };
             palette[index as usize]
                 .map(to_color32)
-                .unwrap_or_else(|| to_color32(indexed_default(index)))
+                .unwrap_or_else(|| to_color32(ansi_fallback(index)))
         }
         AnsiColor::Named(named) => match named {
             NamedColor::Foreground => default_fg,
@@ -658,7 +658,7 @@ fn resolve_color(
                 if idx < 256 {
                     palette[idx]
                         .map(to_color32)
-                        .unwrap_or_else(|| to_color32(indexed_default(idx as u8)))
+                        .unwrap_or_else(|| to_color32(ansi_fallback(idx as u8)))
                 } else {
                     default_fg
                 }
@@ -707,6 +707,56 @@ fn indexed_default(index: u8) -> Rgb {
             g: level,
             b: level,
         }
+    }
+}
+
+/// Fallback color for an emulator index the program hasn't overridden. The 16
+/// base ANSI colors follow the active theme (so prompts, `ls`, git, etc. match
+/// the IDE); the 256-color cube keeps its standard xterm values.
+fn ansi_fallback(index: u8) -> Rgb {
+    if index < 16 {
+        themed_ansi16(index)
+    } else {
+        indexed_default(index)
+    }
+}
+
+/// Map the 16 base ANSI slots onto the active theme so terminal output is
+/// color-coordinated with the rest of the IDE. Semantics are preserved
+/// (1=red, 2=green, …); only the exact shades come from the palette.
+fn themed_ansi16(index: u8) -> Rgb {
+    let p = crate::ui::theme::active_palette();
+    let rgb = |c: [u8; 3]| Rgb { r: c[0], g: c[1], b: c[2] };
+    let col = |c: Color32| Rgb { r: c.r(), g: c.g(), b: c.b() };
+    let mix = |a: [u8; 3], b: [u8; 3], t: f32| {
+        let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
+        Rgb {
+            r: l(a[0], b[0]),
+            g: l(a[1], b[1]),
+            b: l(a[2], b[2]),
+        }
+    };
+    let bright = |c: [u8; 3]| mix(c, [255, 255, 255], 0.28);
+    let red = crate::ui::theme::RED;
+    let green = crate::ui::theme::GREEN;
+    let ember = crate::ui::theme::EMBER;
+    match index {
+        0 => mix(p.background, p.text, 0.30), // black — a visible dark grey
+        1 => col(red),
+        2 => col(green),
+        3 => rgb(p.syn_type),     // yellow
+        4 => rgb(p.syn_function), // blue
+        5 => rgb(p.syn_keyword),  // magenta
+        6 => rgb(p.accent),       // cyan
+        7 => rgb(p.muted),        // white
+        8 => mix(p.muted, p.text, 0.35), // bright black
+        9 => bright([red.r(), red.g(), red.b()]),
+        10 => bright([green.r(), green.g(), green.b()]),
+        11 => bright([ember.r(), ember.g(), ember.b()]),
+        12 => bright(p.syn_function),
+        13 => bright(p.syn_keyword),
+        14 => bright(p.accent),
+        _ => rgb(p.text), // 15 bright white
     }
 }
 
