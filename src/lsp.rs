@@ -177,6 +177,12 @@ struct Server {
     idle_since: Option<Instant>,
     /// True once "ready" has been announced for the current work.
     announced_ready: bool,
+    /// True once rust-analyzer has sent a `rust-analyzer/serverStatus`
+    /// notification. When it does, `quiescent` is the authoritative "finished
+    /// indexing" signal and the progress-gap debounce below is not used — the
+    /// debounce only guesses, and its window is shorter than the gaps between
+    /// rust-analyzer's phases, which dismissed the splash mid-indexing.
+    saw_server_status: bool,
 }
 
 impl Drop for Server {
@@ -226,12 +232,19 @@ fn worker(commands: Receiver<LspCommand>, events: Sender<LspEvent>) {
             while let Ok(message) = active.incoming.try_recv() {
                 handle_message(active, message, &events);
             }
-            // Announce readiness only after rust-analyzer has stayed idle (no
-            // active progress) for a debounce window, so brief gaps between
-            // indexing phases don't cause a premature "ready".
-            if active.progress_seen && !active.announced_ready && active.progress.is_empty() {
+            // Fallback readiness for older rust-analyzers that don't send
+            // `serverStatus`: announce only after progress has stayed idle for a
+            // debounce window. Gaps between rust-analyzer's phases can be several
+            // seconds, so the window is generous to avoid a mid-indexing "ready".
+            // Skipped entirely once we've seen a serverStatus notification, which
+            // is authoritative.
+            if !active.saw_server_status
+                && active.progress_seen
+                && !active.announced_ready
+                && active.progress.is_empty()
+            {
                 if let Some(since) = active.idle_since {
-                    if since.elapsed() >= Duration::from_millis(2500) {
+                    if since.elapsed() >= Duration::from_millis(8000) {
                         active.announced_ready = true;
                         let _ =
                             events.send(LspEvent::Status("rust-analyzer ready ✓".to_owned()));
@@ -334,11 +347,12 @@ fn start_server(root: PathBuf, events: &Sender<LspEvent>) -> std::io::Result<Ser
         progress_seen: false,
         idle_since: None,
         announced_ready: false,
+        saw_server_status: false,
     };
     let root_uri = file_uri(&root);
     send(
         &mut server.stdin,
-        &json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":std::process::id(),"rootUri":root_uri,"capabilities":{"window":{"workDoneProgress":true},"textDocument":{"completion":{"completionItem":{"snippetSupport":true}},"hover":{},"definition":{},"references":{},"signatureHelp":{},"rename":{},"codeAction":{},"publishDiagnostics":{}}},"clientInfo":{"name":"forge-ml","version":env!("CARGO_PKG_VERSION")}}}),
+        &json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":std::process::id(),"rootUri":root_uri,"capabilities":{"window":{"workDoneProgress":true},"experimental":{"serverStatusNotification":true},"textDocument":{"completion":{"completionItem":{"snippetSupport":true}},"hover":{},"definition":{},"references":{},"signatureHelp":{},"rename":{},"codeAction":{},"publishDiagnostics":{}}},"clientInfo":{"name":"forge-ml","version":env!("CARGO_PKG_VERSION")}}}),
     )?;
     send(
         &mut server.stdin,
@@ -692,6 +706,28 @@ fn handle_message(server: &mut Server, message: Value, events: &Sender<LspEvent>
                 &mut server.stdin,
                 &json!({"jsonrpc":"2.0","id":id,"result":null}),
             );
+        }
+        return;
+    }
+
+    // Authoritative readiness: rust-analyzer reports `quiescent: true` once it
+    // has finished loading and indexing the workspace. Preferred over the
+    // progress-gap heuristic, which fired mid-indexing during phase gaps.
+    if method == Some("rust-analyzer/serverStatus") {
+        server.saw_server_status = true;
+        let quiescent = message
+            .get("params")
+            .and_then(|p| p.get("quiescent"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if quiescent {
+            if !server.announced_ready {
+                server.announced_ready = true;
+                let _ = events.send(LspEvent::Status("rust-analyzer ready ✓".to_owned()));
+            }
+        } else {
+            // Still working (initial load, or re-indexing after edits).
+            server.announced_ready = false;
         }
         return;
     }

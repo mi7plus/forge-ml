@@ -741,7 +741,10 @@ impl ForgeApp {
         if elapsed < 0.6 {
             return true;
         }
-        if elapsed >= 75.0 {
+        // Safety cap so the splash can never hang forever if readiness never
+        // arrives. Generous, because a cold-cache index of a large workspace can
+        // take a few minutes; the user can always skip with a click or key.
+        if elapsed >= 180.0 {
             return false;
         }
         let dismissed = ctx.input(|i| {
@@ -3062,7 +3065,11 @@ impl ForgeApp {
         while let Some(event) = self.lsp.try_recv() {
             match event {
                 LspEvent::Status(status) => {
-                    if status.contains("ready") {
+                    // Only the authoritative "rust-analyzer ready ✓" marker
+                    // dismisses the splash — not looser phrases like the
+                    // post-install "Language services are ready", which is sent
+                    // before indexing begins.
+                    if status.contains("ready ✓") {
                         self.lsp_ready = true;
                     }
                     self.lsp_status = status;
