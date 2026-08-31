@@ -125,7 +125,7 @@ impl crate::ForgeApp {
                             RichText::new(format!("{mark}  {:02}  {title}", index + 1))
                                 .monospace()
                                 .color(if index == self.selected_cell {
-                                    CYAN
+                                    accent()
                                 } else {
                                     color
                                 }),
@@ -139,7 +139,7 @@ impl crate::ForgeApp {
         ui.add_space(14.0);
         ui.label(RichText::new("SESSION").size(10.0).strong().color(MUTED));
         status_row(ui, "Engine", "Evcxr", GREEN);
-        status_row(ui, "Runs", &self.execution_count.to_string(), CYAN);
+        status_row(ui, "Runs", &self.execution_count.to_string(), accent());
     }
 
     pub(crate) fn outline(&mut self, ui: &mut egui::Ui) {
@@ -168,7 +168,7 @@ impl crate::ForgeApp {
                             RichText::new(format!("-  {symbol}  :{}", line_no + 1))
                                 .monospace()
                                 .size(11.0)
-                                .color(CYAN),
+                                .color(accent()),
                         )
                         .frame(false),
                     )

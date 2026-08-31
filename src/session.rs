@@ -161,6 +161,13 @@ pub struct SessionState {
     /// User-authored themes available in the theme builder.
     #[serde(default)]
     pub custom_themes: Vec<crate::ui::theme::NamedTheme>,
+    /// Global UI zoom factor scaling all text and widgets (1.0 = 100%).
+    #[serde(default = "default_ui_scale")]
+    pub ui_scale: f32,
+}
+
+fn default_ui_scale() -> f32 {
+    1.0
 }
 
 impl SessionState {
@@ -253,6 +260,7 @@ impl Default for SessionState {
             dock_layout: None,
             active_theme: None,
             custom_themes: Vec::new(),
+            ui_scale: default_ui_scale(),
         }
     }
 }

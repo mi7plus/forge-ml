@@ -13,11 +13,15 @@ grouped under the **0.98.0** release below.
 
 ### Added
 - **Theme builder.** A new *Theme builder* in Settings → Appearance: pick a theme
-  (built-in Dark/Light or any custom one), edit the seven base colors with a live
-  preview and hex readout, save / duplicate / delete named custom themes, and
-  export/import them as JSON. The active theme and custom themes persist with the
-  session, and every UI surface follows the active palette (status accent colors
-  stay fixed for legibility).
+  (built-in Dark/Light or any custom one), edit eight colors — the seven base
+  colors plus the primary **accent** — with a live preview and hex readout,
+  save / duplicate / delete named custom themes, and export/import them as JSON.
+  The active theme and custom themes persist with the session. The whole IDE
+  follows the palette, including the **code-editor background** and the primary
+  accent; the three status colors (warn/ok/error) stay fixed for legibility.
+- **Interface scale.** A Settings → Appearance slider scales *all* text and
+  controls across the whole IDE (not just the editor), from 80% to 160%,
+  persisted with the session.
 - **Named workspaces.** *File → Save workspace as… / Open workspace…* write and
   load a portable workspace file capturing the project root, open files, dock
   layout, theme (and custom themes), key bindings, appearance settings, and

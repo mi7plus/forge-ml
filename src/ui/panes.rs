@@ -163,7 +163,7 @@ impl crate::ForgeApp {
                 }
             }
         });
-        let colors = [CYAN, EMBER, GREEN, RED, Color32::from_rgb(150, 105, 210)];
+        let colors = [accent(), EMBER, GREEN, RED, Color32::from_rgb(150, 105, 210)];
         Plot::new("experiment_comparison")
             .height(220.0)
             .allow_drag(false)
@@ -440,7 +440,7 @@ impl crate::ForgeApp {
         let mut vector_to_delete = None;
         for (name, values) in &self.data.vectors {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(name).strong().color(CYAN));
+                ui.label(RichText::new(name).strong().color(accent()));
                 if compact_icon_button(
                     ui,
                     egui_phosphor_icons::icons::TRASH,
@@ -454,7 +454,7 @@ impl crate::ForgeApp {
             Plot::new(format!("vector_{name}"))
                 .height(175.0)
                 .allow_drag(false)
-                .show(ui, |plot| plot.bar_chart(vector_bars(name, values, CYAN)));
+                .show(ui, |plot| plot.bar_chart(vector_bars(name, values, accent())));
         }
         if let Some(name) = vector_to_delete {
             self.data.vectors.remove(&name);
@@ -697,7 +697,7 @@ impl crate::ForgeApp {
                     .get(&self.selected_cell)
                     .and_then(|r| r.elapsed_ms)
                 {
-                    ui.label(RichText::new(format!("{ms} ms")).size(10.0).color(CYAN));
+                    ui.label(RichText::new(format!("{ms} ms")).size(10.0).color(accent()));
                 }
             }
             if compact_icon_button(ui, egui_phosphor_icons::icons::BROOM, clear_hint).clicked() {
@@ -760,13 +760,13 @@ impl crate::ForgeApp {
                                 .filter(|output| output.mime != "text/plain")
                             {
                                 ui.collapsing(&output.mime, |ui| {
-                                    ui.label(RichText::new(&output.data).monospace().color(CYAN));
+                                    ui.label(RichText::new(&output.data).monospace().color(accent()));
                                 });
                             }
                         }
                     });
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("In [ ]:").monospace().strong().color(CYAN));
+                    ui.label(RichText::new("In [ ]:").monospace().strong().color(accent()));
                     let response = ui.add(
                         egui::TextEdit::singleline(&mut self.console_input)
                             .font(egui::TextStyle::Monospace)
@@ -866,12 +866,12 @@ impl crate::ForgeApp {
                             ui.label(
                                 RichText::new(format!("{}: {}", output.mime, output.data))
                                     .monospace()
-                                    .color(CYAN),
+                                    .color(accent()),
                             );
                         }
                     });
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Py [ ]:").monospace().strong().color(CYAN));
+                    ui.label(RichText::new("Py [ ]:").monospace().strong().color(accent()));
                     let response = ui.add(
                         egui::TextEdit::singleline(&mut self.python_console_input)
                             .desired_width(f32::INFINITY)

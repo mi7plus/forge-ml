@@ -1,21 +1,35 @@
 //! Palette, visuals, and small styled-widget helpers shared across the UI.
 //!
-//! Base colors flow from a runtime [`Palette`] (built-in Dark/Light or a
-//! user-authored custom theme). The four status accents (info/warn/ok/error)
-//! stay fixed for legibility. [`theme_colors`] reads the currently active
-//! palette, so all existing call sites automatically follow the active theme.
+//! Base colors and the primary accent flow from a runtime [`Palette`] (built-in
+//! Dark/Light or a user-authored custom theme). The three status colors
+//! (warn/ok/error) stay fixed for legibility. [`theme_colors`] and [`accent`]
+//! read the active palette, so all existing call sites follow the active theme.
 
 use eframe::egui;
 use egui::{Color32, Frame, Margin, RichText, Stroke};
+use egui_code_editor::ColorTheme;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 pub const TEXT: Color32 = Color32::PLACEHOLDER;
 pub const MUTED: Color32 = Color32::PLACEHOLDER;
+// Fixed semantic status colors (warn / ok / error) — kept constant for legibility.
 pub const EMBER: Color32 = Color32::from_rgb(196, 119, 44);
-pub const CYAN: Color32 = Color32::from_rgb(39, 141, 204);
 pub const GREEN: Color32 = Color32::from_rgb(46, 157, 96);
 pub const RED: Color32 = Color32::from_rgb(212, 72, 85);
+
+const DEFAULT_ACCENT: [u8; 3] = [39, 141, 204];
+
+fn default_accent() -> [u8; 3] {
+    DEFAULT_ACCENT
+}
+
+/// The themeable primary accent (highlights, selection, links), from the active
+/// palette. Named `accent()` at call sites that formerly used the `CYAN` const.
+pub fn accent() -> Color32 {
+    c(active_palette().accent)
+}
 
 /// A serializable base color palette that a theme is built from. Each field is
 /// an RGB triple; `dark` hints egui's base light/dark visuals and cursor.
@@ -28,6 +42,9 @@ pub struct Palette {
     pub border: [u8; 3],
     pub text: [u8; 3],
     pub muted: [u8; 3],
+    /// The primary accent (selection, links, highlights).
+    #[serde(default = "default_accent")]
+    pub accent: [u8; 3],
     #[serde(default)]
     pub dark: bool,
 }
@@ -43,6 +60,7 @@ impl Palette {
             border: [62, 73, 88],
             text: [226, 231, 238],
             muted: [164, 174, 188],
+            accent: DEFAULT_ACCENT,
             dark: true,
         }
     }
@@ -57,13 +75,14 @@ impl Palette {
             border: [166, 174, 185],
             text: [25, 30, 38],
             muted: [76, 86, 99],
+            accent: DEFAULT_ACCENT,
             dark: false,
         }
     }
 
-    /// The seven editable color slots, as (label, mutable-reference) pairs, for
+    /// The editable color slots, as (label, mutable-reference) pairs, for
     /// building a color-picker UI without duplicating the field list.
-    pub fn slots(&mut self) -> [(&'static str, &mut [u8; 3]); 7] {
+    pub fn slots(&mut self) -> [(&'static str, &mut [u8; 3]); 8] {
         [
             ("Background", &mut self.background),
             ("Surface", &mut self.surface),
@@ -72,6 +91,7 @@ impl Palette {
             ("Border", &mut self.border),
             ("Text", &mut self.text),
             ("Muted", &mut self.muted),
+            ("Accent", &mut self.accent),
         ]
     }
 
@@ -150,6 +170,34 @@ pub fn theme_colors(_dark: bool) -> ThemeColors {
     ThemeColors::from(&active_palette())
 }
 
+thread_local! {
+    // Interned "rrggbb" strings so the code editor's &'static str theme fields
+    // can follow a runtime palette; each distinct color is leaked at most once.
+    static HEX_CACHE: RefCell<HashMap<[u8; 3], &'static str>> = RefCell::new(HashMap::new());
+}
+
+fn interned_hex(rgb: [u8; 3]) -> &'static str {
+    HEX_CACHE.with(|cache| {
+        *cache.borrow_mut().entry(rgb).or_insert_with(|| {
+            Box::leak(format!("{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]).into_boxed_str())
+        })
+    })
+}
+
+/// A code-editor color theme whose background and gutter follow `palette`,
+/// keeping GitHub's syntax colors for readable highlighting.
+pub fn editor_color_theme(palette: &Palette) -> ColorTheme {
+    let base = if palette.dark {
+        ColorTheme::GITHUB_DARK
+    } else {
+        ColorTheme::GITHUB_LIGHT
+    };
+    ColorTheme {
+        bg: interned_hex(palette.background),
+        ..base
+    }
+}
+
 pub fn panel_frame(fill: Color32, dark: bool) -> Frame {
     Frame::new()
         .fill(fill)
@@ -221,6 +269,7 @@ pub fn configure_style(ctx: &egui::Context, palette: &Palette, high_contrast: bo
     set_active_palette(palette);
     let dark = palette.dark;
     let colors = ThemeColors::from(palette);
+    let accent = c(palette.accent);
     let theme = if dark {
         egui::Theme::Dark
     } else {
@@ -236,8 +285,8 @@ pub fn configure_style(ctx: &egui::Context, palette: &Palette, high_contrast: bo
     visuals.window_fill = colors.surface;
     visuals.extreme_bg_color = colors.raised;
     visuals.faint_bg_color = colors.raised;
-    visuals.selection.bg_fill = mix(colors.surface, CYAN, if dark { 0.5 } else { 0.32 });
-    visuals.selection.stroke = Stroke::new(1.0, CYAN);
+    visuals.selection.bg_fill = mix(colors.surface, accent, if dark { 0.5 } else { 0.32 });
+    visuals.selection.stroke = Stroke::new(1.0, accent);
     visuals.text_cursor.stroke = Stroke::new(
         2.5,
         if dark {
@@ -251,7 +300,7 @@ pub fn configure_style(ctx: &egui::Context, palette: &Palette, high_contrast: bo
     visuals.text_cursor.off_duration = 0.3;
     visuals.override_text_color = Some(colors.text);
     visuals.weak_text_color = Some(colors.muted);
-    visuals.hyperlink_color = CYAN;
+    visuals.hyperlink_color = accent;
     visuals.warn_fg_color = EMBER;
     visuals.error_fg_color = RED;
     visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, colors.text);
@@ -259,9 +308,9 @@ pub fn configure_style(ctx: &egui::Context, palette: &Palette, high_contrast: bo
     visuals.widgets.inactive.weak_bg_fill = colors.raised;
     visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, colors.text);
     visuals.widgets.open.fg_stroke = Stroke::new(1.0, colors.text);
-    visuals.widgets.hovered.bg_fill = mix(colors.raised, CYAN, if dark { 0.16 } else { 0.22 });
-    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, CYAN);
-    visuals.widgets.active.bg_fill = mix(colors.raised, CYAN, if dark { 0.28 } else { 0.34 });
+    visuals.widgets.hovered.bg_fill = mix(colors.raised, accent, if dark { 0.16 } else { 0.22 });
+    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, accent);
+    visuals.widgets.active.bg_fill = mix(colors.raised, accent, if dark { 0.28 } else { 0.34 });
     visuals.widgets.active.fg_stroke = Stroke::new(1.0, EMBER);
     if high_contrast {
         visuals.override_text_color = Some(if dark { Color32::WHITE } else { Color32::BLACK });

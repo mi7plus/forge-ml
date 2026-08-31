@@ -44,7 +44,7 @@ use deep_learning::{Backend as DeepBackend, DeepOutputs, NativeTrainingConfig, R
 use diagnostics::DiagnosticsHandle;
 use eframe::egui;
 use egui::{Color32, Frame, Margin, Panel, RichText, Stroke};
-use egui_code_editor::{CodeEditor, ColorTheme, Syntax};
+use egui_code_editor::{CodeEditor, Syntax};
 use egui_tiles::{Container, Linear, LinearDir, SimplificationOptions, Tile, TileId, Tiles, Tree};
 use egui_plot::{Bar, BarChart, Line, Plot, PlotPoints, Points};
 use experiment::{capture_provenance, ExperimentRun};
@@ -79,7 +79,7 @@ use ui::grid::{
 };
 use ui::plotting::{draw_box_summary, draw_heatmap, histogram, quartiles, transformed_points};
 use ui::theme::{
-    compact_icon_button, compact_panel_frame, configure_style, panel_frame, theme_colors, CYAN,
+    accent, compact_icon_button, compact_panel_frame, configure_style, panel_frame, theme_colors,
     EMBER, GREEN, MUTED, RED, TEXT,
 };
 use std::collections::{HashMap, VecDeque};
@@ -511,6 +511,8 @@ struct ForgeApp {
     /// Set when the theme changed without an egui context to hand; the render
     /// loop re-applies the palette on the next frame.
     theme_dirty: bool,
+    /// Global UI zoom factor scaling all text and widgets (1.0 = 100%).
+    ui_scale: f32,
     editor_needs_initial_focus: bool,
     explorer_height: f32,
     pending_delete: Option<PathBuf>,
@@ -865,6 +867,8 @@ impl ForgeApp {
         let active_theme = session.active_theme.clone();
         let theme_palette = resolve_palette(&active_theme, &custom_themes, session.dark_mode);
         configure_style(&cc.egui_ctx, &theme_palette, session.high_contrast);
+        let ui_scale = session.ui_scale.clamp(0.7, 2.0);
+        cc.egui_ctx.set_zoom_factor(ui_scale);
         let dark_mode = session.dark_mode;
         let explorer_height = if session.explorer_height > 0.0 {
             session.explorer_height
@@ -1025,6 +1029,7 @@ impl ForgeApp {
             custom_themes,
             theme_new_name: String::new(),
             theme_dirty: false,
+            ui_scale,
             editor_needs_initial_focus: true,
             explorer_height,
             pending_delete: None,
@@ -1211,7 +1216,7 @@ impl ForgeApp {
                 RunState::Running(cell) => (
                     icons::CIRCLE_NOTCH.as_str(),
                     format!("Running cell {}", cell + 1),
-                    CYAN,
+                    accent(),
                 ),
                 RunState::Failed => (icons::X_CIRCLE.as_str(), "Runtime failed".to_owned(), RED),
             };
@@ -1239,7 +1244,7 @@ impl ForgeApp {
                 ui.separator();
                 ui.label(
                     RichText::new(format!("{}  {} background task(s)", icons::HOURGLASS_MEDIUM.as_str(), self.integration_pending))
-                        .color(CYAN)
+                        .color(accent())
                         .size(11.0),
                 );
             }
@@ -3047,7 +3052,7 @@ impl ForgeApp {
                         ui.label(RichText::new("Size").strong());
                         ui.end_row();
                         for variable in &self.variables {
-                            ui.label(RichText::new(&variable.name).color(CYAN));
+                            ui.label(RichText::new(&variable.name).color(accent()));
                             ui.label(RichText::new(&variable.type_name).monospace().size(10.0));
                             ui.label(
                                 RichText::new(infer_size(&variable.type_name))
@@ -3075,7 +3080,7 @@ impl ForgeApp {
                 }
                 if !self.hover_text.is_empty() {
                     ui.separator();
-                    ui.label(RichText::new("Hover").strong().color(CYAN));
+                    ui.label(RichText::new("Hover").strong().color(accent()));
                     egui::ScrollArea::vertical()
                         .id_salt("help_hover_documentation")
                         .max_height(150.0)
@@ -3085,7 +3090,7 @@ impl ForgeApp {
                 }
                 if !self.completions.is_empty() {
                     ui.separator();
-                    ui.label(RichText::new("Completions").strong().color(CYAN));
+                    ui.label(RichText::new("Completions").strong().color(accent()));
                     let mut selected = None;
                     egui::ScrollArea::vertical()
                         .id_salt("help_completion_results")
@@ -3114,10 +3119,10 @@ impl ForgeApp {
                 ui.heading("Scientific console");
                 ui.label("Execute `//# %%` cells in a persistent Evcxr session. Variables created by successful cells remain available to later cells and console commands.");
                 ui.separator();
-                ui.label(RichText::new("Telemetry").strong().color(CYAN));
+                ui.label(RichText::new("Telemetry").strong().color(accent()));
                 ui.code("println!(\"forge_metric:loss={}\", loss);\nprintln!(\"forge_vector:w=1,2,3\");\nprintln!(r#\"forge_table:samples={{\\\"columns\\\":[\\\"x\\\",\\\"label\\\"],\\\"rows\\\":[[1.0,\\\"cat\\\"]]}}\"#);");
                 ui.separator();
-                ui.label(RichText::new("Shortcuts").strong().color(CYAN));
+                ui.label(RichText::new("Shortcuts").strong().color(accent()));
                 ui.label("Shift+Enter  Run cell\nCtrl+Shift+Enter  Run all\nCtrl+Space  Show completions\nCtrl+S  Save file\nCtrl+N  New file\nCtrl+F  Find and replace\nCtrl+Shift+F  Find in project");
             }
             InspectorTab::Problems => {
@@ -3633,6 +3638,7 @@ impl eframe::App for ForgeApp {
                 .and_then(|tree| serde_json::to_string(tree).ok()),
             active_theme: self.active_theme.clone(),
             custom_themes: self.custom_themes.clone(),
+            ui_scale: self.ui_scale,
         };
         eframe::set_value(storage, STORAGE_KEY, &state);
     }
@@ -3919,7 +3925,7 @@ fn draw_dataset_table(
                                     egui::Button::new(
                                         RichText::new(format!("{column}{arrow}"))
                                             .strong()
-                                            .color(CYAN),
+                                            .color(accent()),
                                     ),
                                 )
                                 .clicked()

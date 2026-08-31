@@ -5,7 +5,7 @@
 //! floatable pane — without sharing state with the notebook or one another.
 
 use crate::runtime::{CellResult, RuntimeHandle};
-use crate::{CYAN, EMBER, GREEN, RED, TEXT};
+use crate::{accent, EMBER, GREEN, RED, TEXT};
 use eframe::egui;
 use egui::RichText;
 
@@ -94,7 +94,7 @@ impl RustKernel {
                 let (glyph, label, color) = if self.failed {
                     (icons::X_CIRCLE, "Failed", RED)
                 } else if self.pending {
-                    (icons::CIRCLE_NOTCH, "Running", CYAN)
+                    (icons::CIRCLE_NOTCH, "Running", accent())
                 } else if self.ready {
                     (icons::CHECK_CIRCLE, "Ready", GREEN)
                 } else {
@@ -144,7 +144,7 @@ impl RustKernel {
                 });
 
             ui.horizontal(|ui| {
-                ui.label(RichText::new("In [ ]:").monospace().strong().color(CYAN));
+                ui.label(RichText::new("In [ ]:").monospace().strong().color(accent()));
                 let response = ui.add(
                     egui::TextEdit::singleline(&mut self.input)
                         .font(egui::TextStyle::Monospace)

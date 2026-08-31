@@ -65,7 +65,7 @@ impl crate::ForgeApp {
                     let data = &self.data.tables[&name];
                     ui.horizontal(|ui| {
                         if ui
-                            .button(RichText::new(&name).strong().color(CYAN))
+                            .button(RichText::new(&name).strong().color(accent()))
                             .on_hover_text("Open in the data viewer")
                             .clicked()
                         {
@@ -245,7 +245,7 @@ impl crate::ForgeApp {
                     let mean = values.iter().sum::<f64>() / values.len().max(1) as f64;
                     ui.horizontal(|ui| {
                         if ui
-                            .button(RichText::new(name).strong().color(CYAN))
+                            .button(RichText::new(name).strong().color(accent()))
                             .on_hover_text("Open in the data viewer")
                             .clicked()
                         {
@@ -442,7 +442,7 @@ impl crate::ForgeApp {
             if ui.small_button("Close").clicked() {
                 self.open_dataset = None;
             }
-            ui.label(RichText::new(&name).strong().color(CYAN));
+            ui.label(RichText::new(&name).strong().color(accent()));
             if ui
                 .small_button("Undock")
                 .on_hover_text("Move this viewer to a floating window")

@@ -84,11 +84,9 @@ impl crate::ForgeApp {
                     .id_source(format!("editor_{}", self.active_tab))
                     .with_rows(32)
                     .with_fontsize(self.editor_font_size)
-                    .with_theme(if self.dark_mode {
-                        ColorTheme::GITHUB_DARK
-                    } else {
-                        ColorTheme::GITHUB_LIGHT
-                    })
+                    .with_theme(crate::ui::theme::editor_color_theme(
+                        &crate::ui::theme::active_palette(),
+                    ))
                     .with_numlines(true)
                     .show(ui, &mut self.tabs[self.active_tab].content, &Syntax::rust());
                 if self.editor_needs_initial_focus {
@@ -184,7 +182,7 @@ impl crate::ForgeApp {
                                         RichText::new(&self.lsp_signature)
                                             .monospace()
                                             .size(11.0)
-                                            .color(CYAN),
+                                            .color(accent()),
                                     );
                                 });
                             });

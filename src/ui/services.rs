@@ -799,7 +799,7 @@ impl crate::ForgeApp {
         });
         ui.horizontal_wrapped(|ui| {
             for (index, step) in self.pipeline_design.steps.iter().enumerate() {
-                ui.label(RichText::new(format!("{}  {}", index + 1, step.label())).color(CYAN));
+                ui.label(RichText::new(format!("{}  {}", index + 1, step.label())).color(accent()));
                 if index + 1 < self.pipeline_design.steps.len() {
                     ui.label("→");
                 }

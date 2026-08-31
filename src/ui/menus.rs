@@ -708,6 +708,23 @@ impl crate::ForgeApp {
                             .step_by(1.0),
                     );
                 });
+                ui.horizontal(|ui| {
+                    ui.label("Interface scale")
+                        .on_hover_text("Scale all text and controls across the whole IDE");
+                    let changed = ui
+                        .add(
+                            egui::Slider::new(&mut self.ui_scale, 0.8..=1.6)
+                                .step_by(0.05)
+                                .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)),
+                        )
+                        .changed();
+                    if ui.small_button("Reset").clicked() {
+                        self.ui_scale = 1.0;
+                        ctx.set_zoom_factor(self.ui_scale);
+                    } else if changed {
+                        ctx.set_zoom_factor(self.ui_scale);
+                    }
+                });
                 ui.checkbox(&mut self.caret_blink, "Blink editor caret");
                 ui.checkbox(&mut self.format_on_save, "Format Rust files with rustfmt on save")
                     .on_hover_text("Requires rustfmt on PATH");
@@ -809,7 +826,7 @@ impl crate::ForgeApp {
                                         ui.label(
                                             RichText::new("press keys… (Esc to cancel)")
                                                 .italics()
-                                                .color(CYAN),
+                                                .color(accent()),
                                         );
                                     } else {
                                         ui.label(

@@ -4,7 +4,7 @@
 
 use crate::lsp::{self, Diagnostic as LspDiagnostic};
 use crate::project::{self, FileNode};
-use crate::ui::theme::{CYAN, EMBER, MUTED, RED, TEXT};
+use crate::ui::theme::{accent, EMBER, MUTED, RED, TEXT};
 use crate::{EditorTab, ExplorerAction};
 use eframe::egui;
 use egui::{Color32, RichText, Stroke};
@@ -150,7 +150,7 @@ pub fn paint_navigable_word(
                 output.galley_pos + egui::vec2(start_rect.min.x, y),
                 output.galley_pos + egui::vec2(end_rect.min.x, y),
             ],
-            Stroke::new(1.5, CYAN),
+            Stroke::new(1.5, accent()),
         );
     }
 }
@@ -196,7 +196,7 @@ pub fn paint_inline_diagnostics(
         let color = match diagnostic.severity {
             1 => RED,
             2 => EMBER,
-            _ => CYAN,
+            _ => accent(),
         };
         let mut points = Vec::new();
         let mut x = left;
@@ -406,7 +406,7 @@ pub fn draw_file_nodes(
                     .monospace()
                     .size(11.0)
                     .color(if active {
-                        CYAN
+                        accent()
                     } else if editable {
                         TEXT
                     } else {

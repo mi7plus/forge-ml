@@ -251,7 +251,7 @@ impl crate::ForgeApp {
                 ui.label(
                     RichText::new(format!("model: {}", self.onnx_model_name))
                         .size(11.0)
-                        .color(CYAN),
+                        .color(accent()),
                 );
             }
         });
@@ -856,7 +856,7 @@ impl crate::ForgeApp {
                 format!("Remote rich output ({})", self.remote_mime_outputs.len()),
                 |ui| {
                     for output in &self.remote_mime_outputs {
-                        ui.label(RichText::new(&output.mime).strong().color(CYAN));
+                        ui.label(RichText::new(&output.mime).strong().color(accent()));
                         egui::ScrollArea::horizontal()
                             .max_height(160.0)
                             .show(ui, |ui| {
@@ -994,7 +994,7 @@ impl crate::ForgeApp {
             ui.label(
                 RichText::new(format!("Predicted: {class} ({:.1}%)", proba[best] * 100.0))
                     .strong()
-                    .color(CYAN),
+                    .color(accent()),
             );
         }
         for (class, &p) in model.classes.iter().zip(&proba) {
