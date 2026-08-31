@@ -9,6 +9,21 @@ embedded terminals and kernels, an editor/LSP tooling sweep, and an ML modelling
 sweep — followed by an internal restructuring of the application code. Those are
 grouped under the **0.98.0** release below.
 
+## [Unreleased]
+
+### Added
+- **Theme builder.** A new *Theme builder* in Settings → Appearance: pick a theme
+  (built-in Dark/Light or any custom one), edit the seven base colors with a live
+  preview and hex readout, save / duplicate / delete named custom themes, and
+  export/import them as JSON. The active theme and custom themes persist with the
+  session, and every UI surface follows the active palette (status accent colors
+  stay fixed for legibility).
+- **Named workspaces.** *File → Save workspace as… / Open workspace…* write and
+  load a portable workspace file capturing the project root, open files, dock
+  layout, theme (and custom themes), key bindings, appearance settings, and
+  database connection profiles. Connection profiles carry only a keychain
+  *reference*, never a secret, so a workspace file is safe to share.
+
 ## [0.98.0] — 2026-08-31
 
 ### Added

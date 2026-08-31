@@ -35,6 +35,7 @@ mod rust_kernel;
 mod session;
 mod terminal;
 mod ui;
+mod workspace;
 mod updater;
 
 use data::DataWorkspace;
@@ -714,6 +715,140 @@ impl ForgeApp {
     pub(crate) fn apply_theme(&self, ctx: &egui::Context) {
         let palette = resolve_palette(&self.active_theme, &self.custom_themes, self.dark_mode);
         configure_style(ctx, &palette, self.high_contrast);
+    }
+
+    /// Snapshot the current workspace (root, files, dock layout, theme, keymap,
+    /// connections) under `name`.
+    fn capture_workspace(&self, name: String) -> workspace::WorkspaceSnapshot {
+        workspace::WorkspaceSnapshot {
+            schema: workspace::WORKSPACE_SCHEMA,
+            name,
+            project_root: self.project.as_ref().map(|project| project.root.clone()),
+            open_files: self.tabs.iter().filter_map(|tab| tab.path.clone()).collect(),
+            active_file: self.tabs.get(self.active_tab).and_then(|tab| tab.path.clone()),
+            dock_layout: self
+                .dock_tree
+                .as_ref()
+                .and_then(|tree| serde_json::to_string(tree).ok()),
+            dark_mode: self.dark_mode,
+            high_contrast: self.high_contrast,
+            reduced_motion: self.reduced_motion,
+            editor_font_size: self.editor_font_size,
+            caret_blink: self.caret_blink,
+            active_theme: self.active_theme.clone(),
+            custom_themes: self.custom_themes.clone(),
+            keymap: self.keymap.to_dto(),
+            connections: self.database_profiles.clone(),
+        }
+    }
+
+    /// Restore a workspace snapshot: appearance and theme, key bindings, the
+    /// project (and its files), connection profiles, and the dock layout.
+    fn apply_workspace(&mut self, snap: workspace::WorkspaceSnapshot, ctx: &egui::Context) {
+        self.dark_mode = snap.dark_mode;
+        self.high_contrast = snap.high_contrast;
+        self.reduced_motion = snap.reduced_motion;
+        self.editor_font_size = snap.editor_font_size.clamp(10.0, 24.0);
+        self.caret_blink = snap.caret_blink;
+        self.custom_themes = snap.custom_themes;
+        self.active_theme = snap.active_theme;
+        self.theme_draft =
+            resolve_palette(&self.active_theme, &self.custom_themes, self.dark_mode);
+        self.keymap = keymap::Keymap::from_dto(&snap.keymap);
+
+        if let Some(root) = snap.project_root.clone() {
+            if root.is_dir() {
+                self.open_project_path(root);
+            }
+        }
+        // Snapshot connections take precedence over the project's stored set and
+        // are persisted into the (now open) project's store.
+        if !snap.connections.is_empty() {
+            self.database_profiles = snap.connections;
+            self.database_selected = 0;
+            if let Some(store) = &self.workspace_store {
+                let _ = store.save_connections(&self.database_profiles);
+            }
+        }
+
+        if !snap.open_files.is_empty() {
+            self.tabs.clear();
+            for path in &snap.open_files {
+                if path.is_file() {
+                    self.open_file(path.clone());
+                }
+            }
+            if self.tabs.is_empty() {
+                self.tabs.push(welcome_tab());
+            }
+            self.active_tab = snap
+                .active_file
+                .and_then(|active| {
+                    self.tabs
+                        .iter()
+                        .position(|tab| tab.path.as_ref() == Some(&active))
+                })
+                .unwrap_or(0)
+                .min(self.tabs.len().saturating_sub(1));
+        }
+
+        self.dock_tree = Some(load_dock_tree(snap.dock_layout.as_deref()));
+        self.last_lsp_hash = 0;
+        self.apply_theme(ctx);
+        self.console = if snap.name.is_empty() {
+            "Loaded workspace.".to_owned()
+        } else {
+            format!("Loaded workspace '{}'.", snap.name)
+        };
+    }
+
+    /// Write the current workspace to a `.json` file chosen by the user.
+    fn save_workspace_as(&mut self) {
+        let default_name = self
+            .project
+            .as_ref()
+            .and_then(|project| project.root.file_name().and_then(|n| n.to_str()))
+            .unwrap_or("workspace")
+            .to_owned();
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Forge workspace", &["json"])
+            .set_file_name(format!("{default_name}.forge-workspace.json"))
+            .save_file()
+        else {
+            return;
+        };
+        let name = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("workspace")
+            .trim_end_matches(".forge-workspace")
+            .to_owned();
+        let snap = self.capture_workspace(name);
+        self.console = match serde_json::to_string_pretty(&snap)
+            .map_err(|e| e.to_string())
+            .and_then(|text| std::fs::write(&path, text).map_err(|e| e.to_string()))
+        {
+            Ok(()) => format!("Saved workspace to {}", path.display()),
+            Err(error) => format!("Could not save workspace: {error}"),
+        };
+    }
+
+    /// Load a workspace from a `.json` file chosen by the user.
+    fn open_workspace(&mut self, ctx: &egui::Context) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Forge workspace", &["json"])
+            .pick_file()
+        else {
+            return;
+        };
+        match std::fs::read_to_string(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|text| {
+                serde_json::from_str::<workspace::WorkspaceSnapshot>(&text).map_err(|e| e.to_string())
+            }) {
+            Ok(snap) => self.apply_workspace(snap, ctx),
+            Err(error) => self.console = format!("Could not open workspace: {error}"),
+        }
     }
 }
 

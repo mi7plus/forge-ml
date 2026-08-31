@@ -37,6 +37,27 @@ impl crate::ForgeApp {
                     self.open_project();
                     ui.close();
                 }
+                ui.separator();
+                if ui
+                    .button("Save workspace as...")
+                    .on_hover_text(
+                        "Save the root folder, open files, dock layout, theme, keymap, and \
+                         connections to a shareable file",
+                    )
+                    .clicked()
+                {
+                    self.save_workspace_as();
+                    ui.close();
+                }
+                if ui
+                    .button("Open workspace...")
+                    .on_hover_text("Load a saved workspace file")
+                    .clicked()
+                {
+                    self.open_workspace(ui.ctx());
+                    ui.close();
+                }
+                ui.separator();
                 if ui.button("Import Jupyter notebook...").clicked() {
                     self.import_ipynb();
                     ui.close();
