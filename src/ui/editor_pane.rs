@@ -194,12 +194,40 @@ impl crate::ForgeApp {
                             &self.tabs[self.active_tab].content,
                             offset,
                         );
-                        if ctrl_held && output.response.clicked_by(egui::PointerButton::Primary) {
-                            self.cursor_offset = offset;
-                            self.dock_pending_ctrl_definition = true;
-                        }
                     }
                 }
+                // Ctrl+click jumps to definition at the pointer even if the async
+                // probe hasn't underlined the word yet (avoids a timing race).
+                if ctrl_held
+                    && output.response.clicked_by(egui::PointerButton::Primary)
+                {
+                    if let Some(offset) = hovered_offset {
+                        self.cursor_offset = offset;
+                        self.dock_pending_ctrl_definition = true;
+                    }
+                }
+                // Right-click moves the caret to the pointer, then offers the
+                // source-navigation actions there.
+                if output.response.secondary_clicked() {
+                    if let Some(offset) = hovered_offset {
+                        self.cursor_offset = offset;
+                    }
+                }
+                output.response.context_menu(|ui| {
+                    if ui.button("Go to definition   (Ctrl+click)").clicked() {
+                        self.dock_pending_ctrl_definition = true;
+                        ui.close();
+                    }
+                    if ui.button("Find references").clicked() {
+                        self.request_lsp("references");
+                        ui.close();
+                    }
+                    if ui.button("Rename symbol…").clicked() {
+                        self.rename_open = true;
+                        self.rename_input.clear();
+                        ui.close();
+                    }
+                });
                 // Signature help popup above the caret.
                 if !self.lsp_signature.is_empty() {
                     if let Some(range) = output.cursor_range {
