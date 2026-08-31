@@ -365,6 +365,9 @@ impl crate::ForgeApp {
     pub(crate) fn top_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             use egui_phosphor_icons::icons;
+            // On a narrow window, fold the secondary actions into an overflow
+            // menu and drop the project-path label so nothing clips.
+            let compact = ui.available_width() < 900.0;
             if toolbar_icon_button(ui, icons::FOLDER_OPEN, "Open project").clicked() {
                 self.open_project();
             }
@@ -418,43 +421,88 @@ impl crate::ForgeApp {
             }
             ui.separator();
             use keymap::KeyAction as K;
-            if toolbar_icon_button(
-                ui,
-                icons::PAINT_BRUSH_BROAD,
-                &format!("Format document ({})", self.keymap.display(K::FormatDocument)),
-            )
-            .clicked()
-            {
-                self.format_document();
+            let mut open_palette = false;
+            if compact {
+                ui.menu_button(icons::DOTS_THREE_VERTICAL.as_str(), |ui| {
+                    if ui
+                        .button(format!(
+                            "Format document   {}",
+                            self.keymap.display(K::FormatDocument)
+                        ))
+                        .clicked()
+                    {
+                        self.format_document();
+                        ui.close();
+                    }
+                    if ui
+                        .button(format!("Find & replace   {}", self.keymap.display(K::FindInFile)))
+                        .clicked()
+                    {
+                        self.find_visible = true;
+                        ui.close();
+                    }
+                    if ui
+                        .button(format!(
+                            "Command palette   {}",
+                            self.keymap.display(K::CommandPalette)
+                        ))
+                        .clicked()
+                    {
+                        open_palette = true;
+                        ui.close();
+                    }
+                    if ui
+                        .button(format!("New terminal   {}", self.keymap.display(K::NewTerminal)))
+                        .clicked()
+                    {
+                        self.pending_new_terminal = Some(None);
+                        ui.close();
+                    }
+                })
+                .response
+                .on_hover_text("More actions");
+            } else {
+                if toolbar_icon_button(
+                    ui,
+                    icons::PAINT_BRUSH_BROAD,
+                    &format!("Format document ({})", self.keymap.display(K::FormatDocument)),
+                )
+                .clicked()
+                {
+                    self.format_document();
+                }
+                if toolbar_icon_button(
+                    ui,
+                    icons::MAGNIFYING_GLASS,
+                    &format!("Find & replace ({})", self.keymap.display(K::FindInFile)),
+                )
+                .clicked()
+                {
+                    self.find_visible = true;
+                }
+                if toolbar_icon_button(
+                    ui,
+                    icons::COMMAND,
+                    &format!("Command palette ({})", self.keymap.display(K::CommandPalette)),
+                )
+                .clicked()
+                {
+                    open_palette = true;
+                }
+                if toolbar_icon_button(
+                    ui,
+                    icons::TERMINAL,
+                    &format!("New terminal ({})", self.keymap.display(K::NewTerminal)),
+                )
+                .clicked()
+                {
+                    self.pending_new_terminal = Some(None);
+                }
             }
-            if toolbar_icon_button(
-                ui,
-                icons::MAGNIFYING_GLASS,
-                &format!("Find & replace ({})", self.keymap.display(K::FindInFile)),
-            )
-            .clicked()
-            {
-                self.find_visible = true;
-            }
-            if toolbar_icon_button(
-                ui,
-                icons::COMMAND,
-                &format!("Command palette ({})", self.keymap.display(K::CommandPalette)),
-            )
-            .clicked()
-            {
+            if open_palette {
                 self.command_palette_open = true;
                 self.command_query.clear();
                 self.command_selection = 0;
-            }
-            if toolbar_icon_button(
-                ui,
-                icons::TERMINAL,
-                &format!("New terminal ({})", self.keymap.display(K::NewTerminal)),
-            )
-            .clicked()
-            {
-                self.pending_new_terminal = Some(None);
             }
             ui.separator();
             let ready = !matches!(self.run_state, RunState::Running(_) | RunState::Booting);
@@ -511,17 +559,19 @@ impl crate::ForgeApp {
                     self.apply_theme(ui.ctx());
                 }
                 ui.add_space(10.0);
-                ui.label(
-                    RichText::new(
-                        self.project
-                            .as_ref()
-                            .map(|p| p.root.display().to_string())
-                            .unwrap_or_else(|| "No project".to_owned()),
-                    )
-                    .size(11.0)
-                    .color(MUTED),
-                );
-                ui.separator();
+                if !compact {
+                    ui.label(
+                        RichText::new(
+                            self.project
+                                .as_ref()
+                                .map(|p| p.root.display().to_string())
+                                .unwrap_or_else(|| "No project".to_owned()),
+                        )
+                        .size(11.0)
+                        .color(MUTED),
+                    );
+                    ui.separator();
+                }
                 ui.label(
                     RichText::new(format!("Status: {}", self.status_announcement))
                         .size(10.0)

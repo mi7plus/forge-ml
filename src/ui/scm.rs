@@ -9,7 +9,12 @@ use egui::RichText;
 impl crate::ForgeApp {
     pub(crate) fn git_inspector(&mut self, ui: &mut egui::Ui) {
         let Some(root) = self.project_root() else {
-            ui.label("Open a Git project first.");
+            crate::ui::theme::empty_state(
+                ui,
+                egui_phosphor_icons::icons::GIT_BRANCH,
+                "No project open",
+                "Open a project to see Git status, diffs, and commits.",
+            );
             return;
         };
         ui.horizontal_wrapped(|ui| {
@@ -76,7 +81,12 @@ impl crate::ForgeApp {
 
     pub(crate) fn packages_inspector(&mut self, ui: &mut egui::Ui) {
         let Some(root) = self.project_root() else {
-            ui.label("Open a Cargo project first.");
+            crate::ui::theme::empty_state(
+                ui,
+                egui_phosphor_icons::icons::PACKAGE,
+                "No project open",
+                "Open a Cargo project to search crates and inspect dependencies.",
+            );
             return;
         };
         ui.horizontal(|ui| {

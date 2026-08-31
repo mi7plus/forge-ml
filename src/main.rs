@@ -3165,8 +3165,35 @@ impl ForgeApp {
                 ui.label("Shift+Enter  Run cell\nCtrl+Shift+Enter  Run all\nCtrl+Space  Show completions\nCtrl+S  Save file\nCtrl+N  New file\nCtrl+F  Find and replace\nCtrl+Shift+F  Find in project");
             }
             InspectorTab::Problems => {
-                if ui.button("Run cargo check").clicked() {
-                    self.run_diagnostics();
+                let has_problems =
+                    !self.lsp_diagnostics.is_empty() || !self.diagnostic_lines.is_empty();
+                ui.horizontal(|ui| {
+                    use egui_phosphor_icons::icons;
+                    if compact_icon_button(ui, icons::CHECK_CIRCLE, "Re-run cargo check").clicked() {
+                        self.run_diagnostics();
+                    }
+                    if compact_icon_button(ui, icons::BUG, "Run clippy").clicked() {
+                        self.run_clippy();
+                    }
+                    if ui::theme::enabled_compact_icon_button(
+                        ui,
+                        has_problems,
+                        icons::BROOM,
+                        "Clear problems",
+                    )
+                    .clicked()
+                    {
+                        self.lsp_diagnostics.clear();
+                        self.diagnostic_lines.clear();
+                    }
+                });
+                if !has_problems {
+                    ui::theme::empty_state(
+                        ui,
+                        egui_phosphor_icons::icons::CHECK_CIRCLE,
+                        "No problems",
+                        "cargo check and rust-analyzer found no issues.",
+                    );
                 }
                 let mut navigate = None;
                 egui::ScrollArea::vertical()
