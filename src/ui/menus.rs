@@ -502,6 +502,16 @@ impl crate::ForgeApp {
                     {
                         pick = Some(Pick::Builtin(true));
                     }
+                    ui.separator();
+                    for theme in crate::ui::theme::extra_builtin_themes() {
+                        let active = self.active_theme.as_deref() == Some(theme.name.as_str());
+                        if ui.selectable_label(active, &theme.name).clicked() {
+                            pick = Some(Pick::Custom(theme.name.clone()));
+                        }
+                    }
+                    if !self.custom_themes.is_empty() {
+                        ui.separator();
+                    }
                     for theme in &self.custom_themes {
                         let active = self.active_theme.as_deref() == Some(theme.name.as_str());
                         if ui.selectable_label(active, &theme.name).clicked() {

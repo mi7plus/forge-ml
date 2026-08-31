@@ -12,13 +12,15 @@ grouped under the **0.98.0** release below.
 ## [Unreleased]
 
 ### Added
-- **Theme builder.** A new *Theme builder* in Settings → Appearance: pick a theme
-  (built-in Dark/Light or any custom one), edit eight colors — the seven base
-  colors plus the primary **accent** — with a live preview and hex readout,
-  save / duplicate / delete named custom themes, and export/import them as JSON.
-  The active theme and custom themes persist with the session. The whole IDE
-  follows the palette, including the **code-editor background** and the primary
-  accent; the three status colors (warn/ok/error) stay fixed for legibility.
+- **Theme builder.** A new *Theme builder* in Settings → Appearance: pick a theme,
+  edit eight colors — the seven base colors plus the primary **accent** — with a
+  live preview and hex readout, save / duplicate / delete named custom themes,
+  and export/import them as JSON. The active theme and custom themes persist with
+  the session. The whole IDE follows the palette, including the **code-editor
+  background**, the **terminal**, and **floating-window headers**; the three
+  status colors (warn/ok/error) stay fixed for legibility. Ships built-in
+  **Nord**, **Dracula**, **Solarized Dark/Light**, **Gruvbox Dark**, and
+  **Rosé Pine** themes alongside Dark and Light.
 - **Interface scale.** A Settings → Appearance slider scales *all* text and
   controls across the whole IDE (not just the editor), from 80% to 160%,
   persisted with the session.

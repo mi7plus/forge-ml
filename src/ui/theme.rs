@@ -109,6 +109,70 @@ pub struct NamedTheme {
     pub palette: Palette,
 }
 
+/// Built-in themes beyond Dark/Light, selectable by name in the theme picker.
+/// These are code-defined (not stored in the session), so they always resolve.
+pub fn extra_builtin_themes() -> Vec<NamedTheme> {
+    fn theme(
+        name: &str,
+        background: [u8; 3],
+        surface: [u8; 3],
+        raised: [u8; 3],
+        menu: [u8; 3],
+        border: [u8; 3],
+        text: [u8; 3],
+        muted: [u8; 3],
+        accent: [u8; 3],
+        dark: bool,
+    ) -> NamedTheme {
+        NamedTheme {
+            name: name.to_owned(),
+            palette: Palette {
+                background,
+                surface,
+                raised,
+                menu,
+                border,
+                text,
+                muted,
+                accent,
+                dark,
+            },
+        }
+    }
+    vec![
+        theme(
+            "Nord",
+            [46, 52, 64], [59, 66, 82], [67, 76, 94], [37, 42, 52],
+            [76, 86, 106], [236, 239, 244], [143, 153, 173], [136, 192, 208], true,
+        ),
+        theme(
+            "Dracula",
+            [40, 42, 54], [52, 55, 70], [68, 71, 90], [33, 34, 44],
+            [98, 114, 164], [248, 248, 242], [128, 138, 173], [189, 147, 249], true,
+        ),
+        theme(
+            "Solarized Dark",
+            [0, 43, 54], [7, 54, 66], [11, 59, 71], [0, 34, 43],
+            [88, 110, 117], [147, 161, 161], [101, 123, 131], [38, 139, 210], true,
+        ),
+        theme(
+            "Gruvbox Dark",
+            [40, 40, 40], [60, 56, 54], [80, 73, 69], [29, 32, 33],
+            [102, 92, 84], [235, 219, 178], [168, 153, 132], [131, 165, 152], true,
+        ),
+        theme(
+            "Rosé Pine",
+            [25, 23, 36], [31, 29, 46], [38, 35, 58], [22, 20, 31],
+            [64, 61, 82], [224, 222, 244], [144, 140, 170], [196, 167, 231], true,
+        ),
+        theme(
+            "Solarized Light",
+            [253, 246, 227], [238, 232, 213], [255, 253, 245], [238, 232, 213],
+            [213, 205, 179], [88, 110, 117], [131, 145, 145], [38, 139, 210], false,
+        ),
+    ]
+}
+
 thread_local! {
     static ACTIVE: RefCell<Palette> = RefCell::new(Palette::dark());
 }
@@ -351,6 +415,24 @@ mod tests {
         assert_ne!(dark, Palette::light());
         let json = serde_json::to_string(&dark).unwrap();
         assert_eq!(serde_json::from_str::<Palette>(&json).unwrap(), dark);
+    }
+
+    #[test]
+    fn builtin_themes_are_named_uniquely_and_distinct() {
+        let themes = extra_builtin_themes();
+        assert!(themes.len() >= 5);
+        let mut names: Vec<&str> = themes.iter().map(|t| t.name.as_str()).collect();
+        names.sort_unstable();
+        let unique = names.len();
+        names.dedup();
+        assert_eq!(names.len(), unique, "theme names must be unique");
+        // Each theme differs from the built-in Dark and Light, and serde-round-trips.
+        for theme in &themes {
+            assert_ne!(theme.palette, Palette::dark());
+            assert_ne!(theme.palette, Palette::light());
+            let json = serde_json::to_string(&theme.palette).unwrap();
+            assert_eq!(serde_json::from_str::<Palette>(&json).unwrap(), theme.palette);
+        }
     }
 
     #[test]

@@ -704,6 +704,12 @@ fn resolve_palette(
         if let Some(theme) = customs.iter().find(|theme| &theme.name == name) {
             return theme.palette.clone();
         }
+        if let Some(theme) = ui::theme::extra_builtin_themes()
+            .into_iter()
+            .find(|theme| &theme.name == name)
+        {
+            return theme.palette;
+        }
     }
     if dark {
         ui::theme::Palette::dark()
