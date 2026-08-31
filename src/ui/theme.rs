@@ -307,7 +307,10 @@ pub fn configure_style(ctx: &egui::Context, palette: &Palette, high_contrast: bo
     visuals.widgets.inactive.bg_fill = colors.raised;
     visuals.widgets.inactive.weak_bg_fill = colors.raised;
     visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, colors.text);
+    // `open` styles the active (focused) window title bar and open dropdowns.
     visuals.widgets.open.fg_stroke = Stroke::new(1.0, colors.text);
+    visuals.widgets.open.bg_fill = colors.raised;
+    visuals.widgets.open.weak_bg_fill = colors.raised;
     visuals.widgets.hovered.bg_fill = mix(colors.raised, accent, if dark { 0.16 } else { 0.22 });
     visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, accent);
     visuals.widgets.active.bg_fill = mix(colors.raised, accent, if dark { 0.28 } else { 0.34 });
