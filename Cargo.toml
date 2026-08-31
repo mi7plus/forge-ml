@@ -45,6 +45,11 @@ default = []
 millwright = []
 adbc = ["dep:adbc_core"]
 
+# Extra Millwright backends (smartcore + linfa) used only by the bundled
+# examples. Dev-dependency features are not applied to the app's own build.
+[dev-dependencies]
+millwright = { version = "2.2.1", default-features = false, features = ["smartcore-backend", "linfa-backend"] }
+
 [profile.dev]
 debug = 0
 incremental = false

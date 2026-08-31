@@ -25,3 +25,34 @@ Open `navigation_demo.rs`, hold Left Ctrl, and hover or click `LinearModel`, `pr
 Run the file in Forge to populate Variables with the model, inputs, targets, predictions, and loss. Its vectors appear in Data and Plots, and loss appears as a metric plot.
 
 Run `cargo check --example navigation_demo` to verify the conventional Rust example independently.
+
+## Machine-learning examples
+
+Six self-contained programs cover regression, classification, and clustering with
+each of the two bundled ML stacks — [Millwright](https://crates.io/crates/millwright)
+(classical models) and [Burn](https://burn.dev) (tensors + autodiff). They read
+the small public datasets in `data/`:
+
+- `data/iris.csv` — Fisher's iris measurements, 150 rows, 3 species.
+- `data/tips.csv` — restaurant tips, 244 rows.
+
+| Task | Millwright | Burn |
+| --- | --- | --- |
+| Regression | `millwright_regression` — `LinearRegression`, tip ~ total_bill + size, MAE/RMSE/R² | `burn_regression` — single-layer linear model trained with SGD |
+| Classification | `millwright_classification` — `RandomForest` on iris, accuracy/precision/recall/F1 | `burn_classification` — MLP (4→16→3) trained with cross-entropy |
+| Clustering | `millwright_clustering` — `KMeans(k=3)` + species cross-tab | `burn_clustering` — k-means built from Burn tensor ops (broadcast distances, argmin, matmul update) |
+
+Run any of them with, for example:
+
+```
+cargo run --example millwright_classification
+cargo run --example burn_clustering
+```
+
+The Millwright examples pull in the `smartcore-backend` and `linfa-backend`
+features via `[dev-dependencies]`, so they compile only for the example targets
+and do not affect the IDE's own build. Splits are deterministic (every 5th row is
+held out) and, because iris is grouped by species, the split is interleaved to
+keep all three classes in both the train and test sets.
+
+Shared CSV helpers live in `support/data.rs`.

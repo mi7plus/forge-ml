@@ -63,6 +63,13 @@ grouped under the **0.98.0** release below.
   layout, theme (and custom themes), key bindings, appearance settings, and
   database connection profiles. Connection profiles carry only a keychain
   *reference*, never a secret, so a workspace file is safe to share.
+- **Runnable ML examples.** Six bundled `cargo` examples covering regression,
+  classification, and clustering with both Millwright and Burn, reading the small
+  public iris and tips datasets under `examples/data/`. Run e.g. `cargo run
+  --example burn_classification`. Millwright's classical backends
+  (`smartcore-backend`, `linfa-backend`) are pulled in as dev-dependencies, so
+  they build only for the examples and not the IDE itself. See
+  `examples/README.md`.
 
 ## [0.98.0] — 2026-08-31
 
