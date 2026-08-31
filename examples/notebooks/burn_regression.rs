@@ -1,9 +1,12 @@
-//# %% deps
+//# %% deps — first run compiles Burn (several minutes), then it is cached
 // Burn linear regression (SGD on the Flex CPU backend) on tips, as a notebook.
 :dep burn = { version = "0.22.0-pre.3", default-features = false, features = ["std", "train", "flex"] }
 use burn::nn::LinearConfig;
 use burn::optim::{GradientsParams, SgdConfig};
 use burn::tensor::{Device, Tensor};
+// Trigger the one-time dependency build here (not mid-notebook):
+let _ = Tensor::<1>::from_floats(&[0.0f32][..], &Device::flex());
+println!("Burn ready.");
 
 //# %% data
 let tips_csv = r#""total_bill","tip","sex","smoker","day","time","size"

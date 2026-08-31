@@ -1,4 +1,4 @@
-//# %% deps
+//# %% deps — first run compiles Burn (several minutes), then it is cached
 // Burn MLP (4->16->3) trained with cross-entropy on iris, as a notebook.
 :dep burn = { version = "0.22.0-pre.3", default-features = false, features = ["std", "train", "flex"] }
 use burn::module::Module;
@@ -7,6 +7,9 @@ use burn::nn::{Linear, LinearConfig};
 use burn::optim::{GradientsParams, SgdConfig};
 use burn::tensor::activation::relu;
 use burn::tensor::{Device, Int, Tensor};
+// Trigger the one-time dependency build here (not mid-notebook):
+let _ = Tensor::<1>::from_floats(&[0.0f32][..], &Device::flex());
+println!("Burn ready.");
 
 //# %% model
 #[derive(Module, Debug)]

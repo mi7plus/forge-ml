@@ -1,7 +1,10 @@
-//# %% deps
+//# %% deps — first run compiles Burn (several minutes), then it is cached
 // Burn k-means (built from tensor ops on the Flex CPU backend) on iris.
 :dep burn = { version = "0.22.0-pre.3", default-features = false, features = ["std", "flex"] }
 use burn::tensor::{Device, Tensor};
+// Trigger the one-time dependency build here (not mid-notebook):
+let _ = Tensor::<1>::from_floats(&[0.0f32][..], &Device::flex());
+println!("Burn ready.");
 
 //# %% data
 let iris_csv = r#"sepal_length,sepal_width,petal_length,petal_width,species

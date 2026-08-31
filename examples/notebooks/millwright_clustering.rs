@@ -1,8 +1,11 @@
-//# %% deps
+//# %% deps — first run compiles Millwright (a few minutes), then it is cached
 // Millwright k-means clustering on iris, as a notebook. KMeans is in the linfa
 // backend.
 :dep millwright = { version = "2.2.1", default-features = false, features = ["linfa-backend"] }
 use millwright::prelude::*;
+// Trigger the one-time dependency build here (not mid-notebook):
+let _ = Frame::from_rows(vec![vec![0.0]], vec!["x".into()])?;
+println!("Millwright ready.");
 
 //# %% data
 let iris_csv = r#"sepal_length,sepal_width,petal_length,petal_width,species

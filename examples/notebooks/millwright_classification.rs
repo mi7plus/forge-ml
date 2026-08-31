@@ -1,7 +1,10 @@
-//# %% deps
+//# %% deps — first run compiles Millwright (a few minutes), then it is cached
 // Millwright multiclass classification (random forest) on iris, as a notebook.
 :dep millwright = { version = "2.2.1", default-features = false, features = ["smartcore-backend"] }
 use millwright::prelude::*;
+// Trigger the one-time dependency build here (not mid-notebook):
+let _ = Frame::from_rows(vec![vec![0.0]], vec!["x".into()])?;
+println!("Millwright ready.");
 
 //# %% data
 // iris.csv embedded. Columns: sepal_length, sepal_width, petal_length,
