@@ -41,9 +41,11 @@
     <circle cx="256" cy="150" r="11"/>
   </g>
 
-  <g fill="url(#heat)">
-    <path d="M150 252 L362 252 Q374 252 374 264 L374 286 L138 286 L138 264 Q138 252 150 252 Z"/>
-    <path d="M232 286 L280 286 L280 316 L338 360 Q343 371 332 371 L180 371 Q169 371 174 360 L232 316 Z"/>
+  <g transform="translate(256,311.5) scale(1.15) translate(-256,-311.5)">
+    <g fill="url(#heat)">
+      <path d="M150 252 L362 252 Q374 252 374 264 L374 286 L138 286 L138 264 Q138 252 150 252 Z"/>
+      <path d="M232 286 L280 286 L280 316 L338 360 Q343 371 332 371 L180 371 Q169 371 174 360 L232 316 Z"/>
+    </g>
+    <path d="M150 258 L362 258" fill="none" stroke="#FFE1B0" stroke-opacity="0.5" stroke-width="4" stroke-linecap="round"/>
   </g>
-  <path d="M150 258 L362 258" fill="none" stroke="#FFE1B0" stroke-opacity="0.5" stroke-width="4" stroke-linecap="round"/>
 </svg>
