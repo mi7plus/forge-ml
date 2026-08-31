@@ -10,6 +10,45 @@ use egui::RichText;
 impl crate::ForgeApp {
     /// Post-editor work shared by the legacy layout and the docked workspace:
     /// LSP sync, deferred definition probes, and the modal windows.
+    /// A `project › folder › file` breadcrumb under the editor tab strip.
+    fn editor_breadcrumb(&mut self, ui: &mut egui::Ui) {
+        let Some(path) = self.active().path.clone() else {
+            return;
+        };
+        let root = self.project.as_ref().map(|project| project.root.clone());
+        let mut parts: Vec<String> = Vec::new();
+        if let Some(root) = &root {
+            if let Some(name) = root.file_name().and_then(|n| n.to_str()) {
+                parts.push(name.to_owned());
+            }
+        }
+        let tail = root
+            .as_ref()
+            .and_then(|root| path.strip_prefix(root).ok())
+            .unwrap_or(path.as_path());
+        for component in tail.components() {
+            if let std::path::Component::Normal(segment) = component {
+                if let Some(segment) = segment.to_str() {
+                    parts.push(segment.to_owned());
+                }
+            }
+        }
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            for (index, part) in parts.iter().enumerate() {
+                if index > 0 {
+                    ui.label(RichText::new("›").size(11.0).color(MUTED));
+                }
+                let last = index + 1 == parts.len();
+                ui.label(
+                    RichText::new(part)
+                        .size(11.0)
+                        .color(if last { TEXT } else { MUTED }),
+                );
+            }
+        });
+    }
+
     pub(crate) fn after_editor(&mut self, ui: &mut egui::Ui) {
         self.sync_lsp();
         if let Some(offset) = self.dock_pending_definition_probe.take() {
@@ -38,6 +77,7 @@ impl crate::ForgeApp {
     /// Shared by the central editor panel and [`PaneKind::Editor`].
     pub(crate) fn editor_pane(&mut self, ui: &mut egui::Ui) {
                 self.editor_tabs(ui);
+                self.editor_breadcrumb(ui);
                 self.external_change_banner(ui);
                 self.apply_pending_editor_history(ui);
                 if self.find_visible {

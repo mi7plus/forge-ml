@@ -22,10 +22,16 @@ pub enum KeyAction {
     RequestCompletion,
     CommandPalette,
     CyclePane,
+    GoToDefinition,
+    FindReferences,
+    NewTerminal,
+    CloseTab,
+    StopExecution,
+    OpenSettings,
 }
 
 impl KeyAction {
-    pub const ALL: [KeyAction; 10] = [
+    pub const ALL: [KeyAction; 16] = [
         KeyAction::Save,
         KeyAction::NewFile,
         KeyAction::FindInFile,
@@ -36,6 +42,12 @@ impl KeyAction {
         KeyAction::RequestCompletion,
         KeyAction::CommandPalette,
         KeyAction::CyclePane,
+        KeyAction::GoToDefinition,
+        KeyAction::FindReferences,
+        KeyAction::NewTerminal,
+        KeyAction::CloseTab,
+        KeyAction::StopExecution,
+        KeyAction::OpenSettings,
     ];
 
     pub fn label(self) -> &'static str {
@@ -50,6 +62,12 @@ impl KeyAction {
             KeyAction::RequestCompletion => "Request completion",
             KeyAction::CommandPalette => "Command palette",
             KeyAction::CyclePane => "Cycle inspector panes",
+            KeyAction::GoToDefinition => "Go to definition",
+            KeyAction::FindReferences => "Find references",
+            KeyAction::NewTerminal => "New terminal",
+            KeyAction::CloseTab => "Close editor tab",
+            KeyAction::StopExecution => "Stop execution",
+            KeyAction::OpenSettings => "Open settings",
         }
     }
 
@@ -65,6 +83,12 @@ impl KeyAction {
             KeyAction::RequestCompletion => "request_completion",
             KeyAction::CommandPalette => "command_palette",
             KeyAction::CyclePane => "cycle_pane",
+            KeyAction::GoToDefinition => "go_to_definition",
+            KeyAction::FindReferences => "find_references",
+            KeyAction::NewTerminal => "new_terminal",
+            KeyAction::CloseTab => "close_tab",
+            KeyAction::StopExecution => "stop_execution",
+            KeyAction::OpenSettings => "open_settings",
         }
     }
 
@@ -77,6 +101,7 @@ impl KeyAction {
         let cmd_shift = Modifiers::COMMAND.plus(Modifiers::SHIFT);
         let shift = Modifiers::SHIFT;
         let alt_shift = Modifiers::ALT.plus(Modifiers::SHIFT);
+        let none = Modifiers::NONE;
         let (mods, key) = match self {
             KeyAction::Save => (cmd, Key::S),
             KeyAction::NewFile => (cmd, Key::N),
@@ -87,7 +112,13 @@ impl KeyAction {
             KeyAction::RunAll => (cmd_shift, Key::Enter),
             KeyAction::RequestCompletion => (cmd, Key::Space),
             KeyAction::CommandPalette => (cmd_shift, Key::P),
-            KeyAction::CyclePane => (Modifiers::NONE, Key::F6),
+            KeyAction::CyclePane => (none, Key::F6),
+            KeyAction::GoToDefinition => (none, Key::F12),
+            KeyAction::FindReferences => (shift, Key::F12),
+            KeyAction::NewTerminal => (cmd, Key::Backtick),
+            KeyAction::CloseTab => (cmd, Key::W),
+            KeyAction::StopExecution => (cmd, Key::Period),
+            KeyAction::OpenSettings => (cmd, Key::Comma),
         };
         KeyboardShortcut::new(mods, key)
     }

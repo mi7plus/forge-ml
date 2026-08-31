@@ -417,21 +417,43 @@ impl crate::ForgeApp {
                 self.request_lsp("definition");
             }
             ui.separator();
-            if toolbar_icon_button(ui, icons::PAINT_BRUSH_BROAD, "Format document (rustfmt)")
-                .clicked()
+            use keymap::KeyAction as K;
+            if toolbar_icon_button(
+                ui,
+                icons::PAINT_BRUSH_BROAD,
+                &format!("Format document ({})", self.keymap.display(K::FormatDocument)),
+            )
+            .clicked()
             {
                 self.format_document();
             }
-            if toolbar_icon_button(ui, icons::MAGNIFYING_GLASS, "Find & replace (Ctrl+F)").clicked()
+            if toolbar_icon_button(
+                ui,
+                icons::MAGNIFYING_GLASS,
+                &format!("Find & replace ({})", self.keymap.display(K::FindInFile)),
+            )
+            .clicked()
             {
                 self.find_visible = true;
             }
-            if toolbar_icon_button(ui, icons::COMMAND, "Command palette (Ctrl+Shift+P)").clicked() {
+            if toolbar_icon_button(
+                ui,
+                icons::COMMAND,
+                &format!("Command palette ({})", self.keymap.display(K::CommandPalette)),
+            )
+            .clicked()
+            {
                 self.command_palette_open = true;
                 self.command_query.clear();
                 self.command_selection = 0;
             }
-            if toolbar_icon_button(ui, icons::TERMINAL, "New terminal").clicked() {
+            if toolbar_icon_button(
+                ui,
+                icons::TERMINAL,
+                &format!("New terminal ({})", self.keymap.display(K::NewTerminal)),
+            )
+            .clicked()
+            {
                 self.pending_new_terminal = Some(None);
             }
             ui.separator();
@@ -469,7 +491,13 @@ impl crate::ForgeApp {
                 self.stop_execution();
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if toolbar_icon_button(ui, icons::GEAR, "Settings").clicked() {
+                if toolbar_icon_button(
+                    ui,
+                    icons::GEAR,
+                    &format!("Settings ({})", self.keymap.display(keymap::KeyAction::OpenSettings)),
+                )
+                .clicked()
+                {
                     self.settings_open = true;
                 }
                 let (theme_icon, theme_tip) = if self.dark_mode {

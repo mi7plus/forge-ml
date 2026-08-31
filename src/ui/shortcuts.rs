@@ -21,6 +21,10 @@ impl crate::ForgeApp {
             C::FormatDocument => K::FormatDocument,
             C::RunCell => K::RunCell,
             C::RunAll => K::RunAll,
+            C::FindReferences => K::FindReferences,
+            C::NewTerminal => K::NewTerminal,
+            C::Stop => K::StopExecution,
+            C::Settings => K::OpenSettings,
             _ => return None,
         })
     }
@@ -157,6 +161,25 @@ impl crate::ForgeApp {
                 .unwrap_or(0);
             self.inspector_tab = tabs[(index + 1) % tabs.len()];
             self.status_announcement = "Moved to next inspector pane".into();
+        }
+        use keymap::KeyAction as K;
+        if self.keymap.triggered(K::GoToDefinition, ctx) {
+            self.request_lsp("definition");
+        }
+        if self.keymap.triggered(K::FindReferences, ctx) {
+            self.request_lsp("references");
+        }
+        if self.keymap.triggered(K::NewTerminal, ctx) {
+            self.pending_new_terminal = Some(None);
+        }
+        if self.keymap.triggered(K::CloseTab, ctx) {
+            self.close_tab(self.active_tab);
+        }
+        if self.keymap.triggered(K::StopExecution, ctx) {
+            self.stop_execution();
+        }
+        if self.keymap.triggered(K::OpenSettings, ctx) {
+            self.settings_open = true;
         }
         // Ctrl+1..=9 jump straight to the first nine inspector panes.
         const NUM_KEYS: [egui::Key; 9] = [

@@ -114,8 +114,11 @@ impl crate::ForgeApp {
 
     pub(crate) fn experiments(&mut self, ui: &mut egui::Ui) {
         if self.saved_runs.is_empty() {
-            ui.label(
-                RichText::new("Save a snapshot from Plots to compare training runs.").color(MUTED),
+            crate::ui::theme::empty_state(
+                ui,
+                egui_phosphor_icons::icons::FLASK,
+                "No saved runs",
+                "Save a snapshot from the Plots pane to compare training runs here.",
             );
             return;
         }

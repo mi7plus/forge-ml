@@ -70,11 +70,35 @@ impl crate::ForgeApp {
             }
         }
         if self.project.is_none() {
-            ui.label(
-                RichText::new("Open a Cargo project to begin.")
-                    .size(11.0)
-                    .color(MUTED),
+            crate::ui::theme::empty_state(
+                ui,
+                egui_phosphor_icons::icons::FOLDER_OPEN,
+                "No project open",
+                "Open a Cargo project to browse and edit its files.",
             );
+            ui.vertical_centered(|ui| {
+                if ui.button("Open project…").clicked() {
+                    self.open_project();
+                }
+                if !self.recent_projects.is_empty() {
+                    ui.add_space(4.0);
+                    ui.label(RichText::new("Recent").size(10.0).color(MUTED));
+                    for path in self.recent_projects.clone().into_iter().take(5) {
+                        let name = path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("project")
+                            .to_owned();
+                        if ui
+                            .small_button(name)
+                            .on_hover_text(path.display().to_string())
+                            .clicked()
+                        {
+                            self.request_open_project_path(path);
+                        }
+                    }
+                }
+            });
         }
     }
 

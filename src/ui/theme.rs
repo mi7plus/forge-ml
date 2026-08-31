@@ -478,6 +478,21 @@ pub fn enabled_compact_icon_button(
     .on_hover_text(tooltip)
 }
 
+/// A centered empty-state placeholder: a large muted icon, a title, and a hint.
+/// Callers can add a call-to-action button immediately after.
+pub fn empty_state(ui: &mut egui::Ui, icon: egui_phosphor_icons::Icon, title: &str, hint: &str) {
+    ui.add_space(22.0);
+    ui.vertical_centered(|ui| {
+        ui.label(icon.regular().size(32.0).color(MUTED));
+        ui.add_space(6.0);
+        ui.label(RichText::new(title).size(13.0).strong());
+        if !hint.is_empty() {
+            ui.label(RichText::new(hint).size(11.0).color(MUTED));
+        }
+    });
+    ui.add_space(8.0);
+}
+
 pub fn status_row(ui: &mut egui::Ui, label: &str, value: &str, color: Color32) {
     ui.horizontal(|ui| {
         ui.label(RichText::new(label).size(11.0).color(MUTED));

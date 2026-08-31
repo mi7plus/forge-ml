@@ -33,6 +33,16 @@ grouped under the **0.98.0** release below.
   and git output match the IDE; the 256-color cube keeps standard xterm values.
 
 ### Added
+- **More keyboard shortcuts.** Go to definition (F12), Find references
+  (Shift+F12), New terminal (Ctrl+`), Close tab (Ctrl+W), Stop execution
+  (Ctrl+.), and Open settings (Ctrl+,) — all rebindable in Settings.
+- **UI/UX polish.** Icon buttons in the file-explorer toolbar; new toolbar
+  buttons (Format, Find, Command palette, New terminal, Settings gear,
+  light/dark toggle) whose tooltips show the live shortcut; a clickable status
+  bar (file name reveals the Files pane, background-task count opens Problems,
+  the language-server status restarts rust-analyzer); a `project › folder ›
+  file` breadcrumb under the editor tabs; and friendly empty states (no project
+  open, no variables, no saved runs) with call-to-action buttons.
 - **Theme builder.** A new *Theme builder* in Settings → Appearance: pick a theme,
   edit eight colors — the seven base colors plus the primary **accent** — with a
   live preview and hex readout, save / duplicate / delete named custom themes,

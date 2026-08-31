@@ -1240,34 +1240,63 @@ impl ForgeApp {
                 .as_ref()
                 .map(|path| file_title(path))
                 .unwrap_or_else(|| "untitled".to_owned());
-            ui.label(
-                RichText::new(format!("{}  {}{}", icons::FILE_CODE.as_str(), name, if dirty { " •" } else { "" }))
-                    .color(if dirty { EMBER } else { MUTED })
-                    .size(11.0),
-            );
+            if ui
+                .add(
+                    egui::Label::new(
+                        RichText::new(format!(
+                            "{}  {}{}",
+                            icons::FILE_CODE.as_str(),
+                            name,
+                            if dirty { " •" } else { "" }
+                        ))
+                        .color(if dirty { EMBER } else { MUTED })
+                        .size(11.0),
+                    )
+                    .sense(egui::Sense::click()),
+                )
+                .on_hover_text("Reveal in the Files pane")
+                .clicked()
+            {
+                self.dock_focus = Some(PaneKind::Files);
+            }
 
             if self.integration_pending > 0 {
                 ui.separator();
-                ui.label(
-                    RichText::new(format!("{}  {} background task(s)", icons::HOURGLASS_MEDIUM.as_str(), self.integration_pending))
-                        .color(accent())
-                        .size(11.0),
-                );
+                if ui
+                    .add(
+                        egui::Label::new(
+                            RichText::new(format!(
+                                "{}  {} background task(s)",
+                                icons::HOURGLASS_MEDIUM.as_str(),
+                                self.integration_pending
+                            ))
+                            .color(accent())
+                            .size(11.0),
+                        )
+                        .sense(egui::Sense::click()),
+                    )
+                    .on_hover_text("Show the Problems pane")
+                    .clicked()
+                {
+                    self.inspector_tab = InspectorTab::Problems;
+                }
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let full = self.lsp_status.replace('\n', " ");
                 // egui truncates to the available width with an ellipsis; the
-                // full text is always available on hover (and click-to-copy).
+                // full text is always available on hover. Click restarts the
+                // language server (forces a fresh sync).
                 let response = ui
                     .add(
                         egui::Label::new(RichText::new(&full).size(11.0).color(MUTED))
                             .truncate()
                             .sense(egui::Sense::click()),
                     )
-                    .on_hover_text(&full);
+                    .on_hover_text(format!("{full}\n(click to restart rust-analyzer)"));
                 if response.clicked() {
-                    ui.ctx().copy_text(full);
+                    self.last_lsp_hash = 0;
+                    self.lsp_status = "Restarting rust-analyzer…".to_owned();
                 }
             });
         });
@@ -3069,7 +3098,12 @@ impl ForgeApp {
                         }
                     });
                 if self.variables.is_empty() {
-                    ui.label(RichText::new("Run a cell to inspect its variables.").color(MUTED));
+                    ui::theme::empty_state(
+                        ui,
+                        egui_phosphor_icons::icons::CUBE,
+                        "No variables yet",
+                        "Run a cell to inspect the live Evcxr state.",
+                    );
                 }
             }
             InspectorTab::Data => self.data_inspector(ui),
