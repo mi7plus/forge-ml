@@ -513,6 +513,8 @@ struct ForgeApp {
     theme_dirty: bool,
     /// Global UI zoom factor scaling all text and widgets (1.0 = 100%).
     ui_scale: f32,
+    /// When the splash overlay started; `None` once it has been dismissed.
+    splash_start: Option<Instant>,
     editor_needs_initial_focus: bool,
     explorer_height: f32,
     pending_delete: Option<PathBuf>,
@@ -719,6 +721,57 @@ fn resolve_palette(
 }
 
 impl ForgeApp {
+    /// Whether the startup splash overlay should still be shown. It stays up for
+    /// a brief minimum, then until the Rust runtime finishes booting (or a hard
+    /// cap), and can be dismissed early with a click or key press.
+    fn splash_active(&self, ctx: &egui::Context) -> bool {
+        let Some(start) = self.splash_start else {
+            return false;
+        };
+        let elapsed = start.elapsed().as_secs_f32();
+        if elapsed < 0.6 {
+            return true;
+        }
+        if elapsed >= 5.0 {
+            return false;
+        }
+        let dismissed = ctx.input(|i| {
+            i.pointer.any_pressed()
+                || i.key_pressed(egui::Key::Escape)
+                || i.key_pressed(egui::Key::Enter)
+                || i.key_pressed(egui::Key::Space)
+        });
+        !dismissed && matches!(self.run_state, RunState::Booting)
+    }
+
+    /// Paint the centered startup splash into the full-window `ui`.
+    fn draw_splash(&self, ui: &mut egui::Ui) {
+        ui.vertical_centered(|ui| {
+            ui.add_space((ui.available_height() * 0.30).max(40.0));
+            ui.label(RichText::new("FORGE ML").size(46.0).strong().color(RED));
+            ui.label(
+                RichText::new("Rust compute studio")
+                    .size(14.0)
+                    .color(MUTED),
+            );
+            ui.add_space(28.0);
+            ui.add(egui::Spinner::new().size(30.0).color(accent()));
+            ui.add_space(12.0);
+            let status = if matches!(self.run_state, RunState::Booting) {
+                "Starting the Rust runtime…"
+            } else {
+                "Ready"
+            };
+            ui.label(RichText::new(status).size(12.0).color(MUTED));
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new(format!("v{APP_VERSION}"))
+                    .size(10.0)
+                    .color(MUTED),
+            );
+        });
+    }
+
     /// Resolve the active theme and apply its palette to the egui context.
     pub(crate) fn apply_theme(&self, ctx: &egui::Context) {
         let palette = resolve_palette(&self.active_theme, &self.custom_themes, self.dark_mode);
@@ -1036,6 +1089,7 @@ impl ForgeApp {
             theme_new_name: String::new(),
             theme_dirty: false,
             ui_scale,
+            splash_start: Some(Instant::now()),
             editor_needs_initial_focus: true,
             explorer_height,
             pending_delete: None,
@@ -3520,6 +3574,15 @@ impl eframe::App for ForgeApp {
             self.apply_theme(ui.ctx());
             self.theme_dirty = false;
         }
+        // Startup splash while the Rust runtime boots; keep background work
+        // ticking underneath so it progresses to Ready.
+        if self.splash_active(ui.ctx()) {
+            self.poll_background(ui.ctx());
+            self.draw_splash(ui);
+            ui.ctx().request_repaint();
+            return;
+        }
+        self.splash_start = None;
         self.accessibility_shortcuts(ui.ctx());
         self.command_palette(ui.ctx());
         self.poll_background(ui.ctx());
