@@ -1,0 +1,20 @@
+# The "blessed" dependency set made available offline to notebook `:dep` cells
+# and generated projects. It mirrors the Millwright and Burn features the app is
+# built with, so a notebook resolves them to versions that are vendored and known
+# to compile. `packaging/build-offline-bundle.*` vendors this manifest's locked
+# closure into the shipped offline runtime. Standalone (own [workspace]) so it
+# does not affect the app build.
+[package]
+name = "forge-offline-deps"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+millwright = { version = "2.2.1", default-features = false, features = ["eda", "onnx", "smartcore-backend", "linfa-backend"] }
+burn = { version = "0.22.0-pre.3", default-features = false, features = ["std", "train", "flex", "wgpu", "metrics"] }

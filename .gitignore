@@ -4,3 +4,7 @@
 .venv/
 /packaging/resources/rust-analyzer
 /packaging/resources/rust-analyzer.exe
+# Staged offline runtime bundle (toolchain + vendored deps) — built by CI, huge.
+/packaging/forge-runtime/
+/packaging/offline-deps/target/
+/packaging/offline-deps/vendor/

@@ -36,30 +36,36 @@ Produced by `packaging/build-offline-bundle.{sh,ps1}`:
 packaging/forge-runtime/
   bin/            cargo, rustc, rustdoc, ...   (the pinned toolchain)
   lib/            rustlib sysroot for the above
-  cargo-home/
-    config.toml   [net] offline = true; crates.io -> vendored-sources
-    vendor/       every crate in the workspace lockfile, pre-downloaded
+  vendor/         every crate in packaging/offline-deps' locked closure
   VERSION         `rustc --version`, shown in the app
 ```
 
-The vendored set is the **workspace's own locked dependency closure** — the exact
-Millwright, Burn, and transitive crate versions the app was built against — so a
-notebook `:dep millwright = "…"` resolves to a version that is present and known
-to compile. (A bare `:dep` with no lockfile fails offline on yanked transitives;
-vendoring + the committed `Cargo.lock` avoids that. This was verified: the locked
-workspace builds with `--offline` in seconds, a lock-free crate does not.)
+The vendored set is the locked closure of `packaging/offline-deps/Cargo.toml` — a
+dedicated manifest that mirrors the Millwright and Burn features the app is built
+with (not the whole GUI workspace). So a notebook `:dep millwright = "…"` resolves
+to a version that is present and known to compile. (A bare `:dep` with no lockfile
+fails offline on yanked transitives; vendoring the committed `Cargo.lock` avoids
+that.)
+
+Note there is **no `config.toml` in the bundle**: cargo requires an *absolute*
+`directory` for a vendored source, and the install path isn't known until install
+time, so the app generates the config at runtime (below).
+
+Approximate size per platform: ~670 MB toolchain + ~900 MB vendored sources ≈
+**1.6 GB uncompressed** (smaller in the compressed installer).
 
 ### How the app uses it
 
 `src/offline.rs`:
 
 - `detect()` looks for `forge-runtime/` next to the executable (and in the macOS
-  `Resources/` dir), validating that it has a `bin/cargo` and a
-  `cargo-home/config.toml`. Cached.
+  `Resources/` dir), validating that it has a `bin/cargo` and a `vendor/` dir.
+  Cached.
 - `activate()` (called once by the notebook runtime before evcxr starts) prepends
-  `bin/` to `PATH`, sets `CARGO_HOME` to the bundle's `cargo-home`, sets
-  `CARGO_NET_OFFLINE=true`, and points `EVCXR_TMPDIR` at a writable per-user
-  scratch dir (the install location may be read-only).
+  `bin/` to `PATH`; creates a **writable** per-user `CARGO_HOME` (the install
+  location may be read-only) and writes a `config.toml` there that forces offline
+  mode and replaces crates.io with the bundle's **absolute** `vendor/` path; sets
+  `CARGO_NET_OFFLINE=true`; and points `EVCXR_TMPDIR` at a writable scratch dir.
 - The notebook runtime (`src/runtime.rs`) additionally turns on evcxr's
   `offline_mode` and grants a large persistent compile **cache** so the prebuilt
   dependency artifacts are reused instead of recompiled on first use.
