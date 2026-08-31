@@ -49,10 +49,10 @@ cargo run --example millwright_classification
 cargo run --example burn_clustering
 ```
 
-The Millwright examples pull in the `smartcore-backend` and `linfa-backend`
-features via `[dev-dependencies]`, so they compile only for the example targets
-and do not affect the IDE's own build. Splits are deterministic (every 5th row is
-held out) and, because iris is grouped by species, the split is interleaved to
-keep all three classes in both the train and test sets.
+The Millwright examples use its `smartcore-backend` and `linfa-backend` classical
+models, which are compiled into Forge ML itself (see the root `Cargo.toml`), so
+they need no extra setup. Splits are deterministic (every 5th row is held out)
+and, because iris is grouped by species, the split is interleaved to keep all
+three classes in both the train and test sets.
 
 Shared CSV helpers live in `support/data.rs`.

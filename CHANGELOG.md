@@ -9,6 +9,18 @@ embedded terminals and kernels, an editor/LSP tooling sweep, and an ML modelling
 sweep — followed by an internal restructuring of the application code. Those are
 grouped under the **0.98.0** release below.
 
+## [Unreleased]
+
+### Changed
+- **Millwright is now fully native.** The `smartcore-backend` and `linfa-backend`
+  classical-model backends (LinearRegression, LogisticRegression, RandomForest,
+  KMeans, …) are compiled into the Forge ML binary itself, alongside the existing
+  `eda` and `onnx` features — no longer scoped to example builds. Both backends
+  are pure Rust (linfa uses `linfa-linalg`, not a system BLAS), so this keeps the
+  Windows/macOS/Linux installer self-contained with no toolchain or network
+  needed at runtime. The bundled ML examples now inherit these features from the
+  main dependency instead of a `[dev-dependencies]` override.
+
 ## [0.99.0] — 2026-08-31
 
 ### Fixed

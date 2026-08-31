@@ -33,7 +33,7 @@ adbc_core = { version = "0.24", optional = true }
 keyring = "4.1"
 sysinfo = "0.39"
 zip = { version = "4", default-features = false, features = ["deflate"] }
-millwright = { version = "2.2.1", default-features = false, features = ["eda", "onnx"] }
+millwright = { version = "2.2.1", default-features = false, features = ["eda", "onnx", "smartcore-backend", "linfa-backend"] }
 burn = { version = "0.22.0-pre.3", default-features = false, features = ["std", "train", "flex", "wgpu", "metrics"] }
 egui_tiles = { version = "0.17.1", features = ["serde"] }
 portable-pty = "0.9.0"
@@ -44,11 +44,6 @@ default = []
 # Compatibility alias: Millwright is always compiled into Forge ML as of 0.31.
 millwright = []
 adbc = ["dep:adbc_core"]
-
-# Extra Millwright backends (smartcore + linfa) used only by the bundled
-# examples. Dev-dependency features are not applied to the app's own build.
-[dev-dependencies]
-millwright = { version = "2.2.1", default-features = false, features = ["smartcore-backend", "linfa-backend"] }
 
 [profile.dev]
 debug = 0
