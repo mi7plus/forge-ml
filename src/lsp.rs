@@ -167,6 +167,9 @@ struct Server {
     next_id: u64,
     pending: HashMap<u64, Pending>,
     open_versions: HashMap<PathBuf, i32>,
+    /// Active `$/progress` tokens (indexing, cache priming, …). When this drains
+    /// to empty, rust-analyzer has finished and is ready.
+    progress: std::collections::HashSet<String>,
 }
 
 impl Drop for Server {
@@ -308,20 +311,20 @@ fn start_server(root: PathBuf, events: &Sender<LspEvent>) -> std::io::Result<Ser
         next_id: 2,
         pending: HashMap::new(),
         open_versions: HashMap::new(),
+        progress: std::collections::HashSet::new(),
     };
     let root_uri = file_uri(&root);
     send(
         &mut server.stdin,
-        &json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":std::process::id(),"rootUri":root_uri,"capabilities":{"textDocument":{"completion":{"completionItem":{"snippetSupport":true}},"hover":{},"definition":{},"references":{},"signatureHelp":{},"rename":{},"codeAction":{},"publishDiagnostics":{}}},"clientInfo":{"name":"forge-ml","version":env!("CARGO_PKG_VERSION")}}}),
+        &json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":std::process::id(),"rootUri":root_uri,"capabilities":{"window":{"workDoneProgress":true},"textDocument":{"completion":{"completionItem":{"snippetSupport":true}},"hover":{},"definition":{},"references":{},"signatureHelp":{},"rename":{},"codeAction":{},"publishDiagnostics":{}}},"clientInfo":{"name":"forge-ml","version":env!("CARGO_PKG_VERSION")}}}),
     )?;
     send(
         &mut server.stdin,
         &json!({"jsonrpc":"2.0","method":"initialized","params":{}}),
     )?;
-    let _ = events.send(LspEvent::Status(format!(
-        "rust-analyzer starting for {}",
-        root.display()
-    )));
+    let _ = events.send(LspEvent::Status(
+        "rust-analyzer: starting (indexing project)…".to_owned(),
+    ));
     Ok(server)
 }
 
@@ -658,7 +661,62 @@ fn signature_text(result: &Value) -> String {
 }
 
 fn handle_message(server: &mut Server, message: Value, events: &Sender<LspEvent>) {
-    if message.get("method").and_then(Value::as_str) == Some("textDocument/publishDiagnostics") {
+    let method = message.get("method").and_then(Value::as_str);
+
+    // Acknowledge the server's request to create a progress token so it proceeds.
+    if method == Some("window/workDoneProgress/create") {
+        if let Some(id) = message.get("id").and_then(Value::as_u64) {
+            let _ = send(
+                &mut server.stdin,
+                &json!({"jsonrpc":"2.0","id":id,"result":null}),
+            );
+        }
+        return;
+    }
+
+    // Track indexing/cache-priming progress and surface a clear ready state.
+    if method == Some("$/progress") {
+        let params = message.get("params");
+        let token = params
+            .and_then(|p| p.get("token"))
+            .map(|t| t.to_string())
+            .unwrap_or_default();
+        let value = params.and_then(|p| p.get("value"));
+        let kind = value
+            .and_then(|v| v.get("kind"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        match kind {
+            "begin" | "report" => {
+                server.progress.insert(token);
+                let title = value
+                    .and_then(|v| v.get("title"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("indexing");
+                let detail = value
+                    .and_then(|v| v.get("message"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let label = if detail.is_empty() { title } else { detail };
+                let status = match value.and_then(|v| v.get("percentage")).and_then(Value::as_u64)
+                {
+                    Some(pct) => format!("rust-analyzer: {label} ({pct}%)"),
+                    None => format!("rust-analyzer: {label}…"),
+                };
+                let _ = events.send(LspEvent::Status(status));
+            }
+            "end" => {
+                server.progress.remove(&token);
+                if server.progress.is_empty() {
+                    let _ = events.send(LspEvent::Status("rust-analyzer ready ✓".to_owned()));
+                }
+            }
+            _ => {}
+        }
+        return;
+    }
+
+    if method == Some("textDocument/publishDiagnostics") {
         let Some(params) = message.get("params") else {
             return;
         };
