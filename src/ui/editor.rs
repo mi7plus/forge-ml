@@ -269,14 +269,22 @@ impl crate::ForgeApp {
                         if let Some(from) = label.dnd_release_payload::<usize>() {
                             reorder = Some((*from, index));
                         }
-                        if selected
-                            && compact_icon_button(
-                                ui,
-                                egui_phosphor_icons::icons::X,
-                                "Close editor tab",
+                        // Each tab shows a close (×) button on hover (or when
+                        // active). The button's space is always reserved so the
+                        // tab width doesn't jump; it's revealed when the pointer
+                        // is over the tab or the button slot.
+                        let mut hover_rect = label.rect;
+                        hover_rect.max.x += 24.0;
+                        let reveal = selected || ui.rect_contains_pointer(hover_rect);
+                        let close_x = ui.add_visible(
+                            reveal,
+                            egui::Button::new(
+                                egui_phosphor_icons::icons::X.regular().size(11.0),
                             )
-                            .clicked()
-                        {
+                            .frame(false)
+                            .min_size(egui::vec2(18.0, 18.0)),
+                        );
+                        if close_x.on_hover_text("Close tab (Ctrl+W)").clicked() {
                             close = Some(index);
                         }
                         ui.separator();

@@ -838,9 +838,13 @@ impl crate::ForgeApp {
         egui::Window::new("Forge ML settings")
             .open(&mut open)
             .collapsible(false)
-            .resizable(false)
-            .default_width(360.0)
+            .resizable(true)
+            .default_width(340.0)
             .show(ctx, |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(520.0)
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
                 ui.heading("Appearance");
                 let mut dark = self.dark_mode;
                 ui.horizontal(|ui| {
@@ -1011,6 +1015,7 @@ impl crate::ForgeApp {
                         .size(10.0)
                         .color(MUTED),
                 );
+                    });
             });
         self.settings_open = open;
     }
