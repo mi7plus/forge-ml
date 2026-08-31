@@ -1257,13 +1257,18 @@ impl ForgeApp {
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let full = self.lsp_status.replace('\n', " ");
-                let shown = if full.chars().count() > 60 {
-                    format!("{}…", full.chars().take(59).collect::<String>())
-                } else {
-                    full.clone()
-                };
-                ui.label(RichText::new(shown).size(11.0).color(MUTED))
+                // egui truncates to the available width with an ellipsis; the
+                // full text is always available on hover (and click-to-copy).
+                let response = ui
+                    .add(
+                        egui::Label::new(RichText::new(&full).size(11.0).color(MUTED))
+                            .truncate()
+                            .sense(egui::Sense::click()),
+                    )
                     .on_hover_text(&full);
+                if response.clicked() {
+                    ui.ctx().copy_text(full);
+                }
             });
         });
     }

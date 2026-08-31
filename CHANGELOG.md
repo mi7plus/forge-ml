@@ -15,16 +15,19 @@ grouped under the **0.98.0** release below.
 - Editor tabs are selectable again — clicking any tab switches to it. The
   drag-to-reorder source had been occluding each tab's click sense, so only the
   last-opened file could be focused.
-- rust-analyzer is now found when installed via `rustup component add
-  rust-analyzer` (its toolchain bin dir isn't on PATH); the resolver falls back
-  to `rustup which rust-analyzer`.
+- rust-analyzer now sets itself up automatically: if the component is missing
+  when a file is opened, the IDE installs it in the background via rustup and
+  starts the server — no manual command. (The common case was a rustup *proxy*
+  on PATH without the component installed, which reported "unavailable".) If
+  rustup itself is absent, the footer points to https://rustup.rs.
 
 ### Changed
 - The code editor grows to fill its pane down to a one-line status strip
   (Ln/Col, character count, language) at the bottom, instead of a fixed-height
   box. The Ln/Col readout moved from the IDE footer into that editor strip.
-- Footer status text (e.g. the language-server message) shows in full on hover
-  when it doesn't fit.
+- Footer status text (e.g. the language-server message) truncates to the
+  available width with an ellipsis and shows in full on hover (and copies on
+  click), instead of being cut off.
 - Terminal ANSI colors follow the active theme — the 16 base colors are mapped
   onto the palette (semantics preserved: 1=red, 2=green, …) so prompts, `ls`,
   and git output match the IDE; the 256-color cube keeps standard xterm values.

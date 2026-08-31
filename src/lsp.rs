@@ -175,8 +175,42 @@ impl Drop for Server {
     }
 }
 
+/// Whether a working `rustup` is on PATH (needed to install the component).
+fn rustup_available() -> bool {
+    Command::new("rustup")
+        .arg("--version")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+/// Install the rust-analyzer + rust-src components via rustup. Returns true on
+/// success. Reports progress through `events`.
+fn install_components(events: &Sender<LspEvent>) -> bool {
+    let _ = events.send(LspEvent::Status(
+        "Setting up rust-analyzer (one-time)…".to_owned(),
+    ));
+    let result = Command::new("rustup")
+        .args(["component", "add", "rust-analyzer", "rust-src"])
+        .output();
+    let success = result.as_ref().is_ok_and(|output| output.status.success());
+    let detail = result
+        .ok()
+        .map(|output| String::from_utf8_lossy(&output.stderr).trim().to_owned())
+        .unwrap_or_default();
+    let _ = events.send(LspEvent::Status(if success {
+        "rust-analyzer installed. Starting language services…".to_owned()
+    } else {
+        format!("Could not install rust-analyzer automatically. {detail}")
+    }));
+    let _ = events.send(LspEvent::Installed(success));
+    success
+}
+
 fn worker(commands: Receiver<LspCommand>, events: Sender<LspEvent>) {
     let mut server: Option<Server> = None;
+    // Auto-install rust-analyzer once per session if it is missing.
+    let mut auto_install_tried = false;
     loop {
         if let Some(active) = &mut server {
             while let Ok(message) = active.incoming.try_recv() {
@@ -211,7 +245,15 @@ fn worker(commands: Receiver<LspCommand>, events: Sender<LspEvent>) {
                 };
                 if let Some(root) = root {
                     if server.as_ref().is_none_or(|active| active.root != root) {
-                        server = start_server(root, &events).ok();
+                        server = start_server(root.clone(), &events).ok();
+                        // If it isn't installed, install it automatically (once)
+                        // and retry — no manual command needed.
+                        if server.is_none() && !auto_install_tried {
+                            auto_install_tried = true;
+                            if rustup_available() && install_components(&events) {
+                                server = start_server(root, &events).ok();
+                            }
+                        }
                     }
                 }
                 if let Some(active) = &mut server {
@@ -223,7 +265,12 @@ fn worker(commands: Receiver<LspCommand>, events: Sender<LspEvent>) {
                             navigable: false,
                         });
                     }
-                    let _ = events.send(LspEvent::Status("rust-analyzer unavailable. Install it with `rustup component add rust-analyzer`.".to_owned()));
+                    let message = if rustup_available() {
+                        "rust-analyzer is being set up… reopen the file if code help stays off."
+                    } else {
+                        "rust-analyzer needs rustup. Install rustup from https://rustup.rs to enable code intelligence."
+                    };
+                    let _ = events.send(LspEvent::Status(message.to_owned()));
                 }
             }
             Err(RecvTimeoutError::Disconnected) => break,
@@ -234,15 +281,13 @@ fn worker(commands: Receiver<LspCommand>, events: Sender<LspEvent>) {
 
 fn start_server(root: PathBuf, events: &Sender<LspEvent>) -> std::io::Result<Server> {
     let binary = resolve_binary();
-    let version = Command::new(&binary).arg("--version").output()?;
-    if !version.status.success() {
-        let detail = String::from_utf8_lossy(&version.stderr).trim().to_owned();
-        let _ = events.send(LspEvent::Status(format!(
-            "rust-analyzer is not installed. Run `rustup component add rust-analyzer`. {detail}"
-        )));
+    // Probe the binary; if it is missing/broken, fail quietly so the worker can
+    // auto-install and retry (no user-facing "run this command" message).
+    let version = Command::new(&binary).arg("--version").output();
+    if !version.map(|v| v.status.success()).unwrap_or(false) {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
-            "rust-analyzer component missing",
+            "rust-analyzer not available",
         ));
     }
     let mut child = Command::new(binary)
