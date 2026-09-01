@@ -164,13 +164,16 @@ fn runtime_loop(
     // `:` commands — notably `:dep` — are honored; EvalContext would compile a
     // `:dep` line as Rust and never link the crate.
     let current_cell = Arc::new(AtomicUsize::new(NO_CELL));
+    eprintln!("[forge] runtime: creating evcxr context (spawns kernel child, initial build)…");
     let (mut context, outputs) = match new_context() {
         Ok(runtime) => runtime,
         Err(error) => {
+            eprintln!("[forge] runtime: context creation FAILED: {error:?}");
             let _ = results.send(CellResult::RuntimeError(format!("{error:?}")));
             return;
         }
     };
+    eprintln!("[forge] runtime: context created; kernel child is up.");
     configure_context(&mut context);
     if let Ok(mut slot) = process.lock() {
         *slot = Some(context.process_handle());
@@ -185,7 +188,16 @@ fn runtime_loop(
             CellCommand::Execute { cell_id, code } => {
                 let started = Instant::now();
                 current_cell.store(cell_id, Ordering::Relaxed);
+                eprintln!(
+                    "[forge] runtime: executing cell {cell_id} ({} bytes) — building/loading…",
+                    code.len()
+                );
                 let evaluation = context.execute(&code);
+                eprintln!(
+                    "[forge] runtime: cell {cell_id} returned (ok={}) in {} ms",
+                    evaluation.is_ok(),
+                    started.elapsed().as_millis()
+                );
                 current_cell.store(NO_CELL, Ordering::Relaxed);
                 thread::sleep(Duration::from_millis(5));
                 let stdout = stdout_rx.try_iter().collect::<Vec<_>>().join("\n");
