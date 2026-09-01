@@ -109,33 +109,13 @@ fn configure_context(context: &mut evcxr::CommandContext) {
     }
 }
 
-/// Locate the bundled `forge-kernel` binary next to the running executable.
-/// Forge uses it as evcxr's runtime child so the process that dlopens compiled
-/// `:dep` cells is minimal (evcxr only) rather than the full `forge_ide` with its
-/// eframe/wgpu/burn stack — which can clash with a cell's own dependencies.
-fn kernel_path() -> Option<std::path::PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let dir = exe.parent()?;
-    let name = if cfg!(windows) {
-        "forge-kernel.exe"
-    } else {
-        "forge-kernel"
-    };
-    let path = dir.join(name);
-    path.is_file().then_some(path)
-}
-
-/// Create a fresh evcxr context, preferring the dedicated `forge-kernel` runtime
-/// child and falling back to evcxr's default (re-exec the current binary).
+/// Create a fresh evcxr context.
 fn new_context() -> Result<(evcxr::CommandContext, evcxr::EvalContextOutputs), evcxr::Error> {
-    match kernel_path() {
-        Some(path) => {
-            let (eval, outputs) =
-                evcxr::EvalContext::with_subprocess_command(std::process::Command::new(path))?;
-            Ok((evcxr::CommandContext::with_eval_context(eval), outputs))
-        }
-        None => evcxr::CommandContext::new(),
-    }
+    // A dedicated minimal runtime child was tried, but it hung when its child
+    // dlopened a `:dep` cell linking a large crate like Millwright (a Windows
+    // loader-lock deadlock during the library's global init). Re-exec'ing the
+    // full binary loads such cells reliably, so use evcxr's default.
+    evcxr::CommandContext::new()
 }
 
 /// Forward the runtime child's stderr (cargo "Compiling …" progress and any
@@ -166,6 +146,15 @@ fn runtime_loop(
     results: Sender<CellResult>,
     process: Arc<Mutex<Option<Arc<Mutex<std::process::Child>>>>>,
 ) {
+    // If Forge itself was started by `cargo run`, that parent cargo exported its
+    // build *jobserver* into our environment (CARGO_MAKEFLAGS). Any cargo that
+    // evcxr spawns to build a `:dep` cell would inherit it and block forever
+    // waiting for a job token the parent never releases — a nested-cargo
+    // deadlock (two idle cargo processes, no rustc). Drop it so evcxr's cargo
+    // manages its own jobserver.
+    std::env::remove_var("CARGO_MAKEFLAGS");
+    std::env::remove_var("MAKEFLAGS");
+
     // If this build ships an offline runtime bundle, point cargo/rustc (and thus
     // evcxr) at it before starting the kernel, so notebook `:dep` cells for
     // Millwright/Burn resolve and build with no network or system toolchain.
