@@ -96,17 +96,20 @@ impl RuntimeHandle {
 
 /// Apply Forge's evcxr defaults to a freshly created context.
 ///
-/// A large persistent compilation cache is always enabled so a heavy `:dep`
-/// (Millwright, Burn) is compiled from source only once, then reused across
-/// cells and sessions instead of rebuilding for minutes every time. When an
-/// offline runtime bundle is active we also force offline mode so cargo never
-/// reaches for the network.
+/// - A large persistent compilation cache so a heavy `:dep` (Millwright, Burn) is
+///   compiled from source only once, then reused across cells and sessions.
+/// - Offline builds. The crates a notebook `:dep`s (Millwright, Burn, and their
+///   whole dependency trees) are already cached from building the app, so offline
+///   resolves them fine — and, crucially, an offline build never needs cargo's
+///   *exclusive* package-cache lock to refresh the registry index. That is what
+///   lets a notebook build run concurrently with rust-analyzer (which also runs
+///   cargo); sharing the exclusive lock is what otherwise deadlocked them (two
+///   idle cargo processes). A brand-new crate that isn't already cached will fail
+///   to resolve offline — disable rust-analyzer for that one-off, or pre-fetch it.
 fn configure_context(context: &mut evcxr::CommandContext) {
     // `:` commands are handled by CommandContext's command layer.
     let _ = context.execute(":cache 8192");
-    if crate::offline::detect().is_some() {
-        let _ = context.execute(":offline 1");
-    }
+    let _ = context.execute(":offline 1");
 }
 
 /// Create a fresh evcxr context.
