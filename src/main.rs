@@ -3057,6 +3057,20 @@ impl ForgeApp {
                         self.console = format!("Console error\n\n{message}");
                     }
                 }
+                CellResult::Progress { cell_id, line } => {
+                    // Live build/compile output while a cell runs (e.g. a long
+                    // `:dep` build). Shown transiently; replaced by the final
+                    // output on Success/Error.
+                    if cell_id != CONSOLE_CELL_ID {
+                        let record = self.cell_records.entry(cell_id).or_default();
+                        if !record.output.is_empty() {
+                            record.output.push('\n');
+                        }
+                        record.output.push_str(&line);
+                    }
+                    self.console = line;
+                    ctx.request_repaint();
+                }
                 CellResult::Reset => {
                     self.run_state = RunState::Ready;
                     self.execution_count = 0;

@@ -41,8 +41,15 @@ impl RustKernel {
         let mut changed = false;
         while let Some(result) = self.runtime.try_recv() {
             changed = true;
+            if let CellResult::Progress { line, .. } = &result {
+                // Cell still running; show build progress but stay pending.
+                self.output.push_str(line);
+                self.output.push('\n');
+                continue;
+            }
             self.pending = false;
             match result {
+                CellResult::Progress { .. } => unreachable!(),
                 CellResult::Ready => {
                     self.ready = true;
                     self.output.push_str("Kernel ready.\n");

@@ -1,5 +1,6 @@
 use forge_protocol::{parse_stdout_events, EventEnvelope};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -25,6 +26,13 @@ pub enum CellResult {
         cell_id: usize,
         message: String,
         elapsed_ms: u128,
+    },
+    /// Incremental output (e.g. cargo "Compiling …" lines) emitted while a cell
+    /// is still running, so a long `:dep` build shows visible progress instead of
+    /// a frozen spinner.
+    Progress {
+        cell_id: usize,
+        line: String,
     },
     Reset,
     RuntimeError(String),
@@ -101,6 +109,58 @@ fn configure_context(context: &mut evcxr::CommandContext) {
     }
 }
 
+/// Locate the bundled `forge-kernel` binary next to the running executable.
+/// Forge uses it as evcxr's runtime child so the process that dlopens compiled
+/// `:dep` cells is minimal (evcxr only) rather than the full `forge_ide` with its
+/// eframe/wgpu/burn stack — which can clash with a cell's own dependencies.
+fn kernel_path() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let name = if cfg!(windows) {
+        "forge-kernel.exe"
+    } else {
+        "forge-kernel"
+    };
+    let path = dir.join(name);
+    path.is_file().then_some(path)
+}
+
+/// Create a fresh evcxr context, preferring the dedicated `forge-kernel` runtime
+/// child and falling back to evcxr's default (re-exec the current binary).
+fn new_context() -> Result<(evcxr::CommandContext, evcxr::EvalContextOutputs), evcxr::Error> {
+    match kernel_path() {
+        Some(path) => {
+            let (eval, outputs) =
+                evcxr::EvalContext::with_subprocess_command(std::process::Command::new(path))?;
+            Ok((evcxr::CommandContext::with_eval_context(eval), outputs))
+        }
+        None => evcxr::CommandContext::new(),
+    }
+}
+
+/// Forward the runtime child's stderr (cargo "Compiling …" progress and any
+/// runtime warnings) to the UI live, tagged with whichever cell is currently
+/// executing, so a long `:dep` build shows progress instead of a frozen spinner.
+/// The thread exits when the channel closes (context dropped / reset).
+fn spawn_stderr_pump<I>(stderr: I, results: Sender<CellResult>, current_cell: Arc<AtomicUsize>)
+where
+    I: IntoIterator<Item = String> + Send + 'static,
+    I::IntoIter: Send,
+{
+    thread::spawn(move || {
+        for line in stderr {
+            let cell_id = current_cell.load(Ordering::Relaxed);
+            if cell_id != NO_CELL {
+                let _ = results.send(CellResult::Progress { cell_id, line });
+            }
+        }
+    });
+}
+
+/// Sentinel for "no cell is currently running" so startup/reset build noise is
+/// not attributed to a real cell.
+const NO_CELL: usize = usize::MAX;
+
 fn runtime_loop(
     commands: Receiver<CellCommand>,
     results: Sender<CellResult>,
@@ -114,7 +174,8 @@ fn runtime_loop(
     // CommandContext (not the lower-level EvalContext) is required so notebook
     // `:` commands — notably `:dep` — are honored; EvalContext would compile a
     // `:dep` line as Rust and never link the crate.
-    let (mut context, mut streams) = match evcxr::CommandContext::new() {
+    let current_cell = Arc::new(AtomicUsize::new(NO_CELL));
+    let (mut context, outputs) = match new_context() {
         Ok(runtime) => runtime,
         Err(error) => {
             let _ = results.send(CellResult::RuntimeError(format!("{error:?}")));
@@ -125,22 +186,26 @@ fn runtime_loop(
     if let Ok(mut slot) = process.lock() {
         *slot = Some(context.process_handle());
     }
+    // Keep stdout for collecting each cell's output; stream stderr live.
+    let mut stdout_rx = outputs.stdout;
+    spawn_stderr_pump(outputs.stderr, results.clone(), Arc::clone(&current_cell));
     let _ = results.send(CellResult::Ready);
 
     while let Ok(command) = commands.recv() {
         match command {
             CellCommand::Execute { cell_id, code } => {
                 let started = Instant::now();
+                current_cell.store(cell_id, Ordering::Relaxed);
                 let evaluation = context.execute(&code);
+                current_cell.store(NO_CELL, Ordering::Relaxed);
                 thread::sleep(Duration::from_millis(5));
-                let stdout = streams.stdout.try_iter().collect::<Vec<_>>().join("\n");
-                let stderr = streams.stderr.try_iter().collect::<Vec<_>>().join("\n");
+                let stdout = stdout_rx.try_iter().collect::<Vec<_>>().join("\n");
                 let elapsed_ms = started.elapsed().as_millis();
 
                 match evaluation {
                     Ok(value) => {
                         let expression = value.get("text/plain").unwrap_or_default();
-                        let output = [stdout.as_str(), stderr.as_str(), expression]
+                        let output = [stdout.as_str(), expression]
                             .into_iter()
                             .filter(|part| !part.trim().is_empty())
                             .collect::<Vec<_>>()
@@ -162,11 +227,9 @@ fn runtime_loop(
                         });
                     }
                     Err(error) => {
-                        let message = if stderr.is_empty() {
-                            format!("{error:?}")
-                        } else {
-                            format!("{stderr}\n{error:?}")
-                        };
+                        // Compile/runtime stderr was already streamed live via
+                        // Progress; the structured error carries the diagnostics.
+                        let message = format!("{error:?}");
                         let _ = results.send(CellResult::Error {
                             cell_id,
                             message,
@@ -175,10 +238,15 @@ fn runtime_loop(
                     }
                 }
             }
-            CellCommand::Reset => match evcxr::CommandContext::new() {
-                Ok((new_context, new_streams)) => {
-                    context = new_context;
-                    streams = new_streams;
+            CellCommand::Reset => match new_context() {
+                Ok((new_ctx, new_outputs)) => {
+                    context = new_ctx;
+                    stdout_rx = new_outputs.stdout;
+                    spawn_stderr_pump(
+                        new_outputs.stderr,
+                        results.clone(),
+                        Arc::clone(&current_cell),
+                    );
                     configure_context(&mut context);
                     if let Ok(mut slot) = process.lock() {
                         *slot = Some(context.process_handle());
