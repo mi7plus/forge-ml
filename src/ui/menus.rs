@@ -889,6 +889,22 @@ impl crate::ForgeApp {
                 ui.checkbox(&mut self.caret_blink, "Blink editor caret");
                 ui.checkbox(&mut self.format_on_save, "Format Rust files with rustfmt on save")
                     .on_hover_text("Requires rustfmt on PATH");
+                ui.heading("Language server");
+                let lsp_changed = ui
+                    .checkbox(&mut self.lsp_enabled, "Enable rust-analyzer")
+                    .on_hover_text(
+                        "rust-analyzer powers completion, diagnostics, and go-to-definition, \
+                         but can use several GB of memory and runs cargo in the background. \
+                         Disable it to free resources, or if it interferes with a notebook \
+                         `:dep` build; re-enable it any time.",
+                    )
+                    .changed();
+                if lsp_changed {
+                    self.lsp.set_enabled(self.lsp_enabled);
+                    if self.lsp_enabled {
+                        self.sync_lsp();
+                    }
+                }
                 ui.heading("Accessibility");
                 let contrast_changed = ui
                     .checkbox(&mut self.high_contrast, "High-contrast interface")

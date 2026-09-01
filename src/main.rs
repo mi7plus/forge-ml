@@ -577,6 +577,7 @@ struct ForgeApp {
     /// Whether the welcome / start window is showing.
     welcome_open: bool,
     high_contrast: bool,
+    lsp_enabled: bool,
     reduced_motion: bool,
     command_palette_open: bool,
     command_query: String,
@@ -1110,7 +1111,7 @@ impl ForgeApp {
         let native_training_config = session.validated_native_training_config();
         let (native_training_feature, native_training_target) =
             session.validated_training_columns();
-        Self {
+        let app = Self {
             tabs,
             active_tab,
             project,
@@ -1191,6 +1192,7 @@ impl ForgeApp {
             rebinding: None,
             welcome_open: session.show_welcome,
             high_contrast: session.high_contrast,
+            lsp_enabled: session.lsp_enabled,
             reduced_motion: session.reduced_motion,
             command_palette_open: false,
             command_query: String::new(),
@@ -1327,7 +1329,12 @@ impl ForgeApp {
             last_inspector_tab: InspectorTab::Variables,
             dock_pending_definition_probe: None,
             dock_pending_ctrl_definition: false,
+        };
+        // Honor the persisted rust-analyzer preference (default on).
+        if !app.lsp_enabled {
+            app.lsp.set_enabled(false);
         }
+        app
     }
 
     fn active(&self) -> &EditorTab {
@@ -3834,6 +3841,7 @@ impl eframe::App for ForgeApp {
             show_welcome: self.welcome_open,
             keymap: self.keymap.to_dto(),
             high_contrast: self.high_contrast,
+            lsp_enabled: self.lsp_enabled,
             reduced_motion: self.reduced_motion,
             diagnostics_opt_in: self.diagnostics_opt_in,
             saved_runs: self.saved_runs.clone(),

@@ -50,6 +50,11 @@ pub struct CodeAction {
 
 pub enum LspCommand {
     Install,
+    /// Enable or disable the language server. Disabling shuts rust-analyzer down
+    /// (freeing its memory and, importantly, its `cargo` activity, which can
+    /// contend with a notebook `:dep` build); enabling lets it restart on the
+    /// next file sync.
+    SetEnabled(bool),
     Sync {
         root: PathBuf,
         path: PathBuf,
@@ -145,6 +150,9 @@ impl LspHandle {
     pub fn install(&self) {
         let _ = self.commands.send(LspCommand::Install);
     }
+    pub fn set_enabled(&self, enabled: bool) {
+        let _ = self.commands.send(LspCommand::SetEnabled(enabled));
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -227,6 +235,9 @@ fn worker(commands: Receiver<LspCommand>, events: Sender<LspEvent>) {
     let mut server: Option<Server> = None;
     // Auto-install rust-analyzer once per session if it is missing.
     let mut auto_install_tried = false;
+    // Whether rust-analyzer is allowed to run. When false it is shut down and not
+    // restarted on sync.
+    let mut enabled = true;
     loop {
         if let Some(active) = &mut server {
             while let Ok(message) = active.incoming.try_recv() {
@@ -254,6 +265,22 @@ fn worker(commands: Receiver<LspCommand>, events: Sender<LspEvent>) {
         }
         match commands.recv_timeout(Duration::from_millis(30)) {
             Ok(command) => {
+                if let LspCommand::SetEnabled(on) = command {
+                    enabled = on;
+                    if !on {
+                        // Dropping the server kills the rust-analyzer process.
+                        server = None;
+                        let _ = events.send(LspEvent::Status(
+                            "rust-analyzer disabled (freed memory)".to_owned(),
+                        ));
+                    } else {
+                        let _ = events.send(LspEvent::Status(
+                            "rust-analyzer enabled — open or edit a Rust file to start it"
+                                .to_owned(),
+                        ));
+                    }
+                    continue;
+                }
                 if matches!(command, LspCommand::Install) {
                     let _ = events.send(LspEvent::Status(
                         "Installing rust-analyzer and rust-src...".to_owned(),
@@ -279,7 +306,7 @@ fn worker(commands: Receiver<LspCommand>, events: Sender<LspEvent>) {
                     _ => None,
                 };
                 if let Some(root) = root {
-                    if server.as_ref().is_none_or(|active| active.root != root) {
+                    if enabled && server.as_ref().is_none_or(|active| active.root != root) {
                         server = start_server(root.clone(), &events).ok();
                         // If it isn't installed, install it automatically (once)
                         // and retry — no manual command needed.
@@ -448,7 +475,7 @@ fn dispatch(server: &mut Server, command: LspCommand, events: &Sender<LspEvent>)
             text,
             char_offset,
         } => request_code_actions(server, &path, &text, char_offset),
-        LspCommand::Install => Ok(()),
+        LspCommand::Install | LspCommand::SetEnabled(_) => Ok(()),
     };
     if let Err(error) = result {
         let _ = events.send(LspEvent::Status(format!(

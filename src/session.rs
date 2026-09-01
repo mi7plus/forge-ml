@@ -104,6 +104,8 @@ pub struct SessionState {
     pub keymap: Vec<crate::keymap::ChordDto>,
     #[serde(default)]
     pub high_contrast: bool,
+    #[serde(default = "default_lsp_enabled")]
+    pub lsp_enabled: bool,
     #[serde(default)]
     pub reduced_motion: bool,
     #[serde(default)]
@@ -170,6 +172,10 @@ fn default_ui_scale() -> f32 {
     1.0
 }
 
+fn default_lsp_enabled() -> bool {
+    true
+}
+
 impl SessionState {
     pub fn validated_native_artifact(
         &self,
@@ -233,6 +239,7 @@ impl Default for SessionState {
             show_welcome: true,
             keymap: Vec::new(),
             high_contrast: false,
+            lsp_enabled: true,
             reduced_motion: false,
             diagnostics_opt_in: false,
             saved_runs: Vec::new(),
