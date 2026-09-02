@@ -118,6 +118,12 @@ fn main() -> eframe::Result<()> {
     // Evcxr relaunches the current executable as its isolated evaluation runtime.
     // This hook turns that child into a headless runtime before eframe can open a window.
     evcxr::runtime_hook();
+    // Hidden headless self-test: exercise the notebook runtime path (kernel child,
+    // env, a `:dep millwright` cell) without opening the GUI, for diagnosis.
+    if std::env::args().any(|a| a == "--notebook-selftest") {
+        notebook_selftest();
+        return Ok(());
+    }
     let app_name = format!("Forge ML {APP_VERSION}");
     let mut viewport = egui::ViewportBuilder::default()
         .with_title(format!("Forge ML {APP_VERSION} - Rust compute studio"))
@@ -134,6 +140,51 @@ fn main() -> eframe::Result<()> {
         },
         Box::new(|cc| Ok(Box::new(ForgeApp::new(cc)))),
     )
+}
+
+/// Headless reproduction of the notebook runtime: spawns the same runtime handle
+/// forge_ide uses, waits for it to be ready, runs a `:dep millwright` cell, and
+/// prints the outcome. Exits when the cell finishes, errors, or times out.
+fn notebook_selftest() {
+    use std::time::{Duration, Instant};
+    eprintln!("[selftest] spawning runtime (real RuntimeHandle path)…");
+    let rt = runtime::RuntimeHandle::spawn();
+    let start = Instant::now();
+    let mut ready = false;
+    let cell = "\
+:dep millwright = { version = \"2.2.1\", default-features = false, features = [\"smartcore-backend\"] }\n\
+use millwright::prelude::*;\n\
+let _ = Frame::from_rows(vec![vec![0.0]], vec![\"x\".into()]);\n\
+println!(\"Millwright ready.\");";
+    loop {
+        while let Some(result) = rt.try_recv() {
+            match result {
+                runtime::CellResult::Ready if !ready => {
+                    ready = true;
+                    eprintln!("[selftest] ready in {:?}; sending :dep cell", start.elapsed());
+                    let _ = rt.execute(0, cell.to_owned());
+                }
+                runtime::CellResult::Success { output, elapsed_ms, .. } => {
+                    eprintln!("[selftest] SUCCESS in {elapsed_ms} ms: {}", output.replace('\n', " | "));
+                    return;
+                }
+                runtime::CellResult::Error { message, .. } => {
+                    eprintln!("[selftest] ERROR: {message}");
+                    return;
+                }
+                runtime::CellResult::RuntimeError(m) => {
+                    eprintln!("[selftest] RUNTIME ERROR: {m}");
+                    return;
+                }
+                _ => {}
+            }
+        }
+        if start.elapsed() > Duration::from_secs(200) {
+            eprintln!("[selftest] TIMEOUT (still hanging)");
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 /// The window/taskbar icon, decoded from the embedded badge PNG.

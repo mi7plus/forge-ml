@@ -112,50 +112,10 @@ fn configure_context(context: &mut evcxr::CommandContext) {
     let _ = context.execute(":offline 1");
 }
 
-/// The `forge-kernel` binary next to the running executable, if present. It is
-/// evcxr's runtime child: it links Millwright+Burn (so dlopen'ing a `:dep` cell
-/// is clean) but not forge_ide's GUI/system stack. Both a minimal evcxr-only
-/// child and re-exec'ing the full forge_ide deadlock loading a Millwright cell;
-/// this middle ground loads it reliably.
-fn kernel_path() -> Option<std::path::PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let dir = exe.parent()?;
-    let name = if cfg!(windows) {
-        "forge-kernel.exe"
-    } else {
-        "forge-kernel"
-    };
-    // Beside the executable (dev build and most installers), plus the resource
-    // locations the packager may use.
-    [
-        dir.join(name),
-        dir.join("resources").join(name),
-        dir.join("..").join("Resources").join(name),
-    ]
-    .into_iter()
-    .find(|path| path.is_file())
-}
-
-/// Create a fresh evcxr context, preferring the dedicated `forge-kernel` runtime
-/// child; fall back to evcxr's default (re-exec the current binary) if it is not
-/// found beside the executable.
+/// Create a fresh evcxr context (evcxr re-execs the current binary as its
+/// isolated runtime child).
 fn new_context() -> Result<(evcxr::CommandContext, evcxr::EvalContextOutputs), evcxr::Error> {
-    match kernel_path() {
-        Some(path) => {
-            eprintln!("[forge] runtime: using forge-kernel child at {}", path.display());
-            let (eval, outputs) =
-                evcxr::EvalContext::with_subprocess_command(std::process::Command::new(path))?;
-            Ok((evcxr::CommandContext::with_eval_context(eval), outputs))
-        }
-        None => {
-            eprintln!(
-                "[forge] runtime: forge-kernel NOT found beside the executable — \
-                 falling back to re-exec (this path hangs on Millwright/Burn :dep). \
-                 Build with `cargo build --workspace`."
-            );
-            evcxr::CommandContext::new()
-        }
-    }
+    evcxr::CommandContext::new()
 }
 
 /// Forward the runtime child's stderr (cargo "Compiling …" progress and any
@@ -181,6 +141,24 @@ where
 /// not attributed to a real cell.
 const NO_CELL: usize = usize::MAX;
 
+/// Continuously drain the runtime child's stdout into a shared buffer. This MUST
+/// run concurrently with `execute()`: evcxr's `execute` blocks until the child's
+/// stdout is consumed, so collecting stdout only *after* execute (as we used to)
+/// deadlocked every cell that produced output — the notebook `:dep` hang.
+fn spawn_stdout_pump<I>(stdout: I, buffer: Arc<Mutex<Vec<String>>>)
+where
+    I: IntoIterator<Item = String> + Send + 'static,
+    I::IntoIter: Send,
+{
+    thread::spawn(move || {
+        for line in stdout {
+            if let Ok(mut buf) = buffer.lock() {
+                buf.push(line);
+            }
+        }
+    });
+}
+
 fn runtime_loop(
     commands: Receiver<CellCommand>,
     results: Sender<CellResult>,
@@ -204,22 +182,22 @@ fn runtime_loop(
     // `:` commands — notably `:dep` — are honored; EvalContext would compile a
     // `:dep` line as Rust and never link the crate.
     let current_cell = Arc::new(AtomicUsize::new(NO_CELL));
-    eprintln!("[forge] runtime: creating evcxr context (spawns kernel child, initial build)…");
     let (mut context, outputs) = match new_context() {
         Ok(runtime) => runtime,
         Err(error) => {
-            eprintln!("[forge] runtime: context creation FAILED: {error:?}");
             let _ = results.send(CellResult::RuntimeError(format!("{error:?}")));
             return;
         }
     };
-    eprintln!("[forge] runtime: context created; kernel child is up.");
     configure_context(&mut context);
     if let Ok(mut slot) = process.lock() {
         *slot = Some(context.process_handle());
     }
-    // Keep stdout for collecting each cell's output; stream stderr live.
-    let mut stdout_rx = outputs.stdout;
+    // Drain BOTH streams concurrently: stdout into a buffer (collected per cell),
+    // stderr streamed live. Draining stdout during execute is mandatory — see
+    // spawn_stdout_pump.
+    let stdout_buf = Arc::new(Mutex::new(Vec::<String>::new()));
+    spawn_stdout_pump(outputs.stdout, Arc::clone(&stdout_buf));
     spawn_stderr_pump(outputs.stderr, results.clone(), Arc::clone(&current_cell));
     let _ = results.send(CellResult::Ready);
 
@@ -228,19 +206,17 @@ fn runtime_loop(
             CellCommand::Execute { cell_id, code } => {
                 let started = Instant::now();
                 current_cell.store(cell_id, Ordering::Relaxed);
-                eprintln!(
-                    "[forge] runtime: executing cell {cell_id} ({} bytes) — building/loading…",
-                    code.len()
-                );
+                // Start collecting this cell's stdout fresh.
+                if let Ok(mut buf) = stdout_buf.lock() {
+                    buf.clear();
+                }
                 let evaluation = context.execute(&code);
-                eprintln!(
-                    "[forge] runtime: cell {cell_id} returned (ok={}) in {} ms",
-                    evaluation.is_ok(),
-                    started.elapsed().as_millis()
-                );
                 current_cell.store(NO_CELL, Ordering::Relaxed);
                 thread::sleep(Duration::from_millis(5));
-                let stdout = stdout_rx.try_iter().collect::<Vec<_>>().join("\n");
+                let stdout = stdout_buf
+                    .lock()
+                    .map(|buf| buf.join("\n"))
+                    .unwrap_or_default();
                 let elapsed_ms = started.elapsed().as_millis();
 
                 match evaluation {
@@ -282,7 +258,12 @@ fn runtime_loop(
             CellCommand::Reset => match new_context() {
                 Ok((new_ctx, new_outputs)) => {
                     context = new_ctx;
-                    stdout_rx = new_outputs.stdout;
+                    // The old pumps end when the old context's channels close;
+                    // start fresh ones on the same buffer for the new context.
+                    if let Ok(mut buf) = stdout_buf.lock() {
+                        buf.clear();
+                    }
+                    spawn_stdout_pump(new_outputs.stdout, Arc::clone(&stdout_buf));
                     spawn_stderr_pump(
                         new_outputs.stderr,
                         results.clone(),

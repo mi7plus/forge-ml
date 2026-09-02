@@ -4,7 +4,7 @@ version = "0.99.0"
 edition = "2021"
 
 [workspace]
-members = [".", "crates/forge-protocol", "crates/forge-storage", "crates/forge-kernel"]
+members = [".", "crates/forge-protocol", "crates/forge-storage"]
 resolver = "2"
 
 [dependencies]

@@ -14,7 +14,7 @@ icons = [
     "packaging/icons/icon-64.png",
     "packaging/icons/icon-32.png",
 ]
-beforePackagingCommand = "cargo build --release --workspace"
+beforePackagingCommand = "cargo build --release"
 # The offline Rust runtime (toolchain + vendored Millwright/Burn dependency
 # cache) is staged by packaging/build-offline-bundle.{sh,ps1} before packaging;
 # shipping it lets notebook `:dep` cells build offline with no user toolchain.
