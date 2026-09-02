@@ -32,6 +32,13 @@ jobs:
       - name: Bundle rust-analyzer
         shell: bash
         run: ./scripts/fetch-rust-analyzer.sh
+      - name: Stage offline runtime (Unix)
+        if: runner.os != 'Windows'
+        run: packaging/build-offline-bundle.sh
+      - name: Stage offline runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: packaging/build-offline-bundle.ps1
       - name: Install packager
         run: cargo install cargo-packager --locked
       - name: Build installer
