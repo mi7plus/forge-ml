@@ -3,6 +3,40 @@ name = "forge_ide"
 version = "1.0.0"
 edition = "2021"
 
+# Installer configuration for `cargo packager` (see .github/workflows/release.yml).
+# Kept here rather than a standalone Packager.toml so cargo-packager runs its
+# cargo-integrated path: it auto-detects the `forge_ide` binary, reads/writes
+# under target/<profile>/ (matching the workflow's upload globs), and fills the
+# version from [package] above. `version` is intentionally omitted so it never
+# drifts from the crate version.
+[package.metadata.packager]
+productName = "Forge ML"
+identifier = "dev.forgeml.ide"
+description = "A scientific Rust IDE for interactive machine-learning development"
+authors = ["Forge ML contributors"]
+category = "DeveloperTool"
+licenseFile = "LICENSE"
+beforePackagingCommand = "cargo build --release"
+icons = [
+    "packaging/icons/icon.ico",
+    "packaging/icons/icon.icns",
+    "packaging/icons/icon-512.png",
+    "packaging/icons/icon-256.png",
+    "packaging/icons/icon-128.png",
+    "packaging/icons/icon-64.png",
+    "packaging/icons/icon-32.png",
+]
+# The offline Rust runtime (toolchain + vendored Millwright/Burn dependency
+# cache) is staged by packaging/build-offline-bundle.{sh,ps1} before packaging;
+# shipping it lets notebook `:dep` cells build offline with no user toolchain.
+resources = ["packaging/resources/rust-analyzer*", "packaging/forge-runtime/**/*"]
+
+[package.metadata.packager.nsis]
+installMode = "currentUser"
+
+[package.metadata.packager.deb]
+depends = ["libc6", "libgcc-s1"]
+
 [workspace]
 members = [".", "crates/forge-protocol", "crates/forge-storage"]
 resolver = "2"
