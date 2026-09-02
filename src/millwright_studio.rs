@@ -968,10 +968,16 @@ fn table_to_dataset(
     table: &forge_protocol::TableData,
     target: &str,
 ) -> Result<millwright::frame::Dataset, String> {
+    // A dedicated per-call sequence (plus the process id) makes the scratch path
+    // unique even when trainings run concurrently. Reusing NEXT_INPROCESS_RUN via
+    // `load` here raced: its value isn't bumped until later in the run, so two
+    // parallel trainings picked the same file and clobbered each other's CSV.
+    static NEXT_INPROCESS_CSV: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let mut path = std::env::temp_dir();
     path.push(format!(
-        "forge-inproc-{}.csv",
-        NEXT_INPROCESS_RUN.load(std::sync::atomic::Ordering::Relaxed)
+        "forge-inproc-{}-{}.csv",
+        std::process::id(),
+        NEXT_INPROCESS_CSV.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
     let result = (|| -> Result<millwright::frame::Dataset, String> {
         let mut writer = csv::Writer::from_path(&path).map_err(|e| e.to_string())?;

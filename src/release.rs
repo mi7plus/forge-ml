@@ -52,19 +52,23 @@ pub fn install_workflow(root: &Path) -> Result<String, String> {
 }
 
 pub fn validate_packaging(root: &Path) -> Result<String, String> {
-    let packager =
-        std::fs::read_to_string(root.join("Packager.toml")).map_err(|e| e.to_string())?;
+    let cargo = std::fs::read_to_string(root.join("Cargo.toml")).map_err(|e| e.to_string())?;
     let workflow = std::fs::read_to_string(root.join(".github/workflows/release.yml"))
         .map_err(|e| e.to_string())?;
-    let cargo_version = manifest_version(
-        &std::fs::read_to_string(root.join("Cargo.toml")).map_err(|e| e.to_string())?,
-    )
-    .ok_or("Cargo.toml has no package version")?;
-    let package_version = manifest_version(&packager).ok_or("Packager.toml has no version")?;
-    if cargo_version != package_version {
-        return Err(format!(
-            "Version mismatch: Cargo {cargo_version}, Packager {package_version}"
-        ));
+    let cargo_version = manifest_version(&cargo).ok_or("Cargo.toml has no package version")?;
+    // The packager config lives in `[package.metadata.packager]` (cargo-integrated)
+    // rather than a standalone Packager.toml, so cargo-packager auto-detects the
+    // `forge_ide` binary and the packaged version tracks `[package]` automatically
+    // — there is no separate version to cross-check.
+    for required in [
+        "[package.metadata.packager]",
+        "identifier",
+        "[package.metadata.packager.nsis]",
+        "[package.metadata.packager.deb]",
+    ] {
+        if !cargo.contains(required) {
+            return Err(format!("Cargo.toml packager config is missing `{required}`"));
+        }
     }
     for required in [
         "windows-latest",
