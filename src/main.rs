@@ -120,10 +120,56 @@ fn default_true() -> bool {
     true
 }
 
+/// Stop child processes (cargo, rustc, rust-analyzer, git, the Evcxr runtime, …)
+/// from each popping up their own console window. As a GUI-subsystem binary we
+/// have no console, so on Windows every console child would allocate a fresh,
+/// *visible* one — briefly for quick commands, and for the whole build during a
+/// notebook `:dep` compile. Attach to the launching terminal if there is one (dev
+/// runs, where that output is wanted); otherwise allocate a console and hide it so
+/// children inherit that hidden console instead of spawning windows. Evcxr and
+/// rust-analyzer spawn their own subprocesses we can't flag individually, so a
+/// shared hidden console is the only fix that covers the whole process tree.
+#[cfg(windows)]
+fn tame_child_consoles() {
+    use std::ffi::c_void;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn AttachConsole(dw_process_id: u32) -> i32;
+        fn AllocConsole() -> i32;
+        fn GetConsoleWindow() -> *mut c_void;
+    }
+    #[link(name = "user32")]
+    extern "system" {
+        fn ShowWindow(h_wnd: *mut c_void, n_cmd_show: i32) -> i32;
+    }
+    const ATTACH_PARENT_PROCESS: u32 = 0xFFFF_FFFF;
+    const SW_HIDE: i32 = 0;
+    unsafe {
+        // Launched from a terminal: reuse it and leave its window alone.
+        if AttachConsole(ATTACH_PARENT_PROCESS) != 0 {
+            return;
+        }
+        // Launched from Explorer / the installed shortcut: no console exists.
+        // Make one for children to inherit, then hide its window.
+        if AllocConsole() != 0 {
+            let hwnd = GetConsoleWindow();
+            if !hwnd.is_null() {
+                ShowWindow(hwnd, SW_HIDE);
+            }
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn tame_child_consoles() {}
+
 fn main() -> eframe::Result<()> {
     // Evcxr relaunches the current executable as its isolated evaluation runtime.
     // This hook turns that child into a headless runtime before eframe can open a window.
     evcxr::runtime_hook();
+    // Give descendant processes a (hidden) console to inherit so they don't each
+    // pop up a window. Must run before anything is spawned (LSP, runtime, git).
+    tame_child_consoles();
     // Hidden headless self-test: exercise the notebook runtime path (kernel child,
     // env, a `:dep millwright` cell) without opening the GUI, for diagnosis.
     if std::env::args().any(|a| a == "--notebook-selftest") {
