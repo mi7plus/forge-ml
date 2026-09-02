@@ -18,7 +18,9 @@ jobs:
         include:
           - os: windows-latest
             formats: nsis
-          - os: macos-14
+          - os: macos-14          # Apple Silicon (arm64)
+            formats: dmg
+          - os: macos-13          # Intel (x86_64)
             formats: dmg
           - os: ubuntu-24.04
             formats: deb,appimage
@@ -46,7 +48,9 @@ jobs:
         run: cargo packager --release --formats ${{ matrix.formats }}
       - uses: actions/upload-artifact@v4
         with:
-          name: forge-ml-${{ runner.os }}
+          # matrix.os (not runner.os): the two macOS runners share runner.os
+          # ("macOS"), which would collide since v4 artifact names are immutable.
+          name: forge-ml-${{ matrix.os }}
           if-no-files-found: error
           path: |
             target/release/*.exe
@@ -76,9 +80,16 @@ jobs:
           for path in pathlib.Path("release-artifacts").rglob("*"):
               if not path.is_file(): continue
               name = path.name
-              platform = ("windows-x86_64" if name.endswith(".exe") else
-                          "macos-aarch64" if name.endswith(".dmg") else
-                          "linux-x86_64" if name.endswith((".AppImage", ".deb")) else None)
+              # Two macOS dmgs now ship (Apple Silicon + Intel); tell them apart
+              # by the arch cargo-packager embeds in the filename (aarch64 vs x64).
+              if name.endswith(".dmg"):
+                  platform = "macos-aarch64" if "aarch64" in name else "macos-x86_64"
+              elif name.endswith(".exe"):
+                  platform = "windows-x86_64"
+              elif name.endswith((".AppImage", ".deb")):
+                  platform = "linux-x86_64"
+              else:
+                  platform = None
               if not platform or any(a["platform"] == platform for a in artifacts): continue
               artifacts.append({"platform": platform, "url": f"https://github.com/{os.environ['RELEASE_REPOSITORY']}/releases/download/{urllib.parse.quote(tag)}/{urllib.parse.quote(name)}", "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "size": path.stat().st_size})
           manifest = {"schema": 1, "channel": channel, "version": tag.removeprefix("v"), "published_at": "${{ github.event.repository.updated_at }}", "artifacts": artifacts}

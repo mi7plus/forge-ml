@@ -73,6 +73,7 @@ pub fn validate_packaging(root: &Path) -> Result<String, String> {
     for required in [
         "windows-latest",
         "macos-14",
+        "macos-13",
         "ubuntu-24.04",
         "nsis",
         "dmg",
@@ -85,7 +86,7 @@ pub fn validate_packaging(root: &Path) -> Result<String, String> {
             return Err(format!("Release workflow is missing `{required}`"));
         }
     }
-    Ok(format!("Packaging preflight passed for {cargo_version}\nWindows: NSIS\nmacOS: DMG\nLinux: DEB + AppImage\nUpdate manifests: attested stable/beta channels"))
+    Ok(format!("Packaging preflight passed for {cargo_version}\nWindows: NSIS\nmacOS: DMG (Apple Silicon + Intel)\nLinux: DEB + AppImage\nUpdate manifests: attested stable/beta channels"))
 }
 
 fn manifest_version(text: &str) -> Option<String> {
