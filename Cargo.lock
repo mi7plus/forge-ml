@@ -4084,7 +4084,7 @@ dependencies = [
 
 [[package]]
 name = "forge_ide"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "adbc_core",
  "alacritty_terminal",
@@ -4112,6 +4112,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "sysinfo 0.39.6",
+ "toml",
  "tungstenite",
  "url",
  "uuid",

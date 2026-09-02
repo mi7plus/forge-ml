@@ -12,6 +12,15 @@ grouped under the **0.98.0** release below.
 ## [Unreleased]
 
 ### Added
+- **Forge environment system (seams).** A declarative `forge.toml` manifest, a
+  generated `forge.lock`, and an `EnvironmentProvider` interface the app resolves
+  the runtime through (`src/environment/`). The manifest's `[native]`, `[gpu]`,
+  and `[python]` sections are **reserved** — parsed and validated today, surfaced
+  as "recognized, not yet active" — so a full environment manager is an additive
+  change (new providers, filled-in sections) rather than a rewrite. The one
+  provider today wraps the offline runtime bundle, so activation behavior is
+  unchanged. New `--env-doctor [dir]` and `--env-sync [dir]` CLI entry points
+  report the environment and write `forge.lock`. See `docs/FORGE_ENV.md`.
 - **Brand logo.** A new Forge ML mark — a forged anvil with a neural-spark crown,
   in a Rust-hot amber→red palette — now appears as the app window/taskbar icon,
   the installer icon (Windows `.ico`, macOS `.icns`, Linux PNGs), the splash

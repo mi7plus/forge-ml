@@ -176,7 +176,7 @@ fn runtime_loop(
     // If this build ships an offline runtime bundle, point cargo/rustc (and thus
     // evcxr) at it before starting the kernel, so notebook `:dep` cells for
     // Millwright/Burn resolve and build with no network or system toolchain.
-    crate::offline::activate();
+    crate::environment::activate_runtime();
 
     // CommandContext (not the lower-level EvalContext) is required so notebook
     // `:` commands — notably `:dep` — are honored; EvalContext would compile a

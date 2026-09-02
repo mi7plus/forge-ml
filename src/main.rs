@@ -10,6 +10,7 @@ mod data;
 mod database;
 mod deep_learning;
 mod diagnostics;
+mod environment;
 mod experiment;
 mod export;
 mod git;
@@ -163,6 +164,14 @@ fn tame_child_consoles() {
 #[cfg(not(windows))]
 fn tame_child_consoles() {}
 
+/// The directory argument following an `--env-*` flag, or the current directory.
+fn env_cli_dir(args: &[String], flag_pos: usize) -> std::path::PathBuf {
+    args.get(flag_pos + 1)
+        .filter(|value| !value.starts_with("--"))
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
+}
+
 fn main() -> eframe::Result<()> {
     // Evcxr relaunches the current executable as its isolated evaluation runtime.
     // This hook turns that child into a headless runtime before eframe can open a window.
@@ -174,6 +183,22 @@ fn main() -> eframe::Result<()> {
     // env, a `:dep millwright` cell) without opening the GUI, for diagnosis.
     if std::env::args().any(|a| a == "--notebook-selftest") {
         notebook_selftest();
+        return Ok(());
+    }
+    // Forge environment CLI seams (see docs/FORGE_ENV.md). `--env-doctor [dir]`
+    // reports manifest/provider/gap state; `--env-sync [dir]` writes forge.lock.
+    let cli: Vec<String> = std::env::args().collect();
+    if let Some(pos) = cli.iter().position(|a| a == "--env-doctor") {
+        let root = env_cli_dir(&cli, pos);
+        print!("{}", environment::doctor(&root));
+        return Ok(());
+    }
+    if let Some(pos) = cli.iter().position(|a| a == "--env-sync") {
+        let root = env_cli_dir(&cli, pos);
+        match environment::sync_project(&root) {
+            Ok(path) => println!("Wrote {}", path.display()),
+            Err(error) => eprintln!("forge env sync failed: {error}"),
+        }
         return Ok(());
     }
     let app_name = format!("Forge ML {APP_VERSION}");

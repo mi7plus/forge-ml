@@ -1,6 +1,6 @@
 [package]
 name = "forge_ide"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 
 # Installer configuration for `cargo packager` (see .github/workflows/release.yml).
@@ -59,6 +59,7 @@ evcxr = "0.22"
 serde = { version = "1.0", features = ["derive"] }
 rfd = "0.17.2"
 serde_json = "1.0"
+toml = "1"
 png = "0.18.1"
 sha2 = "0.10"
 url = "2.5"
