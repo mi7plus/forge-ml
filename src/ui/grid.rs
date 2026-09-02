@@ -5,9 +5,125 @@
 use forge_protocol::TableData;
 use std::collections::BTreeSet;
 
+/// Sentinel `sort_column` value meaning "sort by the original row index" (the `#`
+/// column). Real column indices are always `< usize::MAX`, so this never collides.
+pub const INDEX_SORT_COLUMN: usize = usize::MAX;
+
+/// How a [`RowFilter`]'s text is compared against cell values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FilterMode {
+    #[default]
+    Contains,
+    NotContains,
+    Equals,
+    StartsWith,
+    GreaterThan,
+    LessThan,
+}
+
+impl FilterMode {
+    /// All modes, in the order they appear in the picker.
+    pub const ALL: [FilterMode; 6] = [
+        FilterMode::Contains,
+        FilterMode::NotContains,
+        FilterMode::Equals,
+        FilterMode::StartsWith,
+        FilterMode::GreaterThan,
+        FilterMode::LessThan,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            FilterMode::Contains => "contains",
+            FilterMode::NotContains => "does not contain",
+            FilterMode::Equals => "equals",
+            FilterMode::StartsWith => "starts with",
+            FilterMode::GreaterThan => "greater than",
+            FilterMode::LessThan => "less than",
+        }
+    }
+
+    /// Numeric modes parse both the query and the cell as `f64`.
+    pub fn is_numeric(self) -> bool {
+        matches!(self, FilterMode::GreaterThan | FilterMode::LessThan)
+    }
+}
+
+/// A dataset row filter: match `text` against either every column or one chosen
+/// column, using `mode`. An empty query matches every row.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RowFilter {
+    pub text: String,
+    /// `None` scans every column; `Some(index)` restricts to that column.
+    pub column: Option<usize>,
+    pub mode: FilterMode,
+}
+
+impl From<&str> for RowFilter {
+    fn from(text: &str) -> Self {
+        RowFilter {
+            text: text.to_owned(),
+            ..Default::default()
+        }
+    }
+}
+
+impl RowFilter {
+    pub fn is_empty(&self) -> bool {
+        self.text.trim().is_empty()
+    }
+
+    /// The cell indices this filter inspects for `row`.
+    fn columns<'a>(&self, row: &'a [String]) -> Box<dyn Iterator<Item = &'a String> + 'a> {
+        match self.column {
+            Some(index) => Box::new(row.get(index).into_iter()),
+            None => Box::new(row.iter()),
+        }
+    }
+
+    /// Whether `row` passes this filter.
+    pub fn matches(&self, row: &[String]) -> bool {
+        if self.is_empty() {
+            return true;
+        }
+        if self.mode.is_numeric() {
+            let Ok(threshold) = self.text.trim().parse::<f64>() else {
+                // A non-numeric query in a numeric mode filters nothing out.
+                return true;
+            };
+            return self.columns(row).any(|value| {
+                value
+                    .trim()
+                    .parse::<f64>()
+                    .is_ok_and(|cell| match self.mode {
+                        FilterMode::GreaterThan => cell > threshold,
+                        FilterMode::LessThan => cell < threshold,
+                        _ => false,
+                    })
+            });
+        }
+        let needle = self.text.to_lowercase();
+        match self.mode {
+            FilterMode::NotContains => !self
+                .columns(row)
+                .any(|value| value.to_lowercase().contains(&needle)),
+            FilterMode::Contains => self
+                .columns(row)
+                .any(|value| value.to_lowercase().contains(&needle)),
+            FilterMode::Equals => self
+                .columns(row)
+                .any(|value| value.to_lowercase() == needle),
+            FilterMode::StartsWith => self
+                .columns(row)
+                .any(|value| value.to_lowercase().starts_with(&needle)),
+            FilterMode::GreaterThan | FilterMode::LessThan => unreachable!("handled above"),
+        }
+    }
+}
+
 pub fn build_row_index(
     data: &TableData,
-    filter: &str,
+    filter: &RowFilter,
     sort_column: Option<usize>,
     sort_descending: bool,
 ) -> Vec<usize> {
@@ -17,28 +133,31 @@ pub fn build_row_index(
 
 pub fn build_row_index_cancellable(
     data: &TableData,
-    filter: &str,
+    filter: &RowFilter,
     sort_column: Option<usize>,
     sort_descending: bool,
     cancelled: impl Fn() -> bool,
 ) -> Option<Vec<usize>> {
-    let needle = filter.to_lowercase();
     let mut rows = Vec::with_capacity(data.rows.len());
     for (index, row) in data.rows.iter().enumerate() {
         if index.is_multiple_of(1_024) && cancelled() {
             return None;
         }
-        if needle.is_empty()
-            || row
-                .iter()
-                .any(|value| value.to_lowercase().contains(&needle))
-        {
+        if filter.matches(row) {
             rows.push(index);
         }
     }
     if let Some(column) = sort_column {
         if cancelled() {
             return None;
+        }
+        // The `#` column sorts by original position. `rows` is already in
+        // ascending-index order, so descending is just a reverse.
+        if column == INDEX_SORT_COLUMN {
+            if sort_descending {
+                rows.reverse();
+            }
+            return (!cancelled()).then_some(rows);
         }
         let mut numeric = Vec::with_capacity(rows.len());
         let mut all_numeric = true;

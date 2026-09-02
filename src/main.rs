@@ -77,6 +77,7 @@ use ui::editing::{
 };
 use ui::grid::{
     build_row_index, build_row_index_cancellable, selected_table, visible_column_window,
+    FilterMode, RowFilter, INDEX_SORT_COLUMN,
 };
 use ui::plotting::{draw_box_summary, draw_heatmap, histogram, quartiles, transformed_points};
 use ui::theme::{
@@ -481,7 +482,7 @@ struct EditorTab {
 
 #[derive(Default)]
 struct DatasetViewState {
-    filter: String,
+    filter: RowFilter,
     sort_column: Option<usize>,
     sort_descending: bool,
     selected_rows: std::collections::BTreeSet<usize>,
@@ -499,14 +500,14 @@ struct DatasetViewState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RowIndexKey {
     revision: u64,
-    filter: String,
+    filter: RowFilter,
     sort_column: Option<usize>,
     sort_descending: bool,
 }
 
 struct RowIndexCache {
     revision: u64,
-    filter: String,
+    filter: RowFilter,
     sort_column: Option<usize>,
     sort_descending: bool,
     rows: Vec<usize>,
@@ -4033,6 +4034,44 @@ impl eframe::App for ForgeApp {
     }
 }
 
+/// A column-header label with an optional sort caret. The caret glyph is drawn in
+/// the Phosphor icon font (the plain Unicode arrows `↑`/`↓` are absent from the UI
+/// font and render as tofu boxes), while the label keeps the proportional font.
+fn sort_header_text(label: &str, sort: Option<bool>) -> egui::WidgetText {
+    use egui::text::{LayoutJob, TextFormat};
+    let color = accent();
+    let mut job = LayoutJob::default();
+    job.append(
+        label,
+        0.0,
+        TextFormat {
+            font_id: egui::FontId::proportional(12.5),
+            color,
+            ..Default::default()
+        },
+    );
+    if let Some(descending) = sort {
+        let caret = if descending {
+            egui_phosphor_icons::icons::CARET_DOWN
+        } else {
+            egui_phosphor_icons::icons::CARET_UP
+        };
+        job.append(
+            &format!(" {}", caret.as_str()),
+            0.0,
+            TextFormat {
+                font_id: egui::FontId::new(
+                    12.5,
+                    egui::FontFamily::Name("phosphor-regular".into()),
+                ),
+                color,
+                ..Default::default()
+            },
+        );
+    }
+    job.into()
+}
+
 fn draw_dataset_table(
     ui: &mut egui::Ui,
     data: &std::sync::Arc<TableData>,
@@ -4056,13 +4095,39 @@ fn draw_dataset_table(
         ));
         ui.separator();
         ui.label("Filter");
+        egui::ComboBox::from_id_salt(("filter_column", id_salt))
+            .selected_text(
+                state
+                    .filter
+                    .column
+                    .and_then(|index| data.columns.get(index))
+                    .map(String::as_str)
+                    .unwrap_or("All columns"),
+            )
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut state.filter.column, None, "All columns");
+                for (index, column) in data.columns.iter().enumerate() {
+                    ui.selectable_value(&mut state.filter.column, Some(index), column);
+                }
+            });
+        egui::ComboBox::from_id_salt(("filter_mode", id_salt))
+            .selected_text(state.filter.mode.label())
+            .show_ui(ui, |ui| {
+                for mode in FilterMode::ALL {
+                    ui.selectable_value(&mut state.filter.mode, mode, mode.label());
+                }
+            });
         ui.add(
-            egui::TextEdit::singleline(&mut state.filter)
-                .desired_width(180.0)
-                .hint_text("Search values..."),
+            egui::TextEdit::singleline(&mut state.filter.text)
+                .desired_width(160.0)
+                .hint_text(if state.filter.mode.is_numeric() {
+                    "Number..."
+                } else {
+                    "Search values..."
+                }),
         );
         if ui.small_button("Clear").clicked() {
-            state.filter.clear();
+            state.filter = RowFilter::default();
         }
         ui.menu_button("Columns", |ui| {
             for (index, column) in data.columns.iter().enumerate() {
@@ -4284,38 +4349,46 @@ fn draw_dataset_table(
                             && matching_rows
                                 .iter()
                                 .all(|index| selected_rows.contains(index));
-                        let mut select_all = all_selected;
-                        if ui.checkbox(&mut select_all, "#").changed() {
-                            if select_all {
-                                selected_rows.extend(matching_rows.iter().copied());
-                            } else {
-                                for index in matching_rows {
-                                    selected_rows.remove(index);
+                        ui.horizontal(|ui| {
+                            let mut select_all = all_selected;
+                            if ui
+                                .checkbox(&mut select_all, "")
+                                .on_hover_text("Select all matching rows")
+                                .changed()
+                            {
+                                if select_all {
+                                    selected_rows.extend(matching_rows.iter().copied());
+                                } else {
+                                    for index in matching_rows {
+                                        selected_rows.remove(index);
+                                    }
                                 }
                             }
-                        }
+                            let index_sort = (*sort_column == Some(INDEX_SORT_COLUMN))
+                                .then_some(*sort_descending);
+                            if ui
+                                .add(egui::Button::new(sort_header_text("#", index_sort)))
+                                .on_hover_text("Sort by original row order")
+                                .clicked()
+                            {
+                                if *sort_column == Some(INDEX_SORT_COLUMN) {
+                                    *sort_descending = !*sort_descending;
+                                } else {
+                                    *sort_column = Some(INDEX_SORT_COLUMN);
+                                    *sort_descending = false;
+                                }
+                            }
+                        });
                         if column_window.leading > 0.0 {
                             ui.add_space(column_window.leading);
                         }
                         for index in rendered_columns {
                             let column = &display_columns[*index];
-                            let arrow = if *sort_column == Some(*index) {
-                                if *sort_descending {
-                                    " ↓"
-                                } else {
-                                    " ↑"
-                                }
-                            } else {
-                                ""
-                            };
+                            let sort = (*sort_column == Some(*index)).then_some(*sort_descending);
                             if ui
                                 .add_sized(
                                     [widths[*index], 20.0],
-                                    egui::Button::new(
-                                        RichText::new(format!("{column}{arrow}"))
-                                            .strong()
-                                            .color(accent()),
-                                    ),
+                                    egui::Button::new(sort_header_text(column, sort)),
                                 )
                                 .clicked()
                             {
@@ -4644,9 +4717,37 @@ mod editor_tests {
                 vec!["alphabet".into(), "30".into()],
             ],
         };
-        assert_eq!(build_row_index(&table, "alpha", None, false), [1, 2]);
-        assert_eq!(build_row_index(&table, "", Some(1), false), [1, 0, 2]);
-        assert_eq!(build_row_index(&table, "", Some(0), true), [0, 2, 1]);
+        assert_eq!(build_row_index(&table, &"alpha".into(), None, false), [1, 2]);
+        assert_eq!(
+            build_row_index(&table, &RowFilter::default(), Some(1), false),
+            [1, 0, 2]
+        );
+        assert_eq!(
+            build_row_index(&table, &RowFilter::default(), Some(0), true),
+            [0, 2, 1]
+        );
+        // The `#` sentinel sorts by original position, independent of any column.
+        assert_eq!(
+            build_row_index(&table, &RowFilter::default(), Some(INDEX_SORT_COLUMN), false),
+            [0, 1, 2]
+        );
+        assert_eq!(
+            build_row_index(&table, &RowFilter::default(), Some(INDEX_SORT_COLUMN), true),
+            [2, 1, 0]
+        );
+        // Column-scoped and comparison filters.
+        let greater = RowFilter {
+            text: "5".into(),
+            column: Some(1),
+            mode: FilterMode::GreaterThan,
+        };
+        assert_eq!(build_row_index(&table, &greater, Some(1), false), [0, 2]);
+        let exact = RowFilter {
+            text: "alpha".into(),
+            column: Some(0),
+            mode: FilterMode::Equals,
+        };
+        assert_eq!(build_row_index(&table, &exact, None, false), [1]);
     }
 
     #[test]
@@ -4675,7 +4776,7 @@ mod editor_tests {
             .recv_timeout(Duration::from_secs(2))
             .unwrap();
         assert_eq!(result.revision, 7);
-        assert_eq!(result.filter, "alpha");
+        assert_eq!(result.filter.text, "alpha");
         assert_eq!(result.rows, [1, 0]);
     }
 
@@ -4686,16 +4787,21 @@ mod editor_tests {
             rows: (0..2_048).map(|value| vec![value.to_string()]).collect(),
         };
         let probes = std::cell::Cell::new(0);
-        assert!(build_row_index_cancellable(&large, "", None, false, || {
-            probes.set(probes.get() + 1);
-            probes.get() >= 2
-        })
-        .is_none());
+        assert!(
+            build_row_index_cancellable(&large, &RowFilter::default(), None, false, || {
+                probes.set(probes.get() + 1);
+                probes.get() >= 2
+            })
+            .is_none()
+        );
 
         let mixed = TableData {
             columns: vec!["value".into()],
             rows: vec![vec!["x".into()], vec!["2".into()], vec!["10".into()]],
         };
-        assert_eq!(build_row_index(&mixed, "", Some(0), false), [2, 1, 0]);
+        assert_eq!(
+            build_row_index(&mixed, &RowFilter::default(), Some(0), false),
+            [2, 1, 0]
+        );
     }
 }
