@@ -288,3 +288,16 @@ for (name, value) in report.metrics() {
 }
 let probe = Frame::from_rows(vec![vec![25.0, 3.0]], cols)?;
 println!("predicted tip for a $25 bill, party of 3: ${:.2}", model.predict(&probe)?[0]);
+
+//# %% explore — push the dataset to the Data viewer and a fit plot to Plots
+{
+    let rows = feats.iter().zip(&target)
+        .map(|(r, t)| format!("[{},{},{}]", r[0], r[1], t))
+        .collect::<Vec<_>>().join(",");
+    println!("forge_table:tips={{\"columns\":[\"total_bill\",\"size\",\"tip\"],\"rows\":[{rows}]}}");
+}
+{
+    let pts = te_y.iter().zip(&preds)
+        .map(|(a, p)| format!("[{a},{p}]")).collect::<Vec<_>>().join(",");
+    println!("forge_plot:{{\"version\":1,\"name\":\"tip: actual vs predicted\",\"kind\":\"scatter\",\"series\":[{{\"name\":\"held-out\",\"points\":[{pts}]}}]}}");
+}

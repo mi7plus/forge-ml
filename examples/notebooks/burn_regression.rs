@@ -296,3 +296,9 @@ println!("forge_metric:rmse={}", mse.sqrt());
 let probe = Tensor::<1>::from_floats(&[(25.0 - mx) / sx][..], &device).reshape([1, 1]);
 let pred = model.forward(probe).into_scalar::<f32>() * sy + my;
 println!("predicted tip for a $25 bill: ${pred:.2}");
+
+//# %% explore — send the tips dataset to the Data viewer
+{
+    let rows: Vec<String> = xs.iter().zip(&ys).map(|(x, y)| format!("[{},{}]", x, y)).collect();
+    println!("forge_table:tips={{\"columns\":[\"total_bill\",\"tip\"],\"rows\":[{}]}}", rows.join(","));
+}

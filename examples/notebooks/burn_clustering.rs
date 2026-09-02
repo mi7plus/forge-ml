@@ -214,3 +214,19 @@ for (cluster, counts) in table.iter().enumerate() {
     for count in counts { print!("  {count:>10}"); }
     println!();
 }
+
+//# %% explore — dataset (with cluster) to the Data viewer, cluster scatter to Plots
+{
+    let rows: Vec<String> = (0..truth.len())
+        .map(|i| format!("[{},{},{},{},\"{}\",{}]", flat[i*4], flat[i*4+1], flat[i*4+2], flat[i*4+3], classes[truth[i]], assign[i]))
+        .collect();
+    println!("forge_table:iris_clusters={{\"columns\":[\"sepal_length\",\"sepal_width\",\"petal_length\",\"petal_width\",\"species\",\"cluster\"],\"rows\":[{}]}}", rows.join(","));
+}
+{
+    let series: Vec<String> = (0..k).map(|ci| {
+        let pts: Vec<String> = (0..truth.len()).filter(|&i| assign[i] == ci)
+            .map(|i| format!("[{},{}]", flat[i*4+2], flat[i*4+3])).collect();
+        format!("{{\"name\":\"cluster {}\",\"points\":[{}]}}", ci, pts.join(","))
+    }).collect();
+    println!("forge_plot:{{\"version\":1,\"name\":\"iris clusters (petal length vs width)\",\"kind\":\"scatter\",\"series\":[{}]}}", series.join(","));
+}

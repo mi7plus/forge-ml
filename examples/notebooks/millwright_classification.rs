@@ -198,3 +198,19 @@ for (name, value) in report.metrics() {
     println!("{name:<10} = {value:.4}");
     println!("forge_metric:{name}={value}");
 }
+
+//# %% explore — dataset to the Data viewer, feature scatter (by class) to Plots
+{
+    let rows: Vec<String> = (0..feats.len())
+        .map(|i| format!("[{},{},{},{},\"{}\"]", feats[i][0], feats[i][1], feats[i][2], feats[i][3], classes[labels[i] as usize]))
+        .collect();
+    println!("forge_table:iris={{\"columns\":[\"sepal_length\",\"sepal_width\",\"petal_length\",\"petal_width\",\"species\"],\"rows\":[{}]}}", rows.join(","));
+}
+{
+    let series: Vec<String> = (0..classes.len()).map(|ci| {
+        let pts: Vec<String> = (0..feats.len()).filter(|&i| labels[i] as usize == ci)
+            .map(|i| format!("[{},{}]", feats[i][2], feats[i][3])).collect();
+        format!("{{\"name\":\"{}\",\"points\":[{}]}}", classes[ci], pts.join(","))
+    }).collect();
+    println!("forge_plot:{{\"version\":1,\"name\":\"iris: petal length vs width\",\"kind\":\"scatter\",\"series\":[{}]}}", series.join(","));
+}

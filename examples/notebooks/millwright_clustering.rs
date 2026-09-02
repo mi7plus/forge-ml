@@ -200,3 +200,21 @@ for (cluster, counts) in table.iter().enumerate() {
     for count in counts { print!("  {count:>10}"); }
     println!();
 }
+
+//# %% explore — dataset (with cluster) to the Data viewer, cluster scatter to Plots
+// `feats` was moved into the frame earlier; read the rows back from it.
+let feats = frame.as_rows();
+{
+    let rows: Vec<String> = (0..feats.len())
+        .map(|i| format!("[{},{},{},{},\"{}\",{}]", feats[i][0], feats[i][1], feats[i][2], feats[i][3], classes[truth[i]], assign[i]))
+        .collect();
+    println!("forge_table:iris_clusters={{\"columns\":[\"sepal_length\",\"sepal_width\",\"petal_length\",\"petal_width\",\"species\",\"cluster\"],\"rows\":[{}]}}", rows.join(","));
+}
+{
+    let series: Vec<String> = (0..k).map(|ci| {
+        let pts: Vec<String> = (0..feats.len()).filter(|&i| assign[i] as usize == ci)
+            .map(|i| format!("[{},{}]", feats[i][2], feats[i][3])).collect();
+        format!("{{\"name\":\"cluster {}\",\"points\":[{}]}}", ci, pts.join(","))
+    }).collect();
+    println!("forge_plot:{{\"version\":1,\"name\":\"iris clusters (petal length vs width)\",\"kind\":\"scatter\",\"series\":[{}]}}", series.join(","));
+}

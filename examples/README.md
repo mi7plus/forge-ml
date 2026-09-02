@@ -29,6 +29,12 @@ paths. The first cell is a `:dep` line that pulls in only the features it needs
 - `notebooks/burn_classification.rs` — MLP 4→16→3, cross-entropy (`std,train,flex`).
 - `notebooks/burn_clustering.rs` — k-means from Burn tensor ops (`std,flex`).
 
+Each ends with an `//# %% explore` cell that emits `forge_table:` and
+`forge_plot:` markers, so running it populates the **Data viewer** (the dataset)
+and **Plots** (e.g. actual-vs-predicted, or a feature scatter coloured by class /
+cluster). You can also click the 🔍 button next to any variable in the
+**Variables** tab to send that value to the Data viewer / Plots on demand.
+
 The first `:dep` compile of a crate takes a while (Burn's is the largest); it is
 cached afterwards, and instant once the offline runtime bundle ships. These
 mirror the `cargo run --example …` versions below, which read the CSVs from
