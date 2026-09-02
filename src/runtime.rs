@@ -142,11 +142,19 @@ fn kernel_path() -> Option<std::path::PathBuf> {
 fn new_context() -> Result<(evcxr::CommandContext, evcxr::EvalContextOutputs), evcxr::Error> {
     match kernel_path() {
         Some(path) => {
+            eprintln!("[forge] runtime: using forge-kernel child at {}", path.display());
             let (eval, outputs) =
                 evcxr::EvalContext::with_subprocess_command(std::process::Command::new(path))?;
             Ok((evcxr::CommandContext::with_eval_context(eval), outputs))
         }
-        None => evcxr::CommandContext::new(),
+        None => {
+            eprintln!(
+                "[forge] runtime: forge-kernel NOT found beside the executable — \
+                 falling back to re-exec (this path hangs on Millwright/Burn :dep). \
+                 Build with `cargo build --workspace`."
+            );
+            evcxr::CommandContext::new()
+        }
     }
 }
 
