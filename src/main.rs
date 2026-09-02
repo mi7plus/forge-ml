@@ -142,6 +142,59 @@ fn main() -> eframe::Result<()> {
     )
 }
 
+/// Numeric scalar types we know how to serialize element-wise.
+const NUMERIC_TYPES: [&str; 12] = [
+    "f64", "f32", "i64", "i32", "i16", "i8", "u64", "u32", "u16", "u8", "usize", "isize",
+];
+
+/// Build a hidden Evcxr snippet that surfaces variable `name` (of `type_name`):
+/// a numeric matrix or Millwright `Frame` becomes a `forge_table:` event, a
+/// numeric vector a `forge_vector:` event, and anything else is pretty-printed.
+/// Returns the snippet plus the Data-viewer key the event will land under (if any).
+fn inspect_code(name: &str, type_name: &str) -> (String, Option<String>) {
+    let t = type_name.replace(' ', "");
+    let is_matrix = NUMERIC_TYPES
+        .iter()
+        .any(|n| t.contains(&format!("Vec<Vec<{n}>>")));
+    let is_vector = NUMERIC_TYPES
+        .iter()
+        .any(|n| t.ends_with(&format!("Vec<{n}>")));
+    if is_matrix {
+        (MATRIX_INSPECT.replace("NAME", name), Some(format!("table:{name}")))
+    } else if is_vector {
+        (VECTOR_INSPECT.replace("NAME", name), Some(format!("vector:{name}")))
+    } else if t.contains("Frame") {
+        (FRAME_INSPECT.replace("NAME", name), Some(format!("table:{name}")))
+    } else {
+        (DEBUG_INSPECT.replace("NAME", name), None)
+    }
+}
+
+/// `NAME` is replaced with the variable name. Each emits the marker Forge parses
+/// from cell stdout. Column names are `c0..cN`; numeric cells need no escaping.
+const VECTOR_INSPECT: &str =
+    r#"println!("forge_vector:NAME={}", NAME.iter().map(|__v| __v.to_string()).collect::<Vec<_>>().join(","));"#;
+const MATRIX_INSPECT: &str = r#"{
+    let __data = &NAME;
+    let __ncols = __data.first().map(|__r| __r.len()).unwrap_or(0);
+    let __cols: Vec<String> = (0..__ncols).map(|__i| format!("\"c{}\"", __i)).collect();
+    let __rows: Vec<String> = __data.iter().map(|__r| {
+        let __c: Vec<String> = __r.iter().map(|__v| __v.to_string()).collect();
+        format!("[{}]", __c.join(","))
+    }).collect();
+    println!("forge_table:NAME={{\"columns\":[{}],\"rows\":[{}]}}", __cols.join(","), __rows.join(","));
+}"#;
+const FRAME_INSPECT: &str = r#"{
+    let __f = &NAME;
+    let __cols: Vec<String> = __f.columns().iter().map(|__c| format!("\"{}\"", __c)).collect();
+    let __rows: Vec<String> = __f.as_rows().iter().map(|__r| {
+        let __c: Vec<String> = __r.iter().map(|__v| __v.to_string()).collect();
+        format!("[{}]", __c.join(","))
+    }).collect();
+    println!("forge_table:NAME={{\"columns\":[{}],\"rows\":[{}]}}", __cols.join(","), __rows.join(","));
+}"#;
+const DEBUG_INSPECT: &str = r#"println!("NAME = {:#?}", NAME);"#;
+
 /// Headless reproduction of the notebook runtime: spawns the same runtime handle
 /// forge_ide uses, waits for it to be ready, runs a `:dep millwright` cell, and
 /// prints the outcome. Exits when the cell finishes, errors, or times out.
@@ -164,9 +217,19 @@ println!(\"Millwright ready.\");";
                     eprintln!("[selftest] ready in {:?}; sending :dep cell", start.elapsed());
                     let _ = rt.execute(0, cell.to_owned());
                 }
-                runtime::CellResult::Success { output, elapsed_ms, .. } => {
-                    eprintln!("[selftest] SUCCESS in {elapsed_ms} ms: {}", output.replace('\n', " | "));
-                    return;
+                runtime::CellResult::Success { output, cell_id, .. } => {
+                    eprintln!("[selftest] cell {cell_id} SUCCESS: {}", output.replace('\n', " | "));
+                    // After the :dep cell, exercise variable inspection.
+                    if cell_id == 0 {
+                        let (code, key) = inspect_code("__probe", "Vec<Vec<f64>>");
+                        eprintln!("[selftest] inspecting a matrix (key={key:?})…");
+                        let _ = rt.execute(
+                            1,
+                            format!("let __probe = vec![vec![1.0_f64, 2.0], vec![3.0, 4.0]];\n{code}"),
+                        );
+                    } else {
+                        return;
+                    }
                 }
                 runtime::CellResult::Error { message, .. } => {
                     eprintln!("[selftest] ERROR: {message}");
@@ -2413,6 +2476,27 @@ impl ForgeApp {
         }
     }
 
+    /// Surface a live variable's value: emit it into the Data viewer / Plots when
+    /// it is tabular/numeric, else pretty-print it to the console. Runs a hidden
+    /// snippet in the same Evcxr session.
+    fn inspect_variable(&mut self, name: &str, type_name: &str) {
+        if matches!(self.run_state, RunState::Running(_) | RunState::Booting) {
+            self.console = "Runtime is busy — try again once the current cell finishes.".into();
+            return;
+        }
+        let (code, dataset_key) = inspect_code(name, type_name);
+        if self.runtime.execute(CONSOLE_CELL_ID, code).is_ok() {
+            self.run_state = RunState::Running(CONSOLE_CELL_ID);
+            self.console = format!("Inspecting `{name}`…");
+            if let Some(key) = dataset_key {
+                // The dataset arrives when the snippet finishes; pre-select it and
+                // switch to the Data viewer so it shows up in place.
+                self.open_dataset = Some(key);
+                self.inspector_tab = InspectorTab::Data;
+            }
+        }
+    }
+
     fn discover_python_runtimes(&mut self) {
         self.python_runtimes = python_runtime::discover();
         if self.selected_python.is_none() {
@@ -3278,12 +3362,20 @@ impl ForgeApp {
     fn inspector_body(&mut self, tab: InspectorTab, ui: &mut egui::Ui) {
         match tab {
             InspectorTab::Variables => {
-                ui.label(
-                    RichText::new("LIVE EVCXR STATE")
-                        .size(10.0)
-                        .strong()
-                        .color(MUTED),
-                );
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new("LIVE EVCXR STATE")
+                            .size(10.0)
+                            .strong()
+                            .color(MUTED),
+                    );
+                    ui.label(
+                        RichText::new("· click 🔍 to explore a value")
+                            .size(10.0)
+                            .color(MUTED),
+                    );
+                });
+                let mut inspect: Option<(String, String)> = None;
                 egui::Grid::new("variables_table")
                     .striped(true)
                     .min_col_width(72.0)
@@ -3291,6 +3383,7 @@ impl ForgeApp {
                         ui.label(RichText::new("Name").strong());
                         ui.label(RichText::new("Type").strong());
                         ui.label(RichText::new("Size").strong());
+                        ui.label("");
                         ui.end_row();
                         for variable in &self.variables {
                             ui.label(RichText::new(&variable.name).color(accent()));
@@ -3301,9 +3394,20 @@ impl ForgeApp {
                                     .size(10.0)
                                     .color(MUTED),
                             );
+                            if ui
+                                .small_button("🔍")
+                                .on_hover_text("Inspect: show this value in the Data viewer (or the console)")
+                                .clicked()
+                            {
+                                inspect =
+                                    Some((variable.name.clone(), variable.type_name.clone()));
+                            }
                             ui.end_row();
                         }
                     });
+                if let Some((name, type_name)) = inspect {
+                    self.inspect_variable(&name, &type_name);
+                }
                 if self.variables.is_empty() {
                     ui::theme::empty_state(
                         ui,
