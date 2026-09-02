@@ -1,3 +1,8 @@
+// Release builds are a GUI app: don't allocate a console window (which otherwise
+// pops up a terminal alongside the IDE). Debug builds keep the console so the
+// startup/runtime diagnostics printed to stderr stay visible during development.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod classification;
 mod prep;
 mod commands;

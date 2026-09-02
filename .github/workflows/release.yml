@@ -10,6 +10,12 @@ permissions:
   id-token: write
   attestations: write
 
+# Re-tagging the same version supersedes the previous build: cancel any in-flight
+# run for this ref so old runs don't linger (e.g. one stuck on a scarce runner).
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   package:
     strategy:
