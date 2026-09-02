@@ -112,13 +112,42 @@ fn configure_context(context: &mut evcxr::CommandContext) {
     let _ = context.execute(":offline 1");
 }
 
-/// Create a fresh evcxr context.
+/// The `forge-kernel` binary next to the running executable, if present. It is
+/// evcxr's runtime child: it links Millwright+Burn (so dlopen'ing a `:dep` cell
+/// is clean) but not forge_ide's GUI/system stack. Both a minimal evcxr-only
+/// child and re-exec'ing the full forge_ide deadlock loading a Millwright cell;
+/// this middle ground loads it reliably.
+fn kernel_path() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let name = if cfg!(windows) {
+        "forge-kernel.exe"
+    } else {
+        "forge-kernel"
+    };
+    // Beside the executable (dev build and most installers), plus the resource
+    // locations the packager may use.
+    [
+        dir.join(name),
+        dir.join("resources").join(name),
+        dir.join("..").join("Resources").join(name),
+    ]
+    .into_iter()
+    .find(|path| path.is_file())
+}
+
+/// Create a fresh evcxr context, preferring the dedicated `forge-kernel` runtime
+/// child; fall back to evcxr's default (re-exec the current binary) if it is not
+/// found beside the executable.
 fn new_context() -> Result<(evcxr::CommandContext, evcxr::EvalContextOutputs), evcxr::Error> {
-    // A dedicated minimal runtime child was tried, but it hung when its child
-    // dlopened a `:dep` cell linking a large crate like Millwright (a Windows
-    // loader-lock deadlock during the library's global init). Re-exec'ing the
-    // full binary loads such cells reliably, so use evcxr's default.
-    evcxr::CommandContext::new()
+    match kernel_path() {
+        Some(path) => {
+            let (eval, outputs) =
+                evcxr::EvalContext::with_subprocess_command(std::process::Command::new(path))?;
+            Ok((evcxr::CommandContext::with_eval_context(eval), outputs))
+        }
+        None => evcxr::CommandContext::new(),
+    }
 }
 
 /// Forward the runtime child's stderr (cargo "Compiling …" progress and any

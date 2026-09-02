@@ -1,0 +1,26 @@
+# The evcxr runtime child for Forge notebooks. Forge points evcxr at this binary
+# instead of re-exec'ing the full `forge_ide`.
+#
+# It links Millwright and Burn (the crates notebook `:dep` cells use) so their
+# native/DLL dependencies are already loaded when the child dlopens a compiled
+# cell — a minimal evcxr-only child deadlocks there (Windows loader lock). But it
+# deliberately excludes forge_ide's GUI/system stack (eframe, wgpu-windowing,
+# arrow, rusqlite, portable-pty, alacritty_terminal, …): re-exec'ing the full
+# forge_ide as the child *also* deadlocks loading a Millwright cell, because one
+# of those extra crates conflicts. Millwright+Burn-only loads cleanly (verified).
+#
+# Feature unification across the workspace means Millwright/Burn compile once and
+# are shared with forge_ide; only this binary's final link is extra.
+[package]
+name = "forge-kernel"
+version = "0.99.0"
+edition = "2021"
+
+[[bin]]
+name = "forge-kernel"
+path = "src/main.rs"
+
+[dependencies]
+evcxr = "0.22"
+millwright = { version = "2.2.1", default-features = false, features = ["eda", "onnx", "smartcore-backend", "linfa-backend"] }
+burn = { version = "0.22.0-pre.3", default-features = false, features = ["std", "train", "flex", "wgpu", "metrics"] }
