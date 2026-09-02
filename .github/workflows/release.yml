@@ -20,8 +20,11 @@ jobs:
             formats: nsis
           - os: macos-14          # Apple Silicon (arm64)
             formats: dmg
-          - os: macos-13          # Intel (x86_64)
-            formats: dmg
+          # Intel (macos-13) is intentionally omitted: GitHub's Intel macOS
+          # runners are being retired and currently queue indefinitely. The
+          # manifest arch-detection and matrix.os artifact naming below already
+          # support a second macOS dmg, so re-adding `- os: macos-13` here is all
+          # it takes once an Intel runner (or a cross-compile) is viable again.
           - os: ubuntu-24.04
             formats: deb,appimage
     runs-on: ${{ matrix.os }}
