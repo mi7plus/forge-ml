@@ -29,7 +29,11 @@ icons = [
 # The offline Rust runtime (toolchain + vendored Millwright/Burn dependency
 # cache) is staged by packaging/build-offline-bundle.{sh,ps1} before packaging;
 # shipping it lets notebook `:dep` cells build offline with no user toolchain.
-resources = ["packaging/resources/rust-analyzer*", "packaging/forge-runtime/**/*"]
+# `forge-runtime` is given as a directory (not a `**/*` glob): cargo-packager
+# copies a directory recursively into `<resources>/forge-runtime/…`, whereas a
+# glob would try to copy the `bin`/`lib`/`vendor` subdirs as files and fail. The
+# resulting `forge-runtime/` layout is what src/offline.rs looks for.
+resources = ["packaging/resources/rust-analyzer*", "packaging/forge-runtime"]
 
 [package.metadata.packager.nsis]
 installMode = "currentUser"

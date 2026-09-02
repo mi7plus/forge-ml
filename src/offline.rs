@@ -41,14 +41,22 @@ fn candidate_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
-            // Next to the executable (Windows/Linux) and in the macOS bundle's
+            // Next to the executable (Windows/NSIS) and in the macOS bundle's
             // Resources dir, mirroring how the bundled rust-analyzer is found.
             roots.push(parent.join(BUNDLE_DIR_NAME));
             roots.push(parent.join("resources").join(BUNDLE_DIR_NAME));
             roots.push(parent.join("..").join("Resources").join(BUNDLE_DIR_NAME));
+            // Debian and AppImage put the binary in <prefix>/bin and cargo-packager
+            // resources in <prefix>/lib/forge_ide/, so look one level up from the
+            // exe. Relative to the exe so it resolves inside a mounted AppImage too.
             roots.push(
-                PathBuf::from("/usr/lib/forge-ml").join(BUNDLE_DIR_NAME),
+                parent
+                    .join("..")
+                    .join("lib")
+                    .join("forge_ide")
+                    .join(BUNDLE_DIR_NAME),
             );
+            roots.push(PathBuf::from("/usr/lib/forge_ide").join(BUNDLE_DIR_NAME));
         }
     }
     // An explicit override, primarily for testing the wiring end-to-end.
