@@ -98,7 +98,9 @@ mod tests {
     use super::*;
     #[test]
     fn reports_manifest_version() {
-        assert!(version_report(Path::new(env!("CARGO_MANIFEST_DIR"))).contains("0.99.0"));
+        // Assert against the live package version so a version bump never breaks this.
+        assert!(version_report(Path::new(env!("CARGO_MANIFEST_DIR")))
+            .contains(env!("CARGO_PKG_VERSION")));
     }
     #[test]
     fn workflow_generation_refuses_overwrite() {
