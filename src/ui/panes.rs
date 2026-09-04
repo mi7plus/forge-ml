@@ -656,26 +656,107 @@ impl crate::ForgeApp {
                                             .fill_alpha(0.25),
                                     ),
                                     PlotKind::Box => {
-                                        if let Some((min, q1, median, q3, max)) =
-                                            quartiles(&series.values)
-                                        {
-                                            plot_ui.line(Line::new(
+                                        // Tukey box-and-whisker, one box per series
+                                        // at its own x offset so groups sit side by side.
+                                        if let Some(stats) = box_stats(&series.values) {
+                                            let x = series_index as f64;
+                                            let (half, cap) = (0.28, 0.14);
+                                            plot_ui.polygon(Polygon::new(
                                                 &series.name,
-                                                PlotPoints::from(vec![[0.0, min], [0.0, max]]),
+                                                PlotPoints::from(vec![
+                                                    [x - half, stats.q1],
+                                                    [x + half, stats.q1],
+                                                    [x + half, stats.q3],
+                                                    [x - half, stats.q3],
+                                                ]),
                                             ));
-                                            plot_ui.points(
-                                                Points::new(
-                                                    format!("{} quartiles", series.name),
+                                            plot_ui.line(
+                                                Line::new(
+                                                    &series.name,
                                                     PlotPoints::from(vec![
-                                                        [-0.05, q1],
-                                                        [0.0, median],
-                                                        [0.05, q3],
+                                                        [x - half, stats.median],
+                                                        [x + half, stats.median],
                                                     ]),
                                                 )
-                                                .radius(5.0),
+                                                .width(2.0),
                                             );
+                                            for (a, b) in [
+                                                ([x, stats.q3], [x, stats.whisker_hi]),
+                                                ([x, stats.q1], [x, stats.whisker_lo]),
+                                                (
+                                                    [x - cap, stats.whisker_hi],
+                                                    [x + cap, stats.whisker_hi],
+                                                ),
+                                                (
+                                                    [x - cap, stats.whisker_lo],
+                                                    [x + cap, stats.whisker_lo],
+                                                ),
+                                            ] {
+                                                plot_ui.line(Line::new(
+                                                    &series.name,
+                                                    PlotPoints::from(vec![a, b]),
+                                                ));
+                                            }
+                                            if !stats.outliers.is_empty() {
+                                                plot_ui.points(
+                                                    Points::new(
+                                                        format!("{} outliers", series.name),
+                                                        PlotPoints::from(
+                                                            stats
+                                                                .outliers
+                                                                .iter()
+                                                                .map(|&o| [x, o])
+                                                                .collect::<Vec<_>>(),
+                                                        ),
+                                                    )
+                                                    .radius(2.5),
+                                                );
+                                            }
                                         }
                                     }
+                                    PlotKind::Violin => {
+                                        // Mirrored KDE profile per group at its x offset.
+                                        let density = kde(&series.values, 64);
+                                        if !density.is_empty() {
+                                            let x = series_index as f64;
+                                            let max_d = density
+                                                .iter()
+                                                .map(|d| d[1])
+                                                .fold(0.0_f64, f64::max)
+                                                .max(1e-9);
+                                            let half = 0.42;
+                                            let mut poly: Vec<[f64; 2]> =
+                                                Vec::with_capacity(density.len() * 2);
+                                            for &[y, d] in &density {
+                                                poly.push([x + d / max_d * half, y]);
+                                            }
+                                            for &[y, d] in density.iter().rev() {
+                                                poly.push([x - d / max_d * half, y]);
+                                            }
+                                            plot_ui.polygon(Polygon::new(
+                                                &series.name,
+                                                PlotPoints::from(poly),
+                                            ));
+                                            if let Some((_, _, median, _, _)) =
+                                                quartiles(&series.values)
+                                            {
+                                                plot_ui.line(Line::new(
+                                                    &series.name,
+                                                    PlotPoints::from(vec![
+                                                        [x - half * 0.5, median],
+                                                        [x + half * 0.5, median],
+                                                    ]),
+                                                ));
+                                            }
+                                        }
+                                    }
+                                    PlotKind::Ecdf => plot_ui.line(
+                                        Line::new(
+                                            &series.name,
+                                            PlotPoints::from(ecdf(&series.values)),
+                                        )
+                                        .width(2.0),
+                                    ),
                                     _ => plot_ui.line(
                                         Line::new(&series.name, PlotPoints::from(points))
                                             .width(if series_index == 0 { 2.5 } else { 1.5 }),

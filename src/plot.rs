@@ -23,6 +23,8 @@ pub enum PlotKind {
     PrecisionRecall,
     Residual,
     FeatureImportance,
+    Violin,
+    Ecdf,
 }
 impl PlotKind {
     pub fn label(self) -> &'static str {
@@ -38,6 +40,8 @@ impl PlotKind {
             Self::PrecisionRecall => "Precision–recall",
             Self::Residual => "Residual",
             Self::FeatureImportance => "Feature importance",
+            Self::Violin => "Violin",
+            Self::Ecdf => "ECDF",
         }
     }
 }

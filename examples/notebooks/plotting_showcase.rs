@@ -58,6 +58,24 @@ let group = |center: f64, spread: f64| -> String {
 };
 println!("forge_plot:{{\"version\":1,\"name\":\"group spreads (box)\",\"kind\":\"box\",\"series\":[{{\"name\":\"A\",\"values\":[{}]}},{{\"name\":\"B\",\"values\":[{}]}},{{\"name\":\"C\",\"values\":[{}]}}]}}", group(3.0, 1.0), group(5.0, 1.6), group(7.0, 0.7));
 
+//# %% violin — KDE density per group (a distribution's shape, not just its box)
+let group = |center: f64, spread: f64| -> String {
+    (0..80)
+        .map(|i| {
+            let t = i as f64;
+            format!("{:.3}", center + spread * (t * 0.37).sin() + 0.4 * (t * 1.7).cos())
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+};
+println!("forge_plot:{{\"version\":1,\"name\":\"group distributions (violin)\",\"kind\":\"violin\",\"series\":[{{\"name\":\"A\",\"values\":[{}]}},{{\"name\":\"B\",\"values\":[{}]}}]}}", group(4.0, 1.2), group(7.0, 0.8));
+
+//# %% ecdf — empirical cumulative distribution of a sample
+let values: Vec<String> = (0..150)
+    .map(|i| format!("{:.4}", ((i as f64 * 7.3).sin() * 1000.0).fract().abs() * 10.0))
+    .collect();
+println!("forge_plot:{{\"version\":1,\"name\":\"empirical CDF\",\"kind\":\"ecdf\",\"series\":[{{\"name\":\"x\",\"values\":[{}]}}]}}", values.join(","));
+
 //# %% heatmap — a distance/correlation-style matrix
 let n = 8usize;
 let mut rows: Vec<String> = Vec::new();

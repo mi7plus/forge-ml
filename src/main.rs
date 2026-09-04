@@ -52,7 +52,7 @@ use diagnostics::DiagnosticsHandle;
 use eframe::egui;
 use egui::{Color32, Frame, Margin, Panel, RichText, Stroke};
 use egui_code_editor::{CodeEditor, Syntax};
-use egui_plot::{Bar, BarChart, Line, Plot, PlotPoints, Points};
+use egui_plot::{Bar, BarChart, Line, Plot, PlotPoints, Points, Polygon};
 use egui_tiles::{Container, Linear, LinearDir, SimplificationOptions, Tile, TileId, Tiles, Tree};
 use experiment::{capture_provenance, ExperimentRun};
 #[cfg(test)]
@@ -94,7 +94,9 @@ use ui::grid::{
     build_row_index, build_row_index_cancellable, selected_table, visible_column_window,
     FilterMode, RowFilter, INDEX_SORT_COLUMN,
 };
-use ui::plotting::{draw_box_summary, draw_heatmap, histogram, quartiles, transformed_points};
+use ui::plotting::{
+    box_stats, draw_box_summary, draw_heatmap, ecdf, histogram, kde, quartiles, transformed_points,
+};
 use ui::theme::{
     accent, compact_icon_button, compact_panel_frame, configure_style, panel_frame, theme_colors,
     EMBER, GREEN, MUTED, RED, TEXT,

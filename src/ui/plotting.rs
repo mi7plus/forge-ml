@@ -73,6 +73,91 @@ pub fn histogram(values: &[f64], bins: usize) -> Vec<Bar> {
         .collect()
 }
 
+/// Tukey box-and-whisker statistics for one group of values.
+pub struct BoxStats {
+    pub q1: f64,
+    pub median: f64,
+    pub q3: f64,
+    /// Whisker ends: the most extreme values within 1.5·IQR of the box.
+    pub whisker_lo: f64,
+    pub whisker_hi: f64,
+    /// Points beyond the whiskers.
+    pub outliers: Vec<f64>,
+}
+
+pub fn box_stats(values: &[f64]) -> Option<BoxStats> {
+    let (_, q1, median, q3, _) = quartiles(values)?;
+    let iqr = q3 - q1;
+    let (lo_fence, hi_fence) = (q1 - 1.5 * iqr, q3 + 1.5 * iqr);
+    let mut whisker_lo = q1;
+    let mut whisker_hi = q3;
+    let mut outliers = Vec::new();
+    for &v in values {
+        if v < lo_fence || v > hi_fence {
+            outliers.push(v);
+        } else {
+            whisker_lo = whisker_lo.min(v);
+            whisker_hi = whisker_hi.max(v);
+        }
+    }
+    Some(BoxStats {
+        q1,
+        median,
+        q3,
+        whisker_lo,
+        whisker_hi,
+        outliers,
+    })
+}
+
+/// A Gaussian kernel-density estimate sampled at `samples` points across the
+/// data range (Silverman's rule-of-thumb bandwidth). Returns `[value, density]`
+/// pairs — the profile a violin plot mirrors.
+pub fn kde(values: &[f64], samples: usize) -> Vec<[f64; 2]> {
+    let n = values.len();
+    if n < 2 || samples < 2 {
+        return Vec::new();
+    }
+    let mean = values.iter().sum::<f64>() / n as f64;
+    let variance = values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n as f64;
+    let std = variance.sqrt();
+    let bandwidth = (1.06 * std * (n as f64).powf(-0.2)).max(1e-6);
+    let lo = values.iter().copied().fold(f64::INFINITY, f64::min) - bandwidth;
+    let hi = values.iter().copied().fold(f64::NEG_INFINITY, f64::max) + bandwidth;
+    let scale = 1.0 / (n as f64 * bandwidth * (2.0 * std::f64::consts::PI).sqrt());
+    (0..samples)
+        .map(|i| {
+            let y = lo + (hi - lo) * i as f64 / (samples - 1) as f64;
+            let density = scale
+                * values
+                    .iter()
+                    .map(|&x| (-0.5 * ((y - x) / bandwidth).powi(2)).exp())
+                    .sum::<f64>();
+            [y, density]
+        })
+        .collect()
+}
+
+/// The empirical cumulative distribution as step points: for each distinct value
+/// the fraction of the sample at or below it.
+pub fn ecdf(values: &[f64]) -> Vec<[f64; 2]> {
+    if values.is_empty() {
+        return Vec::new();
+    }
+    let mut sorted: Vec<f64> = values.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    let n = sorted.len() as f64;
+    let mut points = Vec::with_capacity(sorted.len() * 2);
+    let mut prior = 0.0;
+    for (index, &value) in sorted.iter().enumerate() {
+        let fraction = (index + 1) as f64 / n;
+        points.push([value, prior]); // step up at this value
+        points.push([value, fraction]);
+        prior = fraction;
+    }
+    points
+}
+
 pub fn quartiles(values: &[f64]) -> Option<(f64, f64, f64, f64, f64)> {
     if values.is_empty() {
         return None;
