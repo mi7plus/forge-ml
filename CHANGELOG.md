@@ -178,7 +178,7 @@ grouped under the **0.98.0** release below.
 
 #### Site & docs
 - Redesigned GitHub Pages homepage and an expanded feature guide.
-- Prioritized [improvement roadmap](docs/IMPROVEMENT_ROADMAP.md).
+- Prioritized improvement roadmap (later folded into [ROADMAP.md](ROADMAP.md)).
 - This changelog.
 
 ### Changed

@@ -1,8 +1,11 @@
 # Forge ML Roadmap
 
-This is the living delivery tracker for Forge ML. Update it whenever a feature
-lands, a milestone changes, or a design assumption is invalidated. Detailed
-product and architecture decisions live in [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md).
+This is the **single** living delivery tracker for Forge ML — update it whenever a
+feature lands, a milestone changes, or a design assumption is invalidated. It
+supersedes the former `DEVELOPMENT_PLAN.md`, `docs/IMPROVEMENT_ROADMAP.md`, and
+`docs/UX_IMPROVEMENT_PLAN.md` (removed; their content was either shipped or is
+captured below). The code map lives in [ARCHITECTURE.md](ARCHITECTURE.md); the
+environment/distribution design lives in [docs/FORGE_ENV.md](docs/FORGE_ENV.md).
 
 Legend:
 
@@ -10,15 +13,31 @@ Legend:
 - `[~]` partially implemented or prototype quality
 - `[ ]` not implemented
 
+## Vision
+
+Forge ML is a Rust-first scientific and machine-learning IDE — a desktop
+environment comparable to Spyder/JupyterLab, but built **around Cargo** rather
+than replacing it. It supports five connected workflows: explore data (files,
+databases, object storage); develop interactively in Rust notebooks or Cargo
+projects; build classical ML pipelines with Millwright; train and monitor
+deep-learning models with Burn; and export notebooks, reports, datasets,
+experiments, and deployable models. Python support stops at a bridge (execute +
+managed runtime, ONNX/Arrow interchange) — Forge never reimplements a Python
+scientific stack. The longer-term "Forge distribution" direction (a curated,
+offline, reproducible environment with a thin `forge` CLI) is designed in
+[docs/FORGE_ENV.md](docs/FORGE_ENV.md).
+
 ## Current status
 
-Current application version: `0.98.0`
+Current application version: `1.1.0`
 
-Forge ML is a functional desktop prototype with interactive Rust execution,
-editor and language tooling, project navigation, telemetry plots, experiment
-snapshots, and an initial tabular data viewer. Foundation modules now isolate
-protocol, storage, notebook, data, plot, experiment, and persisted UI concerns;
-tables, plots, and metrics still enter through a compatibility stdout adapter.
+Forge ML is a shipping desktop IDE with interactive Rust execution, editor and
+language tooling, project navigation, telemetry plots, experiment snapshots, a
+virtualized tabular data viewer, embedded Millwright/Burn training, native model
+deployment, and a self-contained offline runtime bundle. It publishes native
+installers for Windows, macOS, and Linux. Foundation modules isolate protocol,
+storage, notebook, data, plot, experiment, environment, and persisted UI
+concerns; tables, plots, and metrics enter through the `forge_*` stdout adapter.
 
 ## Implemented prototype capabilities
 
