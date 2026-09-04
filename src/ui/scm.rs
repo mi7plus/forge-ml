@@ -22,9 +22,13 @@ impl crate::ForgeApp {
                 self.git_output = git::snapshot(&root)
                     .map(|s| format!("Branch: {}\n{}", s.branch, s.summary))
                     .unwrap_or_else(|e| e);
+                self.git_conflicts = git::conflicts(&root).unwrap_or_default();
                 if let Some(p) = &mut self.project {
                     p.refresh_git_status();
                 }
+            }
+            if ui.button("History").clicked() {
+                self.git_output = git::log(&root, 50).unwrap_or_else(|e| e);
             }
             if ui.button("Diff").clicked() {
                 self.git_output = git::diff(&root, false).unwrap_or_else(|e| e);
@@ -58,7 +62,7 @@ impl crate::ForgeApp {
                     git::commit(&root, &self.git_commit_message).unwrap_or_else(|e| e);
             }
         });
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.add(egui::TextEdit::singleline(&mut self.git_branch_name).hint_text("Branch name"));
             if ui.button("Switch").clicked() {
                 self.git_output =
@@ -68,11 +72,86 @@ impl crate::ForgeApp {
                 self.git_output =
                     git::switch(&root, &self.git_branch_name, true).unwrap_or_else(|e| e);
             }
+            if ui.button("Delete branch").clicked() {
+                self.git_output =
+                    git::delete_branch(&root, &self.git_branch_name, false).unwrap_or_else(|e| e);
+            }
+            if ui
+                .button("Force delete")
+                .on_hover_text("Delete even if the branch has unmerged commits (-D)")
+                .clicked()
+            {
+                self.git_output =
+                    git::delete_branch(&root, &self.git_branch_name, true).unwrap_or_else(|e| e);
+            }
         });
+
+        // Merge-conflict mediation: shown only while a merge is in progress.
+        if !self.git_conflicts.is_empty() {
+            ui.separator();
+            ui.label(
+                RichText::new(format!(
+                    "{} file(s) in conflict — resolve each, then continue the merge",
+                    self.git_conflicts.len()
+                ))
+                .color(EMBER)
+                .strong(),
+            );
+            let mut action: Option<(String, &'static str)> = None;
+            for path in &self.git_conflicts {
+                ui.horizontal_wrapped(|ui| {
+                    ui.code(path);
+                    if ui
+                        .button("Keep ours")
+                        .on_hover_text("git checkout --ours")
+                        .clicked()
+                    {
+                        action = Some((path.clone(), "ours"));
+                    }
+                    if ui
+                        .button("Keep theirs")
+                        .on_hover_text("git checkout --theirs")
+                        .clicked()
+                    {
+                        action = Some((path.clone(), "theirs"));
+                    }
+                    if ui
+                        .button("Mark resolved")
+                        .on_hover_text("Stage the file as-is after editing it")
+                        .clicked()
+                    {
+                        action = Some((path.clone(), "resolved"));
+                    }
+                });
+            }
+            if let Some((path, side)) = action {
+                self.git_output = match side {
+                    "resolved" => git::mark_resolved(&root, &path),
+                    other => git::resolve_conflict(&root, &path, other),
+                }
+                .unwrap_or_else(|e| e);
+                self.git_conflicts = git::conflicts(&root).unwrap_or_default();
+            }
+            ui.horizontal(|ui| {
+                if ui
+                    .button("Continue merge")
+                    .on_hover_text("Commit the resolved merge (--no-edit)")
+                    .clicked()
+                {
+                    self.git_output = git::merge_continue(&root).unwrap_or_else(|e| e);
+                    self.git_conflicts = git::conflicts(&root).unwrap_or_default();
+                }
+                if ui.button("Abort merge").clicked() {
+                    self.git_output = git::merge_abort(&root).unwrap_or_else(|e| e);
+                    self.git_conflicts = git::conflicts(&root).unwrap_or_default();
+                }
+            });
+        }
+
         ui.separator();
         egui::ScrollArea::both().show(ui, |ui| {
             ui.code(if self.git_output.is_empty() {
-                "Refresh to inspect repository status."
+                "Refresh to inspect repository status, history, and diffs."
             } else {
                 &self.git_output
             });

@@ -64,6 +64,66 @@ pub fn switch(root: &Path, name: &str, create: bool) -> Result<String, String> {
         run(root, &["switch", name.trim()])
     }
 }
+/// Delete a branch. `force` uses `-D` (drop even if unmerged); otherwise `-d`
+/// (refuses to delete unmerged work).
+pub fn delete_branch(root: &Path, name: &str, force: bool) -> Result<String, String> {
+    if name.trim().is_empty() {
+        return Err("Enter a branch name first.".into());
+    }
+    let flag = if force { "-D" } else { "-d" };
+    run(root, &["branch", flag, name.trim()])
+}
+
+/// Commit history as a decorated one-line graph (most recent `limit` commits).
+pub fn log(root: &Path, limit: usize) -> Result<String, String> {
+    run(
+        root,
+        &[
+            "log",
+            &format!("-n{}", limit.max(1)),
+            "--graph",
+            "--oneline",
+            "--decorate",
+            "--no-color",
+        ],
+    )
+}
+
+/// The files currently in a merge conflict (unmerged, `git status` code `U`).
+pub fn conflicts(root: &Path) -> Result<Vec<String>, String> {
+    let out = run(root, &["diff", "--name-only", "--diff-filter=U"])?;
+    Ok(out
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && *line != "Done.")
+        .map(str::to_owned)
+        .collect())
+}
+
+/// Resolve one conflicted file by taking a whole side, then stage it.
+/// `side` is `"ours"` or `"theirs"`.
+pub fn resolve_conflict(root: &Path, path: &str, side: &str) -> Result<String, String> {
+    if side != "ours" && side != "theirs" {
+        return Err("side must be `ours` or `theirs`".into());
+    }
+    run(root, &["checkout", &format!("--{side}"), "--", path])?;
+    run(root, &["add", "--", path])
+}
+
+/// Mark a (manually edited) conflicted file as resolved by staging it.
+pub fn mark_resolved(root: &Path, path: &str) -> Result<String, String> {
+    run(root, &["add", "--", path])
+}
+
+/// Abort an in-progress merge, restoring the pre-merge state.
+pub fn merge_abort(root: &Path) -> Result<String, String> {
+    run(root, &["merge", "--abort"])
+}
+
+/// Finish a merge once all conflicts are staged (commit with the default message).
+pub fn merge_continue(root: &Path) -> Result<String, String> {
+    run(root, &["commit", "--no-edit"])
+}
 pub fn provenance(root: &Path) -> (String, bool) {
     let commit = run(root, &["rev-parse", "--short", "HEAD"]).unwrap_or_else(|_| "unknown".into());
     let dirty = run(root, &["status", "--porcelain"])
@@ -102,5 +162,15 @@ mod tests {
     #[test]
     fn empty_commit_message_is_rejected_before_git_runs() {
         assert!(commit(Path::new("."), "  ").is_err());
+    }
+
+    #[test]
+    fn delete_branch_requires_a_name() {
+        assert!(delete_branch(Path::new("."), "   ", false).is_err());
+    }
+
+    #[test]
+    fn resolve_conflict_rejects_unknown_side() {
+        assert!(resolve_conflict(Path::new("."), "a.rs", "mine").is_err());
     }
 }
