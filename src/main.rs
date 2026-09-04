@@ -4,7 +4,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod classification;
-mod prep;
 mod commands;
 mod data;
 mod database;
@@ -18,6 +17,7 @@ mod github;
 mod integration_worker;
 mod jobs;
 mod jupyter;
+mod keymap;
 mod lsp;
 mod millwright_studio;
 mod model_registry;
@@ -28,6 +28,7 @@ mod packages;
 mod pane_layout;
 mod performance;
 mod plot;
+mod prep;
 mod privacy_diagnostics;
 mod project;
 mod publishing;
@@ -36,14 +37,13 @@ mod python_runtime;
 mod release;
 mod remote;
 mod runtime;
-mod service_monitor;
-mod keymap;
 mod rust_kernel;
+mod service_monitor;
 mod session;
 mod terminal;
 mod ui;
-mod workspace;
 mod updater;
+mod workspace;
 
 use data::DataWorkspace;
 use database::{ConnectionKind, ConnectionProfile};
@@ -52,8 +52,8 @@ use diagnostics::DiagnosticsHandle;
 use eframe::egui;
 use egui::{Color32, Frame, Margin, Panel, RichText, Stroke};
 use egui_code_editor::{CodeEditor, Syntax};
-use egui_tiles::{Container, Linear, LinearDir, SimplificationOptions, Tile, TileId, Tiles, Tree};
 use egui_plot::{Bar, BarChart, Line, Plot, PlotPoints, Points};
+use egui_tiles::{Container, Linear, LinearDir, SimplificationOptions, Tile, TileId, Tiles, Tree};
 use experiment::{capture_provenance, ExperimentRun};
 #[cfg(test)]
 use forge_protocol::RunId;
@@ -75,6 +75,15 @@ use project::Project;
 use runtime::{CellResult, RuntimeHandle, VariableMeta};
 use service_monitor::{DriftEvent, ServiceEvent};
 use session::SessionState;
+use std::collections::{HashMap, VecDeque};
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::path::{Path, PathBuf};
+use std::sync::{
+    atomic::{AtomicU64, Ordering as AtomicOrdering},
+    mpsc::{self, Receiver, Sender},
+    Arc,
+};
+use std::time::{Duration, Instant};
 use ui::editing::{
     apply_edits_to, blank_tab, char_to_byte, collect_editable_files, content_hash, csv_field,
     draw_file_nodes, file_title, infer_size, line_column, paint_editor_caret,
@@ -90,15 +99,6 @@ use ui::theme::{
     accent, compact_icon_button, compact_panel_frame, configure_style, panel_frame, theme_colors,
     EMBER, GREEN, MUTED, RED, TEXT,
 };
-use std::collections::{HashMap, VecDeque};
-use std::hash::{DefaultHasher, Hash, Hasher};
-use std::path::{Path, PathBuf};
-use std::sync::{
-    atomic::{AtomicU64, Ordering as AtomicOrdering},
-    mpsc::{self, Receiver, Sender},
-    Arc,
-};
-use std::time::{Duration, Instant};
 
 const STORAGE_KEY: &str = "forge_ml_session_v1";
 const CONSOLE_CELL_ID: usize = usize::MAX;
@@ -169,7 +169,9 @@ fn env_cli_dir(args: &[String], flag_pos: usize) -> std::path::PathBuf {
     args.get(flag_pos + 1)
         .filter(|value| !value.starts_with("--"))
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
+        .unwrap_or_else(|| {
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+        })
 }
 
 fn main() -> eframe::Result<()> {
@@ -237,11 +239,20 @@ fn inspect_code(name: &str, type_name: &str) -> (String, Option<String>) {
         .iter()
         .any(|n| t.ends_with(&format!("Vec<{n}>")));
     if is_matrix {
-        (MATRIX_INSPECT.replace("NAME", name), Some(format!("table:{name}")))
+        (
+            MATRIX_INSPECT.replace("NAME", name),
+            Some(format!("table:{name}")),
+        )
     } else if is_vector {
-        (VECTOR_INSPECT.replace("NAME", name), Some(format!("vector:{name}")))
+        (
+            VECTOR_INSPECT.replace("NAME", name),
+            Some(format!("vector:{name}")),
+        )
     } else if t.contains("Frame") {
-        (FRAME_INSPECT.replace("NAME", name), Some(format!("table:{name}")))
+        (
+            FRAME_INSPECT.replace("NAME", name),
+            Some(format!("table:{name}")),
+        )
     } else {
         (DEBUG_INSPECT.replace("NAME", name), None)
     }
@@ -249,8 +260,7 @@ fn inspect_code(name: &str, type_name: &str) -> (String, Option<String>) {
 
 /// `NAME` is replaced with the variable name. Each emits the marker Forge parses
 /// from cell stdout. Column names are `c0..cN`; numeric cells need no escaping.
-const VECTOR_INSPECT: &str =
-    r#"println!("forge_vector:NAME={}", NAME.iter().map(|__v| __v.to_string()).collect::<Vec<_>>().join(","));"#;
+const VECTOR_INSPECT: &str = r#"println!("forge_vector:NAME={}", NAME.iter().map(|__v| __v.to_string()).collect::<Vec<_>>().join(","));"#;
 const MATRIX_INSPECT: &str = r#"{
     let __data = &NAME;
     let __ncols = __data.first().map(|__r| __r.len()).unwrap_or(0);
@@ -291,18 +301,28 @@ println!(\"Millwright ready.\");";
             match result {
                 runtime::CellResult::Ready if !ready => {
                     ready = true;
-                    eprintln!("[selftest] ready in {:?}; sending :dep cell", start.elapsed());
+                    eprintln!(
+                        "[selftest] ready in {:?}; sending :dep cell",
+                        start.elapsed()
+                    );
                     let _ = rt.execute(0, cell.to_owned());
                 }
-                runtime::CellResult::Success { output, cell_id, .. } => {
-                    eprintln!("[selftest] cell {cell_id} SUCCESS: {}", output.replace('\n', " | "));
+                runtime::CellResult::Success {
+                    output, cell_id, ..
+                } => {
+                    eprintln!(
+                        "[selftest] cell {cell_id} SUCCESS: {}",
+                        output.replace('\n', " | ")
+                    );
                     // After the :dep cell, exercise variable inspection.
                     if cell_id == 0 {
                         let (code, key) = inspect_code("__probe", "Vec<Vec<f64>>");
                         eprintln!("[selftest] inspecting a matrix (key={key:?})…");
                         let _ = rt.execute(
                             1,
-                            format!("let __probe = vec![vec![1.0_f64, 2.0], vec![3.0, 4.0]];\n{code}"),
+                            format!(
+                                "let __probe = vec![vec![1.0_f64, 2.0], vec![3.0, 4.0]];\n{code}"
+                            ),
                         );
                     } else {
                         return;
@@ -989,11 +1009,7 @@ impl ForgeApp {
                 ui.add_space(8.0);
             }
             ui.label(RichText::new("FORGE ML").size(46.0).strong().color(RED));
-            ui.label(
-                RichText::new("Rust compute studio")
-                    .size(14.0)
-                    .color(MUTED),
-            );
+            ui.label(RichText::new("Rust compute studio").size(14.0).color(MUTED));
             if let Some(name) = self
                 .project
                 .as_ref()
@@ -1001,7 +1017,11 @@ impl ForgeApp {
                 .and_then(|name| name.to_str())
             {
                 ui.add_space(4.0);
-                ui.label(RichText::new(format!("Loading {name}")).size(12.0).color(TEXT));
+                ui.label(
+                    RichText::new(format!("Loading {name}"))
+                        .size(12.0)
+                        .color(TEXT),
+                );
             }
             ui.add_space(26.0);
             ui.add(egui::Spinner::new().size(30.0).color(accent()));
@@ -1047,8 +1067,15 @@ impl ForgeApp {
             schema: workspace::WORKSPACE_SCHEMA,
             name,
             project_root: self.project.as_ref().map(|project| project.root.clone()),
-            open_files: self.tabs.iter().filter_map(|tab| tab.path.clone()).collect(),
-            active_file: self.tabs.get(self.active_tab).and_then(|tab| tab.path.clone()),
+            open_files: self
+                .tabs
+                .iter()
+                .filter_map(|tab| tab.path.clone())
+                .collect(),
+            active_file: self
+                .tabs
+                .get(self.active_tab)
+                .and_then(|tab| tab.path.clone()),
             dock_layout: self
                 .dock_tree
                 .as_ref()
@@ -1075,8 +1102,7 @@ impl ForgeApp {
         self.caret_blink = snap.caret_blink;
         self.custom_themes = snap.custom_themes;
         self.active_theme = snap.active_theme;
-        self.theme_draft =
-            resolve_palette(&self.active_theme, &self.custom_themes, self.dark_mode);
+        self.theme_draft = resolve_palette(&self.active_theme, &self.custom_themes, self.dark_mode);
         self.keymap = keymap::Keymap::from_dto(&snap.keymap);
 
         if let Some(root) = snap.project_root.clone() {
@@ -1167,7 +1193,8 @@ impl ForgeApp {
         match std::fs::read_to_string(&path)
             .map_err(|e| e.to_string())
             .and_then(|text| {
-                serde_json::from_str::<workspace::WorkspaceSnapshot>(&text).map_err(|e| e.to_string())
+                serde_json::from_str::<workspace::WorkspaceSnapshot>(&text)
+                    .map_err(|e| e.to_string())
             }) {
             Ok(snap) => self.apply_workspace(snap, ctx),
             Err(error) => self.console = format!("Could not open workspace: {error}"),
@@ -2061,7 +2088,8 @@ impl ForgeApp {
     /// Run clippy and show its findings in the Problems pane.
     fn run_clippy(&mut self) {
         if let Some(project) = &self.project {
-            self.diagnostics.check(project.root.clone(), diagnostics::Tool::Clippy);
+            self.diagnostics
+                .check(project.root.clone(), diagnostics::Tool::Clippy);
             self.diagnostics_running = true;
             self.diagnostic_lines = vec!["Running cargo clippy...".to_owned()];
             self.inspector_tab = InspectorTab::Problems;
@@ -2642,7 +2670,8 @@ impl ForgeApp {
     fn run_diagnostics(&mut self) {
         self.inspector_tab = InspectorTab::Problems;
         if let Some(project) = &self.project {
-            self.diagnostics.check(project.root.clone(), diagnostics::Tool::Check);
+            self.diagnostics
+                .check(project.root.clone(), diagnostics::Tool::Check);
             self.diagnostics_running = true;
             self.diagnostic_lines = vec![format!(
                 "Checking {} with cargo check...",
@@ -3473,11 +3502,12 @@ impl ForgeApp {
                             );
                             if ui
                                 .small_button("🔍")
-                                .on_hover_text("Inspect: show this value in the Data viewer (or the console)")
+                                .on_hover_text(
+                                    "Inspect: show this value in the Data viewer (or the console)",
+                                )
                                 .clicked()
                             {
-                                inspect =
-                                    Some((variable.name.clone(), variable.type_name.clone()));
+                                inspect = Some((variable.name.clone(), variable.type_name.clone()));
                             }
                             ui.end_row();
                         }
@@ -3557,7 +3587,8 @@ impl ForgeApp {
                     !self.lsp_diagnostics.is_empty() || !self.diagnostic_lines.is_empty();
                 ui.horizontal(|ui| {
                     use egui_phosphor_icons::icons;
-                    if compact_icon_button(ui, icons::CHECK_CIRCLE, "Re-run cargo check").clicked() {
+                    if compact_icon_button(ui, icons::CHECK_CIRCLE, "Re-run cargo check").clicked()
+                    {
                         self.run_diagnostics();
                     }
                     if compact_icon_button(ui, icons::BUG, "Run clippy").clicked() {
@@ -3681,7 +3712,11 @@ impl egui_tiles::Behavior<PaneKind> for ForgeApp {
         // Terminal tabs reflect the shell's live OSC title, or a numbered
         // fallback so multiple terminals stay distinguishable.
         if let PaneKind::Terminal(id) = *pane {
-            let live = self.terminals.get(&id).map(|t| t.title()).unwrap_or("Terminal");
+            let live = self
+                .terminals
+                .get(&id)
+                .map(|t| t.title())
+                .unwrap_or("Terminal");
             let label = if live == "Terminal" {
                 format!("Terminal {id}")
             } else {
@@ -3870,7 +3905,11 @@ fn expected_panes() -> Vec<PaneKind> {
         PaneKind::Python,
         PaneKind::DataViewer,
     ];
-    kinds.extend(InspectorTab::ALL.iter().map(|tab| PaneKind::Inspector(*tab)));
+    kinds.extend(
+        InspectorTab::ALL
+            .iter()
+            .map(|tab| PaneKind::Inspector(*tab)),
+    );
     kinds
 }
 
@@ -3991,23 +4030,17 @@ impl eframe::App for ForgeApp {
                 self.dark_mode,
             ))
             .show(ui, |ui| self.status_bar(ui));
-        let dock_frame =
-            panel_frame(theme_colors(self.dark_mode).background, self.dark_mode);
+        let dock_frame = panel_frame(theme_colors(self.dark_mode).background, self.dark_mode);
         egui::CentralPanel::default()
             .frame(dock_frame)
             .show(ui, |ui| {
                 // Take the tree out so both it and `self` (the Behavior) can be
                 // borrowed mutably during layout; restore it immediately after.
-                let mut tree = self
-                    .dock_tree
-                    .take()
-                    .unwrap_or_else(build_dock_tree);
+                let mut tree = self.dock_tree.take().unwrap_or_else(build_dock_tree);
                 if let Some(kind) = self.dock_focus.take() {
                     if let Some(id) = Self::dock_tile_of(&tree, kind) {
                         tree.tiles.set_visible(id, true);
-                        tree.make_active(
-                            |_, tile| matches!(tile, Tile::Pane(p) if *p == kind),
-                        );
+                        tree.make_active(|_, tile| matches!(tile, Tile::Pane(p) if *p == kind));
                     }
                 }
                 tree.ui(self, ui);
@@ -4136,10 +4169,7 @@ fn sort_header_text(label: &str, sort: Option<bool>) -> egui::WidgetText {
             &format!(" {}", caret.as_str()),
             0.0,
             TextFormat {
-                font_id: egui::FontId::new(
-                    12.5,
-                    egui::FontFamily::Name("phosphor-regular".into()),
-                ),
+                font_id: egui::FontId::new(12.5, egui::FontFamily::Name("phosphor-regular".into())),
                 color,
                 ..Default::default()
             },
@@ -4541,8 +4571,6 @@ fn draw_dataset_table(
     result
 }
 
-
-
 #[cfg(test)]
 mod editor_tests {
     use super::*;
@@ -4599,7 +4627,10 @@ mod editor_tests {
         assert_eq!(panes(&load_dock_tree(Some("not json"))), panes(&original));
         let incomplete = Tree::new_tabs("forge_dock", vec![PaneKind::Editor]);
         let incomplete_json = serde_json::to_string(&incomplete).unwrap();
-        assert_eq!(panes(&load_dock_tree(Some(&incomplete_json))), panes(&original));
+        assert_eq!(
+            panes(&load_dock_tree(Some(&incomplete_json))),
+            panes(&original)
+        );
     }
 
     #[test]
@@ -4612,8 +4643,14 @@ mod editor_tests {
         };
         let mut tree = build_dock_tree();
         assert_eq!(count_terminals(&tree), 1); // the default terminal, id 1
-        assert_eq!(ForgeApp::create_terminal(&mut tree, None), PaneKind::Terminal(2));
-        assert_eq!(ForgeApp::create_terminal(&mut tree, None), PaneKind::Terminal(3));
+        assert_eq!(
+            ForgeApp::create_terminal(&mut tree, None),
+            PaneKind::Terminal(2)
+        );
+        assert_eq!(
+            ForgeApp::create_terminal(&mut tree, None),
+            PaneKind::Terminal(3)
+        );
         assert_eq!(count_terminals(&tree), 3);
 
         // A layout with several terminals round-trips and is accepted on load.
@@ -4662,13 +4699,10 @@ mod editor_tests {
     #[test]
     fn rustfmt_formats_rust_source_when_available() {
         let messy = "fn  main( ) {let x=1;println!(\"{}\",x);}\n";
-        match run_rustfmt(messy) {
-            Ok(formatted) => {
-                assert!(formatted.contains("fn main() {"), "got:\n{formatted}");
-                assert!(formatted.contains("let x = 1;"), "got:\n{formatted}");
-            }
-            // rustfmt not installed in this environment — nothing to verify.
-            Err(_) => {}
+        // Ok → verify formatting; Err → rustfmt not installed here, nothing to check.
+        if let Ok(formatted) = run_rustfmt(messy) {
+            assert!(formatted.contains("fn main() {"), "got:\n{formatted}");
+            assert!(formatted.contains("let x = 1;"), "got:\n{formatted}");
         }
     }
 
@@ -4682,8 +4716,14 @@ mod editor_tests {
         };
         let mut tree = build_dock_tree();
         assert_eq!(count_kernels(&tree), 0); // none by default
-        assert_eq!(ForgeApp::create_kernel(&mut tree, None), PaneKind::RustConsole(1));
-        assert_eq!(ForgeApp::create_kernel(&mut tree, None), PaneKind::RustConsole(2));
+        assert_eq!(
+            ForgeApp::create_kernel(&mut tree, None),
+            PaneKind::RustConsole(1)
+        );
+        assert_eq!(
+            ForgeApp::create_kernel(&mut tree, None),
+            PaneKind::RustConsole(2)
+        );
         assert_eq!(count_kernels(&tree), 2);
 
         // A layout with several kernels round-trips and is accepted on load.
@@ -4793,7 +4833,10 @@ mod editor_tests {
                 vec!["alphabet".into(), "30".into()],
             ],
         };
-        assert_eq!(build_row_index(&table, &"alpha".into(), None, false), [1, 2]);
+        assert_eq!(
+            build_row_index(&table, &"alpha".into(), None, false),
+            [1, 2]
+        );
         assert_eq!(
             build_row_index(&table, &RowFilter::default(), Some(1), false),
             [1, 0, 2]
@@ -4804,7 +4847,12 @@ mod editor_tests {
         );
         // The `#` sentinel sorts by original position, independent of any column.
         assert_eq!(
-            build_row_index(&table, &RowFilter::default(), Some(INDEX_SORT_COLUMN), false),
+            build_row_index(
+                &table,
+                &RowFilter::default(),
+                Some(INDEX_SORT_COLUMN),
+                false
+            ),
             [0, 1, 2]
         );
         assert_eq!(

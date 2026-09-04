@@ -240,8 +240,11 @@ impl Terminal {
         // and cursor come from the palette (ANSI-colored output is unaffected).
         let palette = crate::ui::theme::active_palette();
         let rgb = |c: [u8; 3]| Color32::from_rgb(c[0], c[1], c[2]);
-        let (default_fg, default_bg, cursor_color) =
-            (rgb(palette.text), rgb(palette.background), rgb(palette.accent));
+        let (default_fg, default_bg, cursor_color) = (
+            rgb(palette.text),
+            rgb(palette.background),
+            rgb(palette.accent),
+        );
 
         let font = FontId::monospace(self.font_size);
         let (char_w, row_h) = ui.ctx().fonts_mut(|f| {
@@ -253,8 +256,7 @@ impl Terminal {
 
         // Claim the whole pane and paint the terminal background.
         let avail = ui.available_size();
-        let (rect, response) =
-            ui.allocate_exact_size(avail, egui::Sense::click_and_drag());
+        let (rect, response) = ui.allocate_exact_size(avail, egui::Sense::click_and_drag());
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, 0.0, default_bg);
 
@@ -420,7 +422,10 @@ impl Terminal {
             if cell.flags.contains(Flags::ITALIC) {
                 format.italics = true;
             }
-            if cell.flags.intersects(Flags::UNDERLINE | Flags::DOUBLE_UNDERLINE) {
+            if cell
+                .flags
+                .intersects(Flags::UNDERLINE | Flags::DOUBLE_UNDERLINE)
+            {
                 format.underline = Stroke::new(1.0, fg);
             }
             if cell.flags.contains(Flags::STRIKEOUT) {
@@ -603,7 +608,7 @@ fn ctrl_byte(key: egui::Key) -> Option<u8> {
         Key::X => 24,
         Key::Y => 25,
         Key::Z => 26,
-        Key::OpenBracket => 27,  // Ctrl+[ = ESC
+        Key::OpenBracket => 27, // Ctrl+[ = ESC
         Key::Backslash => 28,
         Key::CloseBracket => 29,
         _ => return None,
@@ -726,8 +731,16 @@ fn ansi_fallback(index: u8) -> Rgb {
 /// (1=red, 2=green, …); only the exact shades come from the palette.
 fn themed_ansi16(index: u8) -> Rgb {
     let p = crate::ui::theme::active_palette();
-    let rgb = |c: [u8; 3]| Rgb { r: c[0], g: c[1], b: c[2] };
-    let col = |c: Color32| Rgb { r: c.r(), g: c.g(), b: c.b() };
+    let rgb = |c: [u8; 3]| Rgb {
+        r: c[0],
+        g: c[1],
+        b: c[2],
+    };
+    let col = |c: Color32| Rgb {
+        r: c.r(),
+        g: c.g(),
+        b: c.b(),
+    };
     let mix = |a: [u8; 3], b: [u8; 3], t: f32| {
         let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
         Rgb {
@@ -744,11 +757,11 @@ fn themed_ansi16(index: u8) -> Rgb {
         0 => mix(p.background, p.text, 0.30), // black — a visible dark grey
         1 => col(red),
         2 => col(green),
-        3 => rgb(p.syn_type),     // yellow
-        4 => rgb(p.syn_function), // blue
-        5 => rgb(p.syn_keyword),  // magenta
-        6 => rgb(p.accent),       // cyan
-        7 => rgb(p.muted),        // white
+        3 => rgb(p.syn_type),            // yellow
+        4 => rgb(p.syn_function),        // blue
+        5 => rgb(p.syn_keyword),         // magenta
+        6 => rgb(p.accent),              // cyan
+        7 => rgb(p.muted),               // white
         8 => mix(p.muted, p.text, 0.35), // bright black
         9 => bright([red.r(), red.g(), red.b()]),
         10 => bright([green.r(), green.g(), green.b()]),

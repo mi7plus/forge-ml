@@ -166,10 +166,7 @@ mod tests {
 
     #[test]
     fn validate_requires_cargo_and_vendor() {
-        let dir = std::env::temp_dir().join(format!(
-            "forge-runtime-test-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("forge-runtime-test-{}", std::process::id()));
         let bin = dir.join("bin");
         let vendor = dir.join("vendor");
         std::fs::create_dir_all(&bin).unwrap();

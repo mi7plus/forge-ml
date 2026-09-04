@@ -784,7 +784,12 @@ impl crate::ForgeApp {
             self.console = "In-process training needs a table dataset, not a vector.".into();
             return;
         }
-        let Some(table) = self.data.tables.get(&name).map(|dataset| dataset.table.clone()) else {
+        let Some(table) = self
+            .data
+            .tables
+            .get(&name)
+            .map(|dataset| dataset.table.clone())
+        else {
             self.console = "The selected dataset no longer exists.".into();
             return;
         };
@@ -886,9 +891,7 @@ impl crate::ForgeApp {
                 .clicked();
             if train || train_export {
                 let export_path = train_export.then(|| {
-                    let mut base = self
-                        .project_root()
-                        .unwrap_or_else(std::env::temp_dir);
+                    let mut base = self.project_root().unwrap_or_else(std::env::temp_dir);
                     base.push("models");
                     base.push(format!("{}.onnx", self.pipeline_design.name));
                     base

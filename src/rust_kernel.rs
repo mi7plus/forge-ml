@@ -151,7 +151,12 @@ impl RustKernel {
                 });
 
             ui.horizontal(|ui| {
-                ui.label(RichText::new("In [ ]:").monospace().strong().color(accent()));
+                ui.label(
+                    RichText::new("In [ ]:")
+                        .monospace()
+                        .strong()
+                        .color(accent()),
+                );
                 let response = ui.add(
                     egui::TextEdit::singleline(&mut self.input)
                         .font(egui::TextStyle::Monospace)

@@ -14,12 +14,7 @@ use burn::optim::{GradientsParams, SgdConfig};
 use burn::tensor::activation::relu;
 use burn::tensor::{Device, Int, Tensor};
 
-const FEATURES: [&str; 4] = [
-    "sepal_length",
-    "sepal_width",
-    "petal_length",
-    "petal_width",
-];
+const FEATURES: [&str; 4] = ["sepal_length", "sepal_width", "petal_length", "petal_width"];
 
 #[derive(Module, Debug)]
 struct Mlp {
@@ -115,7 +110,10 @@ fn main() {
         let logits = model.forward(train_x.clone());
         let loss = loss_fn.forward(logits, train_y.clone());
         if epoch % 100 == 0 || epoch == 1 {
-            println!("  epoch {epoch:>3}  loss = {:.4}", loss.clone().into_scalar::<f32>());
+            println!(
+                "  epoch {epoch:>3}  loss = {:.4}",
+                loss.clone().into_scalar::<f32>()
+            );
         }
         let grads = loss.backward();
         let grads = GradientsParams::from_grads(grads, &model);

@@ -12,12 +12,7 @@ mod data;
 
 use millwright::prelude::*;
 
-const FEATURES: [&str; 4] = [
-    "sepal_length",
-    "sepal_width",
-    "petal_length",
-    "petal_width",
-];
+const FEATURES: [&str; 4] = ["sepal_length", "sepal_width", "petal_length", "petal_width"];
 
 fn main() -> Result<()> {
     let (headers, rows) = data::read_csv(data::dataset_path("iris.csv"));
@@ -43,13 +38,10 @@ fn main() -> Result<()> {
             continue;
         }
         let name = &row[species];
-        let label = classes
-            .iter()
-            .position(|c| c == name)
-            .unwrap_or_else(|| {
-                classes.push(name.clone());
-                classes.len() - 1
-            });
+        let label = classes.iter().position(|c| c == name).unwrap_or_else(|| {
+            classes.push(name.clone());
+            classes.len() - 1
+        });
         features.push(values);
         target.push(label as f64);
     }

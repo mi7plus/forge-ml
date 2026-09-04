@@ -7,7 +7,7 @@
 
 use super::lock::{sha256_hex, LockEntry};
 use super::manifest::Manifest;
-use super::provider::{Activation, CargoConfig, Capabilities, EnvironmentProvider, Probe};
+use super::provider::{Activation, Capabilities, CargoConfig, EnvironmentProvider, Probe};
 use std::ffi::OsString;
 
 pub struct BundledRuntimeProvider;
@@ -28,13 +28,23 @@ impl EnvironmentProvider for BundledRuntimeProvider {
         }
     }
 
-    fn probe(&self, _manifest: &Manifest) -> Probe {
-        match crate::offline::detect() {
-            Some(_) => Probe::Available,
-            None => Probe::Missing(
+    fn probe(&self, manifest: &Manifest) -> Probe {
+        let Some(runtime) = crate::offline::detect() else {
+            return Probe::Missing(
                 "no offline runtime bundle in this build (using the system toolchain)".to_owned(),
-            ),
+            );
+        };
+        // If the manifest pins a toolchain the bundle doesn't provide, say so
+        // rather than silently activating a different one.
+        if let Some(pinned) = &manifest.toolchain.rust {
+            if !runtime.version.contains(pinned.as_str()) {
+                return Probe::Incompatible(format!(
+                    "manifest pins Rust {pinned}, but the bundled runtime is {}",
+                    runtime.version
+                ));
+            }
         }
+        Probe::Available
     }
 
     fn activate(&self, _manifest: &Manifest) -> Option<Activation> {
@@ -42,10 +52,7 @@ impl EnvironmentProvider for BundledRuntimeProvider {
         Some(Activation {
             path_prepend: vec![runtime.bin.clone()],
             env: vec![
-                (
-                    OsString::from("CARGO_NET_OFFLINE"),
-                    OsString::from("true"),
-                ),
+                (OsString::from("CARGO_NET_OFFLINE"), OsString::from("true")),
                 // A rustup shim on PATH would otherwise try to resolve a toolchain
                 // and reach the network.
                 (OsString::from("RUSTUP_TOOLCHAIN"), OsString::from("")),

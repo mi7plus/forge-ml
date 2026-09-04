@@ -300,9 +300,9 @@ impl crate::ForgeApp {
                             .tiles
                             .iter()
                             .filter_map(|(_, tile)| match tile {
-                                Tile::Pane(k @ (PaneKind::Terminal(_) | PaneKind::RustConsole(_))) => {
-                                    Some(*k)
-                                }
+                                Tile::Pane(
+                                    k @ (PaneKind::Terminal(_) | PaneKind::RustConsole(_)),
+                                ) => Some(*k),
                                 _ => None,
                             })
                             .collect();
@@ -435,7 +435,10 @@ impl crate::ForgeApp {
                         ui.close();
                     }
                     if ui
-                        .button(format!("Find & replace   {}", self.keymap.display(K::FindInFile)))
+                        .button(format!(
+                            "Find & replace   {}",
+                            self.keymap.display(K::FindInFile)
+                        ))
                         .clicked()
                     {
                         self.find_visible = true;
@@ -452,7 +455,10 @@ impl crate::ForgeApp {
                         ui.close();
                     }
                     if ui
-                        .button(format!("New terminal   {}", self.keymap.display(K::NewTerminal)))
+                        .button(format!(
+                            "New terminal   {}",
+                            self.keymap.display(K::NewTerminal)
+                        ))
                         .clicked()
                     {
                         self.pending_new_terminal = Some(None);
@@ -465,7 +471,10 @@ impl crate::ForgeApp {
                 if toolbar_icon_button(
                     ui,
                     icons::PAINT_BRUSH_BROAD,
-                    &format!("Format document ({})", self.keymap.display(K::FormatDocument)),
+                    &format!(
+                        "Format document ({})",
+                        self.keymap.display(K::FormatDocument)
+                    ),
                 )
                 .clicked()
                 {
@@ -483,7 +492,10 @@ impl crate::ForgeApp {
                 if toolbar_icon_button(
                     ui,
                     icons::COMMAND,
-                    &format!("Command palette ({})", self.keymap.display(K::CommandPalette)),
+                    &format!(
+                        "Command palette ({})",
+                        self.keymap.display(K::CommandPalette)
+                    ),
                 )
                 .clicked()
                 {
@@ -542,7 +554,10 @@ impl crate::ForgeApp {
                 if toolbar_icon_button(
                     ui,
                     icons::GEAR,
-                    &format!("Settings ({})", self.keymap.display(keymap::KeyAction::OpenSettings)),
+                    &format!(
+                        "Settings ({})",
+                        self.keymap.display(keymap::KeyAction::OpenSettings)
+                    ),
                 )
                 .clicked()
                 {
@@ -660,7 +675,8 @@ impl crate::ForgeApp {
                             "Accent" => "Selection, links, highlights, and active items",
                             _ => "",
                         };
-                        ui.label(RichText::new(label).size(11.0)).on_hover_text(hint);
+                        ui.label(RichText::new(label).size(11.0))
+                            .on_hover_text(hint);
                         ui.horizontal(|ui| {
                             if egui::color_picker::color_edit_button_srgb(ui, rgb).changed() {
                                 changed = true;
@@ -713,8 +729,10 @@ impl crate::ForgeApp {
                 configure_style(ui.ctx(), &self.theme_draft, self.high_contrast);
                 // Keep an active custom theme's stored palette in sync with edits.
                 if let Some(name) = self.active_theme.clone() {
-                    if let Some(theme) =
-                        self.custom_themes.iter_mut().find(|theme| theme.name == name)
+                    if let Some(theme) = self
+                        .custom_themes
+                        .iter_mut()
+                        .find(|theme| theme.name == name)
                     {
                         theme.palette = self.theme_draft.clone();
                     }
@@ -1109,9 +1127,11 @@ impl crate::ForgeApp {
                 }
                 ui.add_space(6.0);
                 ui.label(
-                    RichText::new("Closing this hides it on future launches — reopen from Help → Welcome.")
-                        .size(10.0)
-                        .color(MUTED),
+                    RichText::new(
+                        "Closing this hides it on future launches — reopen from Help → Welcome.",
+                    )
+                    .size(10.0)
+                    .color(MUTED),
                 );
             });
         self.welcome_open = open && !close;

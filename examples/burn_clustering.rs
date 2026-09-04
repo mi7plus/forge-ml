@@ -11,12 +11,7 @@ mod data;
 
 use burn::tensor::{Device, Tensor};
 
-const FEATURES: [&str; 4] = [
-    "sepal_length",
-    "sepal_width",
-    "petal_length",
-    "petal_width",
-];
+const FEATURES: [&str; 4] = ["sepal_length", "sepal_width", "petal_length", "petal_width"];
 const K: usize = 3;
 const DIMS: usize = 4;
 

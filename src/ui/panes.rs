@@ -35,14 +35,14 @@ impl crate::ForgeApp {
                             reference.column + 1
                         );
                         if ui
-                            .add(egui::Button::new(RichText::new(label).monospace().size(11.0)).frame(false))
+                            .add(
+                                egui::Button::new(RichText::new(label).monospace().size(11.0))
+                                    .frame(false),
+                            )
                             .clicked()
                         {
-                            navigate = Some((
-                                reference.path.clone(),
-                                reference.line,
-                                reference.column,
-                            ));
+                            navigate =
+                                Some((reference.path.clone(), reference.line, reference.column));
                         }
                     }
                 });
@@ -166,7 +166,13 @@ impl crate::ForgeApp {
                 }
             }
         });
-        let colors = [accent(), EMBER, GREEN, RED, Color32::from_rgb(150, 105, 210)];
+        let colors = [
+            accent(),
+            EMBER,
+            GREEN,
+            RED,
+            Color32::from_rgb(150, 105, 210),
+        ];
         Plot::new("experiment_comparison")
             .height(220.0)
             .allow_drag(false)
@@ -457,7 +463,9 @@ impl crate::ForgeApp {
             Plot::new(format!("vector_{name}"))
                 .height(175.0)
                 .allow_drag(false)
-                .show(ui, |plot| plot.bar_chart(vector_bars(name, values, accent())));
+                .show(ui, |plot| {
+                    plot.bar_chart(vector_bars(name, values, accent()))
+                });
         }
         if let Some(name) = vector_to_delete {
             self.data.vectors.remove(&name);
@@ -763,13 +771,20 @@ impl crate::ForgeApp {
                                 .filter(|output| output.mime != "text/plain")
                             {
                                 ui.collapsing(&output.mime, |ui| {
-                                    ui.label(RichText::new(&output.data).monospace().color(accent()));
+                                    ui.label(
+                                        RichText::new(&output.data).monospace().color(accent()),
+                                    );
                                 });
                             }
                         }
                     });
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("In [ ]:").monospace().strong().color(accent()));
+                    ui.label(
+                        RichText::new("In [ ]:")
+                            .monospace()
+                            .strong()
+                            .color(accent()),
+                    );
                     let response = ui.add(
                         egui::TextEdit::singleline(&mut self.console_input)
                             .font(egui::TextStyle::Monospace)
@@ -874,7 +889,12 @@ impl crate::ForgeApp {
                         }
                     });
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Py [ ]:").monospace().strong().color(accent()));
+                    ui.label(
+                        RichText::new("Py [ ]:")
+                            .monospace()
+                            .strong()
+                            .color(accent()),
+                    );
                     let response = ui.add(
                         egui::TextEdit::singleline(&mut self.python_console_input)
                             .desired_width(f32::INFINITY)

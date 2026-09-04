@@ -857,7 +857,9 @@ pub fn train_pipeline_in_process(
         return Err("Set the target column before training.".into());
     }
     if !table.columns.iter().any(|c| c == target) {
-        return Err(format!("Target column `{target}` is not in `{dataset_name}`."));
+        return Err(format!(
+            "Target column `{target}` is not in `{dataset_name}`."
+        ));
     }
 
     // Round-trip through a temporary CSV so Millwright does the dtype inference
@@ -866,7 +868,9 @@ pub fn train_pipeline_in_process(
     let dataset = table_to_dataset(table, target)?;
     let rows = dataset.features().nrows();
     if rows < 4 {
-        return Err(format!("Need at least 4 rows to train; `{dataset_name}` has {rows}."));
+        return Err(format!(
+            "Need at least 4 rows to train; `{dataset_name}` has {rows}."
+        ));
     }
 
     // Deterministic interleaved 80/20 split (every 5th row held out) so a
@@ -1085,12 +1089,19 @@ mod tests {
         );
         let (events, summary) =
             train_pipeline_in_process(&design, &table, "toy", None).expect("training succeeds");
-        assert!(matches!(events.first(), Some(TrainingEvent::RunContext { .. })));
+        assert!(matches!(
+            events.first(),
+            Some(TrainingEvent::RunContext { .. })
+        ));
         let score = events.iter().find_map(|e| match e {
             TrainingEvent::Completed { best_score } => Some(*best_score),
             _ => None,
         });
-        assert_eq!(score, Some(1.0), "separable classes should be perfectly learned");
+        assert_eq!(
+            score,
+            Some(1.0),
+            "separable classes should be perfectly learned"
+        );
         assert!(summary.contains("accuracy"));
     }
 
@@ -1104,7 +1115,10 @@ mod tests {
             TrainingEvent::Completed { best_score } => Some(*best_score),
             _ => None,
         });
-        assert!(score.unwrap() > 0.99, "a linear target should fit near-perfectly");
+        assert!(
+            score.unwrap() > 0.99,
+            "a linear target should fit near-perfectly"
+        );
         assert!(summary.contains("r2"));
     }
 

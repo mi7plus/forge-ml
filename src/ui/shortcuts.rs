@@ -148,7 +148,10 @@ impl crate::ForgeApp {
         if self.rebinding.is_some() {
             return; // capturing a new binding; don't fire normal shortcuts
         }
-        if self.keymap.triggered(keymap::KeyAction::CommandPalette, ctx) {
+        if self
+            .keymap
+            .triggered(keymap::KeyAction::CommandPalette, ctx)
+        {
             self.command_palette_open = true;
             self.command_query.clear();
             self.command_selection = 0;
@@ -251,17 +254,18 @@ impl crate::ForgeApp {
                         .desired_width(f32::INFINITY),
                 );
                 response.request_focus();
-                let hint = if self.command_query.trim().is_empty() && !self.recent_commands.is_empty()
-                {
-                    "Recent commands · ↑/↓ select · Enter run · Esc close"
-                } else {
-                    "↑/↓ select · Enter run · Esc close"
-                };
+                let hint =
+                    if self.command_query.trim().is_empty() && !self.recent_commands.is_empty() {
+                        "Recent commands · ↑/↓ select · Enter run · Esc close"
+                    } else {
+                        "↑/↓ select · Enter run · Esc close"
+                    };
                 ui.label(RichText::new(hint).size(10.0).color(MUTED));
                 ui.separator();
                 for (index, (command, label, shortcut)) in matches.iter().enumerate().take(12) {
                     // Prefer the live keymap binding over the static hint.
-                    let binding = Self::command_key_action(*command).map(|a| self.keymap.display(a));
+                    let binding =
+                        Self::command_key_action(*command).map(|a| self.keymap.display(a));
                     let shortcut = binding.as_deref().unwrap_or(shortcut);
                     let selected = index == self.command_selection;
                     let response = ui.selectable_label(selected, {

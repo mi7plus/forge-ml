@@ -122,11 +122,15 @@ impl crate::ForgeApp {
             "Burn {} embedded · Flex CPU, WGPU, training, and metrics compiled into Forge",
             deep_learning::BURN_VERSION
         ));
-        ui.label(RichText::new(crate::offline::status_line()).size(10.0).color(MUTED))
-            .on_hover_text(
-                "Notebook `:dep` cells for Millwright/Burn build offline when the bundled Rust \
+        ui.label(
+            RichText::new(crate::offline::status_line())
+                .size(10.0)
+                .color(MUTED),
+        )
+        .on_hover_text(
+            "Notebook `:dep` cells for Millwright/Burn build offline when the bundled Rust \
                  runtime is present; otherwise they need a system toolchain and network.",
-            );
+        );
         ui.label(&self.sql_output);
 
         ui.separator();
@@ -244,9 +248,11 @@ impl crate::ForgeApp {
         ui.separator();
         ui.strong("ONNX inference");
         ui.label(
-            RichText::new("Load an external ONNX model and run it inside the IDE (Millwright / tract).")
-                .size(10.0)
-                .color(MUTED),
+            RichText::new(
+                "Load an external ONNX model and run it inside the IDE (Millwright / tract).",
+            )
+            .size(10.0)
+            .color(MUTED),
         );
         ui.horizontal_wrapped(|ui| {
             if ui.button("Load ONNX model…").clicked() {
@@ -272,7 +278,9 @@ impl crate::ForgeApp {
                 }
                 if ui
                     .button("Predict dataset")
-                    .on_hover_text("Score the open dataset using the classification feature columns")
+                    .on_hover_text(
+                        "Score the open dataset using the classification feature columns",
+                    )
                     .clicked()
                 {
                     self.predict_onnx_dataset();
@@ -876,59 +884,68 @@ impl crate::ForgeApp {
     /// Train a native softmax classifier on the selected dataset and open its
     /// confusion matrix. Feature columns are comma-separated.
     fn train_classifier(&mut self) {
-        let result = (|| -> Result<(String, plot::PlotSpec, classification::Classifier), String> {
-            let (name, is_table) = self
-                .selected_dataset_info()
-                .ok_or("Select a table dataset in the Data viewer first")?;
-            if !is_table {
-                return Err("Classification requires a table dataset".into());
-            }
-            let table = &self
-                .data
-                .tables
-                .get(&name)
-                .ok_or("The selected dataset no longer exists")?
-                .table;
-            let features: Vec<String> = self
-                .class_features
-                .split(',')
-                .map(|s| s.trim().to_owned())
-                .filter(|s| !s.is_empty())
-                .collect();
-            let data = classification::prepare(table, &features, self.class_target.trim())?;
-            let rows = data.features.len();
-            let classes = data.class_names.len();
-            let (train, test) = data.split(self.class_test_fraction);
-            let train = if train.features.len() >= 2 { train } else { data.clone() };
-            let model = classification::Classifier::train(&train, self.class_epochs, self.class_lr)?;
-            let (eval_set, eval_label) = if !test.features.is_empty() {
-                (&test, format!("held-out test ({} rows)", test.features.len()))
-            } else {
-                (&train, "training set".to_owned())
-            };
-            let metrics = model.evaluate(eval_set);
-            let per_class = model
-                .classes
-                .iter()
-                .zip(&metrics.per_class)
-                .map(|(name, m)| {
-                    format!(
-                        "  {name}: precision {:.3}, recall {:.3}, F1 {:.3} (n={})",
-                        m.precision, m.recall, m.f1, m.support
+        let result =
+            (|| -> Result<(String, plot::PlotSpec, classification::Classifier), String> {
+                let (name, is_table) = self
+                    .selected_dataset_info()
+                    .ok_or("Select a table dataset in the Data viewer first")?;
+                if !is_table {
+                    return Err("Classification requires a table dataset".into());
+                }
+                let table = &self
+                    .data
+                    .tables
+                    .get(&name)
+                    .ok_or("The selected dataset no longer exists")?
+                    .table;
+                let features: Vec<String> = self
+                    .class_features
+                    .split(',')
+                    .map(|s| s.trim().to_owned())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                let data = classification::prepare(table, &features, self.class_target.trim())?;
+                let rows = data.features.len();
+                let classes = data.class_names.len();
+                let (train, test) = data.split(self.class_test_fraction);
+                let train = if train.features.len() >= 2 {
+                    train
+                } else {
+                    data.clone()
+                };
+                let model =
+                    classification::Classifier::train(&train, self.class_epochs, self.class_lr)?;
+                let (eval_set, eval_label) = if !test.features.is_empty() {
+                    (
+                        &test,
+                        format!("held-out test ({} rows)", test.features.len()),
                     )
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            let summary = format!(
+                } else {
+                    (&train, "training set".to_owned())
+                };
+                let metrics = model.evaluate(eval_set);
+                let per_class = model
+                    .classes
+                    .iter()
+                    .zip(&metrics.per_class)
+                    .map(|(name, m)| {
+                        format!(
+                            "  {name}: precision {:.3}, recall {:.3}, F1 {:.3} (n={})",
+                            m.precision, m.recall, m.f1, m.support
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let summary = format!(
                 "Softmax classifier on `{name}` — {rows} rows, {classes} classes, {} features.\nEvaluated on {eval_label}: accuracy {:.3} · macro-F1 {:.3}\n{per_class}",
                 data.feature_names.len(),
                 metrics.accuracy,
                 metrics.macro_f1
             );
-            let plot = classification::confusion_plot(&metrics, &format!("{name} confusion"));
-            plot.validate()?;
-            Ok((summary, plot, model))
-        })();
+                let plot = classification::confusion_plot(&metrics, &format!("{name} confusion"));
+                plot.validate()?;
+                Ok((summary, plot, model))
+            })();
         match result {
             Ok((summary, plot, model)) => {
                 self.class_result = summary;
@@ -1073,7 +1090,8 @@ impl crate::ForgeApp {
             Ok(model) => {
                 self.onnx_model = Some(model);
                 self.onnx_model_name = file_title(&path);
-                self.onnx_result = format!("Loaded `{}`. Ready for inference.", self.onnx_model_name);
+                self.onnx_result =
+                    format!("Loaded `{}`. Ready for inference.", self.onnx_model_name);
             }
             Err(error) => {
                 self.onnx_model = None;
@@ -1208,7 +1226,11 @@ impl crate::ForgeApp {
                 .collect();
             let data = classification::prepare(table, &features, self.class_target.trim())?;
             let (train, test) = data.split(self.class_test_fraction);
-            let train = if train.features.len() >= 2 { train } else { data.clone() };
+            let train = if train.features.len() >= 2 {
+                train
+            } else {
+                data.clone()
+            };
             let learning_rates = [0.05, 0.1, 0.3, 0.5, 1.0];
             let epoch_grid = [100usize, 300, 600];
             let results = classification::sweep(&train, &test, &learning_rates, &epoch_grid);

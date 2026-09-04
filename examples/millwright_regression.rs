@@ -28,7 +28,10 @@ fn main() -> Result<()> {
         }
     }
     println!("Millwright · LinearRegression on tips.csv");
-    println!("  {} complete rows (predict tip from total_bill, size)", features.len());
+    println!(
+        "  {} complete rows (predict tip from total_bill, size)",
+        features.len()
+    );
 
     // Deterministic 80/20 split (every 5th row is held out).
     let cols = vec!["total_bill".to_owned(), "size".to_owned()];

@@ -257,8 +257,7 @@ fn worker(commands: Receiver<LspCommand>, events: Sender<LspEvent>) {
                 if let Some(since) = active.idle_since {
                     if since.elapsed() >= Duration::from_millis(8000) {
                         active.announced_ready = true;
-                        let _ =
-                            events.send(LspEvent::Status("rust-analyzer ready ✓".to_owned()));
+                        let _ = events.send(LspEvent::Status("rust-analyzer ready ✓".to_owned()));
                     }
                 }
             }
@@ -676,7 +675,7 @@ fn expand_snippet(snippet: &str) -> String {
             '$' => {
                 if chars.peek() == Some(&'{') {
                     chars.next(); // consume '{'
-                    // Skip the tabstop number and optional ':'; keep default text.
+                                  // Skip the tabstop number and optional ':'; keep default text.
                     let mut seen_colon = false;
                     let mut depth = 1;
                     let mut default = String::new();
@@ -786,7 +785,9 @@ fn handle_message(server: &mut Server, message: Value, events: &Sender<LspEvent>
                     .and_then(Value::as_str)
                     .unwrap_or("");
                 let label = if detail.is_empty() { title } else { detail };
-                let status = match value.and_then(|v| v.get("percentage")).and_then(Value::as_u64)
+                let status = match value
+                    .and_then(|v| v.get("percentage"))
+                    .and_then(Value::as_u64)
                 {
                     Some(pct) => format!("rust-analyzer: {label} ({pct}%)"),
                     None => format!("rust-analyzer: {label}…"),
@@ -932,7 +933,10 @@ fn handle_message(server: &mut Server, message: Value, events: &Sender<LspEvent>
                 .filter_map(|action| {
                     let title = action.get("title").and_then(Value::as_str)?.to_owned();
                     // Only actions carrying a direct edit are applied inline.
-                    let edits = action.get("edit").map(parse_workspace_edit).unwrap_or_default();
+                    let edits = action
+                        .get("edit")
+                        .map(parse_workspace_edit)
+                        .unwrap_or_default();
                     (!edits.is_empty()).then_some(CodeAction { title, edits })
                 })
                 .collect();
@@ -1047,7 +1051,10 @@ mod tests {
     fn expands_snippets_to_plain_text() {
         assert_eq!(expand_snippet("push(${1:value})$0"), "push(value)");
         assert_eq!(expand_snippet("foo($1, $2)"), "foo(, )");
-        assert_eq!(expand_snippet("write!(${1:f}, \\\"{}\\\")"), "write!(f, \"{}\")");
+        assert_eq!(
+            expand_snippet("write!(${1:f}, \\\"{}\\\")"),
+            "write!(f, \"{}\")"
+        );
     }
 
     #[test]

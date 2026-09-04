@@ -178,7 +178,9 @@ impl Keymap {
     /// Another action already bound to the same chord, if any.
     pub fn conflict(&self, shortcut: KeyboardShortcut, except: KeyAction) -> Option<KeyAction> {
         self.bindings.iter().find_map(|(a, sc)| {
-            (*a != except && sc.modifiers == shortcut.modifiers && sc.logical_key == shortcut.logical_key)
+            (*a != except
+                && sc.modifiers == shortcut.modifiers
+                && sc.logical_key == shortcut.logical_key)
                 .then_some(*a)
         })
     }
@@ -236,9 +238,7 @@ pub fn capture(ctx: &egui::Context) -> Option<KeyboardShortcut> {
         let m = input.modifiers;
         for event in &input.events {
             if let egui::Event::Key {
-                key,
-                pressed: true,
-                ..
+                key, pressed: true, ..
             } = event
             {
                 let mut mods = Modifiers::NONE;
@@ -269,7 +269,10 @@ mod tests {
         let mut map = Keymap::default();
         let save = map.shortcut(KeyAction::Save).unwrap();
         // Binding NewFile to Save's chord is a conflict with Save.
-        assert_eq!(map.conflict(save, KeyAction::NewFile), Some(KeyAction::Save));
+        assert_eq!(
+            map.conflict(save, KeyAction::NewFile),
+            Some(KeyAction::Save)
+        );
         // Rebinding then resetting restores the default.
         let custom = KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::ALT), Key::J);
         map.set(KeyAction::Save, custom);
@@ -303,6 +306,9 @@ mod tests {
         };
         // Falls back to defaults without panicking.
         let map = Keymap::from_dto(&[bogus]);
-        assert_eq!(map.shortcut(KeyAction::Save), Some(KeyAction::Save.default_shortcut()));
+        assert_eq!(
+            map.shortcut(KeyAction::Save),
+            Some(KeyAction::Save.default_shortcut())
+        );
     }
 }

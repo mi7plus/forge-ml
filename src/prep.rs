@@ -73,10 +73,16 @@ impl PrepReport {
             self.rows_in, self.rows_out, self.numeric_features, self.encoded_features
         )];
         if self.dropped_rows > 0 {
-            lines.push(format!("Dropped {} row(s) with missing values.", self.dropped_rows));
+            lines.push(format!(
+                "Dropped {} row(s) with missing values.",
+                self.dropped_rows
+            ));
         }
         if self.imputed_cells > 0 {
-            lines.push(format!("Imputed {} missing numeric cell(s).", self.imputed_cells));
+            lines.push(format!(
+                "Imputed {} missing numeric cell(s).",
+                self.imputed_cells
+            ));
         }
         lines.extend(self.notes.iter().cloned());
         lines.join("\n")
@@ -108,7 +114,10 @@ fn fmt_num(value: f64) -> String {
 /// following `config`, returning the new table and a report. Passthrough
 /// columns come first (unchanged), then imputed/scaled numeric features, then
 /// encoded categorical features.
-pub fn transform(table: &TableData, config: &PrepConfig) -> Result<(TableData, PrepReport), String> {
+pub fn transform(
+    table: &TableData,
+    config: &PrepConfig,
+) -> Result<(TableData, PrepReport), String> {
     if config.feature_columns.is_empty() {
         return Err("Choose at least one feature column".into());
     }
@@ -279,7 +288,11 @@ pub fn transform(table: &TableData, config: &PrepConfig) -> Result<(TableData, P
                 for row in &mut kept_numeric {
                     for (j, v) in row.iter_mut().enumerate() {
                         let span = hi[j] - lo[j];
-                        *v = if span > 1e-12 { (*v - lo[j]) / span } else { 0.0 };
+                        *v = if span > 1e-12 {
+                            (*v - lo[j]) / span
+                        } else {
+                            0.0
+                        };
                     }
                 }
             }
@@ -322,7 +335,11 @@ pub fn transform(table: &TableData, config: &PrepConfig) -> Result<(TableData, P
             match config.encoding {
                 Encoding::OneHot => {
                     for candidate in &levels[j] {
-                        out.push(if candidate == level { "1".into() } else { "0".into() });
+                        out.push(if candidate == level {
+                            "1".into()
+                        } else {
+                            "0".into()
+                        });
                     }
                 }
                 Encoding::Ordinal => {
@@ -397,7 +414,10 @@ mod tests {
     fn one_hot_encodes_and_imputes_mean() {
         let (out, report) = transform(&table(), &config()).unwrap();
         // label + age + one-hot(NYC, LA, SF)
-        assert_eq!(out.columns, vec!["label", "age", "city=NYC", "city=LA", "city=SF"]);
+        assert_eq!(
+            out.columns,
+            vec!["label", "age", "city=NYC", "city=LA", "city=SF"]
+        );
         assert_eq!(report.rows_out, 4);
         assert_eq!(report.encoded_features, 3);
         assert_eq!(report.imputed_cells, 1);
@@ -448,7 +468,10 @@ mod tests {
         cfg.scaling = Scaling::Standardize;
         let (out, _) = transform(&table(), &cfg).unwrap();
         let sum: f64 = out.rows.iter().map(|r| r[1].parse::<f64>().unwrap()).sum();
-        assert!(sum.abs() < 1e-9, "standardized column should have ~zero mean");
+        assert!(
+            sum.abs() < 1e-9,
+            "standardized column should have ~zero mean"
+        );
     }
 
     #[test]

@@ -462,9 +462,7 @@ impl crate::ForgeApp {
     pub(crate) fn dock_data_viewer(&mut self, ui: &mut egui::Ui) {
         if self.open_dataset.is_none() {
             ui.add_space(6.0);
-            ui.label(
-                RichText::new("No dataset open. Open one from the Data pane.").color(MUTED),
-            );
+            ui.label(RichText::new("No dataset open. Open one from the Data pane.").color(MUTED));
             return;
         }
         if !self.dataset_viewer_docked {

@@ -134,7 +134,8 @@ pub fn sync_project(project_root: &Path) -> Result<PathBuf, String> {
         lock.cargo.lockfile_sha256 = sha256_hex(&cargo_lock);
     }
     let path = project_root.join("forge.lock");
-    std::fs::write(&path, lock.to_toml()?).map_err(|error| format!("{}: {error}", path.display()))?;
+    std::fs::write(&path, lock.to_toml()?)
+        .map_err(|error| format!("{}: {error}", path.display()))?;
     Ok(path)
 }
 
@@ -182,6 +183,18 @@ pub fn doctor(project_root: &Path) -> String {
 
     out.push_str(&format!("runtime:    {}\n", crate::offline::status_line()));
 
+    // Report an existing forge.lock, if one has been synced.
+    if let Ok(text) = std::fs::read_to_string(project_root.join("forge.lock")) {
+        match Lock::from_toml(&text) {
+            Ok(lock) => out.push_str(&format!(
+                "lock:       forge.lock ({} provider(s), forge {})\n",
+                lock.providers.len(),
+                lock.forge_version
+            )),
+            Err(error) => out.push_str(&format!("lock:       forge.lock ERROR {error}\n")),
+        }
+    }
+
     for warning in manifest.warnings() {
         out.push_str(&format!("warning:    {warning}\n"));
     }
@@ -217,7 +230,10 @@ cuda = "13"
     #[test]
     fn manifest_parses_and_flags_reserved_sections() {
         let manifest = Manifest::parse(RESERVED).expect("valid manifest");
-        assert_eq!(manifest.environment.profile.as_deref(), Some("classical-ml"));
+        assert_eq!(
+            manifest.environment.profile.as_deref(),
+            Some("classical-ml")
+        );
         assert_eq!(manifest.toolchain.rust.as_deref(), Some("1.98.0"));
         assert_eq!(manifest.channel(), "stable");
         assert_eq!(manifest.reserved_in_use(), vec!["gpu"]);

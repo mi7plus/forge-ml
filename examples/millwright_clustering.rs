@@ -10,12 +10,7 @@ mod data;
 
 use millwright::prelude::*;
 
-const FEATURES: [&str; 4] = [
-    "sepal_length",
-    "sepal_width",
-    "petal_length",
-    "petal_width",
-];
+const FEATURES: [&str; 4] = ["sepal_length", "sepal_width", "petal_length", "petal_width"];
 
 fn main() -> Result<()> {
     let (headers, rows) = data::read_csv(data::dataset_path("iris.csv"));

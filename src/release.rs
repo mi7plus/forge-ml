@@ -67,7 +67,9 @@ pub fn validate_packaging(root: &Path) -> Result<String, String> {
         "[package.metadata.packager.deb]",
     ] {
         if !cargo.contains(required) {
-            return Err(format!("Cargo.toml packager config is missing `{required}`"));
+            return Err(format!(
+                "Cargo.toml packager config is missing `{required}`"
+            ));
         }
     }
     for required in [

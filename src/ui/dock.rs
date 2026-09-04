@@ -165,7 +165,11 @@ impl crate::ForgeApp {
             let mut dock = false;
             let window_title = match kind {
                 PaneKind::Terminal(id) => {
-                    let live = self.terminals.get(&id).map(|t| t.title()).unwrap_or("Terminal");
+                    let live = self
+                        .terminals
+                        .get(&id)
+                        .map(|t| t.title())
+                        .unwrap_or("Terminal");
                     if live == "Terminal" {
                         format!("Terminal {id}")
                     } else {

@@ -2,6 +2,10 @@
 //! with full-batch gradient descent — plus evaluation metrics and a confusion
 //! matrix. Pure and deterministic, so it is fully unit-tested and needs no GPU.
 
+// The training/inference loops index several parallel arrays (weights, means,
+// scales, …) by the same counter; an iterator rewrite would obscure the maths.
+#![allow(clippy::needless_range_loop)]
+
 use crate::plot::{PlotKind, PlotSpec, PLOT_SPEC_VERSION};
 use forge_protocol::TableData;
 
@@ -60,7 +64,9 @@ pub fn prepare(
         return Err("Choose at least one feature column".into());
     }
     if feature_columns.len() > MAX_FEATURES {
-        return Err(format!("At most {MAX_FEATURES} feature columns are supported"));
+        return Err(format!(
+            "At most {MAX_FEATURES} feature columns are supported"
+        ));
     }
     if table.rows.len() > MAX_ROWS {
         return Err(format!("Classification accepts at most {MAX_ROWS} rows"));
@@ -394,7 +400,11 @@ pub fn sweep(
     learning_rates: &[f64],
     epoch_grid: &[usize],
 ) -> Vec<SweepResult> {
-    let eval_set = if test.features.is_empty() { train } else { test };
+    let eval_set = if test.features.is_empty() {
+        train
+    } else {
+        test
+    };
     let mut results = Vec::new();
     for &lr in learning_rates {
         for &epochs in epoch_grid {
@@ -502,7 +512,10 @@ mod tests {
     fn metrics_match_a_known_confusion() {
         // actual: [0,0,1,1,2], predicted: [0,1,1,1,2]
         let m = evaluate(&[0, 1, 1, 1, 2], &[0, 0, 1, 1, 2], 3);
-        assert_eq!(m.confusion, vec![vec![1, 1, 0], vec![0, 2, 0], vec![0, 0, 1]]);
+        assert_eq!(
+            m.confusion,
+            vec![vec![1, 1, 0], vec![0, 2, 0], vec![0, 0, 1]]
+        );
         assert!((m.accuracy - 4.0 / 5.0).abs() < 1e-9);
         // class 1: tp=2, predicted=3 -> precision 2/3; actual=2 -> recall 1.
         assert!((m.per_class[1].precision - 2.0 / 3.0).abs() < 1e-9);
@@ -514,7 +527,10 @@ mod tests {
         let data = prepare(&table(), &["x1".into(), "x2".into()], "label").unwrap();
         let (train, test) = data.split(0.5);
         assert_eq!(train.class_names, data.class_names);
-        assert_eq!(train.features.len() + test.features.len(), data.features.len());
+        assert_eq!(
+            train.features.len() + test.features.len(),
+            data.features.len()
+        );
         let (train_again, _) = data.split(0.5);
         assert_eq!(train.labels, train_again.labels);
         // A zero test fraction keeps everything for training.

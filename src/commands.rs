@@ -49,8 +49,16 @@ pub const ALL: &[(Command, &str, &str)] = &[
     ),
     (Command::FindReferences, "Source: Find references", ""),
     (Command::RenameSymbol, "Source: Rename symbol", ""),
-    (Command::CodeActions, "Source: Code actions / quick fixes", ""),
-    (Command::FormatDocument, "Edit: Format document (rustfmt)", ""),
+    (
+        Command::CodeActions,
+        "Source: Code actions / quick fixes",
+        "",
+    ),
+    (
+        Command::FormatDocument,
+        "Edit: Format document (rustfmt)",
+        "",
+    ),
     (Command::Clippy, "Source: Run clippy", ""),
     (Command::CargoBuild, "Cargo: Build", ""),
     (Command::CargoTest, "Cargo: Test", ""),
@@ -143,7 +151,9 @@ mod tests {
         // An exact prefix ranks its command first.
         assert_eq!(matches("save").first().map(|v| v.0), Some(Command::Save));
         // Non-contiguous subsequence still matches.
-        assert!(matches("frmt").iter().any(|v| v.0 == Command::FormatDocument));
+        assert!(matches("frmt")
+            .iter()
+            .any(|v| v.0 == Command::FormatDocument));
         // Nonsense yields nothing.
         assert!(matches("zzqx").is_empty());
     }

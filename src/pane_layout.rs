@@ -107,7 +107,10 @@ mod tests {
         ] {
             let split = RightPaneSplit::resolve(available, requested);
             let total = split.inspector_height + DATASET_DIVIDER_HEIGHT + split.dataset_height;
-            assert!((total - available).abs() < 1e-3, "total {total} != {available}");
+            assert!(
+                (total - available).abs() < 1e-3,
+                "total {total} != {available}"
+            );
         }
     }
 
@@ -117,6 +120,9 @@ mod tests {
         for _ in 0..50 {
             height = RightPaneSplit::after_drag(700.0, height, -1_000.0).dataset_height;
         }
-        assert_eq!(height, 700.0 - DATASET_DIVIDER_HEIGHT - MIN_RIGHT_PANE_HEIGHT);
+        assert_eq!(
+            height,
+            700.0 - DATASET_DIVIDER_HEIGHT - MIN_RIGHT_PANE_HEIGHT
+        );
     }
 }

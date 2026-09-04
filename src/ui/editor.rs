@@ -256,7 +256,9 @@ impl crate::ForgeApp {
                         let label = ui
                             .selectable_label(selected, RichText::new(title).color(color))
                             .interact(egui::Sense::click_and_drag())
-                            .on_hover_text("Click to open · drag to reorder · middle-click to close");
+                            .on_hover_text(
+                                "Click to open · drag to reorder · middle-click to close",
+                            );
                         if label.clicked() {
                             select = Some(index);
                         }
@@ -278,11 +280,9 @@ impl crate::ForgeApp {
                         let reveal = selected || ui.rect_contains_pointer(hover_rect);
                         let close_x = ui.add_visible(
                             reveal,
-                            egui::Button::new(
-                                egui_phosphor_icons::icons::X.regular().size(11.0),
-                            )
-                            .frame(false)
-                            .min_size(egui::vec2(18.0, 18.0)),
+                            egui::Button::new(egui_phosphor_icons::icons::X.regular().size(11.0))
+                                .frame(false)
+                                .min_size(egui::vec2(18.0, 18.0)),
                         );
                         if close_x.on_hover_text("Close tab (Ctrl+W)").clicked() {
                             close = Some(index);
