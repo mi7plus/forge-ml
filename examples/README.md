@@ -13,6 +13,7 @@ Files under `notebooks/` contain Forge `//# %%` cells. Open one in the editor an
 - `notebooks/diagnostics.rs` contains intentional errors for the Problems pane.
 - `notebooks/native_regression.rs` fits a univariate model inline and emits a loss curve, an original-unit equation, MAE/RMSE/R2, and actual-vs-predicted vectors, mirroring the native-regression workflow.
 - `notebooks/structured_plots.rs` emits versioned `forge_plot:` JSON across several plot families (line, scatter, bars, histogram) plus legacy metric/vector markers, to exercise the Plots pane and its exports.
+- `notebooks/plotting_showcase.rs` is a dependency-free tour of **every** plot kind (scatter, line, feature-importance bars, histogram, area, box, heatmap, residual). The scatter includes a deliberate outlier to demonstrate the per-plot **Hide outliers** toggle, and the line pair spans scales to demonstrate **log Y**; try scroll-to-zoom, drag-to-pan, and double-click-to-reset on each.
 
 ### ML notebooks (Millwright + Burn)
 
