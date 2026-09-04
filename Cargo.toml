@@ -46,7 +46,13 @@ depends = ["libc6", "libgcc-s1"]
 winresource = "0.1"
 
 [workspace]
-members = [".", "crates/forge-protocol", "crates/forge-storage"]
+members = [
+    ".",
+    "crates/forge-protocol",
+    "crates/forge-storage",
+    "crates/forge-cli",
+    "crates/forge-ml",
+]
 resolver = "2"
 
 [dependencies]

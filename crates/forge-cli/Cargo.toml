@@ -1,0 +1,13 @@
+[package]
+name = "forge-cli"
+version = "1.1.0"
+edition = "2021"
+description = "The forge command-line entry point: scaffold, add, run, and diagnose Rust ML projects around Cargo."
+publish = false
+
+[[bin]]
+name = "forge"
+path = "src/main.rs"
+
+# Deliberately dependency-free: forge is a thin wrapper that shells out to cargo,
+# rustup, and forge_ide. Keeping it std-only makes it trivial to build and ship.

@@ -14,7 +14,9 @@ forge-ml/
 │   └── environment/         forge.toml / forge.lock / provider system
 ├── crates/
 │   ├── forge-protocol/      the forge_* stdout event types + TableData (shared)
-│   └── forge-storage/       workspace persistence & recovery (SQLite-backed)
+│   ├── forge-storage/       workspace persistence & recovery (SQLite-backed)
+│   ├── forge-cli/           the `forge` CLI (scaffold/add/run/env/doctor/ide)
+│   └── forge-ml/            umbrella crate re-exporting the curated ML stack
 ├── examples/                runnable examples + //# %% notebooks
 ├── packaging/               offline-runtime bundle scripts, icons, rasterizer
 ├── site/                    the GitHub Pages marketing/guide site
@@ -100,6 +102,11 @@ theming tokens and built-in themes.
   producer agree on the wire format. See [docs/PROTOCOL.md](docs/PROTOCOL.md).
 - **`forge-storage`** — durable workspace state and crash recovery
   (`WorkspaceStore` / `WorkspaceRecovery`), backed by bundled SQLite.
+- **`forge-cli`** — the `forge` binary: a thin, dependency-free wrapper over
+  `cargo`/`rustup`/`forge_ide` (`forge new/add/run/env/doctor/ide`). It delegates
+  environment work to `forge_ide --env-*`, so it never duplicates the resolver.
+- **`forge_ml`** — an umbrella library re-exporting the curated stack (ndarray +
+  millwright by default, burn behind `deep-learning`) behind one `prelude`.
 
 ## Conventions
 - The UI thread never blocks: heavy work goes to a worker and returns via a

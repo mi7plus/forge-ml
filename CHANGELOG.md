@@ -12,6 +12,15 @@ grouped under the **0.98.0** release below.
 ## [Unreleased]
 
 ### Added
+- **`forge` CLI + `forge_ml` umbrella crate.** A new thin, dependency-free
+  `forge` command (`crates/forge-cli`) wraps Cargo/rustup with data-science
+  defaults — `forge new <name> --profile …` scaffolds a project and `forge.toml`
+  and adds the curated crate set; `add`/`run`/`build`/`test` pass through to
+  Cargo; `env sync|doctor`, `doctor`, and `ide` delegate to `forge_ide`. And a
+  new `forge_ml` umbrella crate (`crates/forge-ml`) re-exports the curated stack
+  (ndarray + Millwright by default, Burn behind `deep-learning`) behind one
+  `prelude`. Both pin the versions already in the workspace, so they add no new
+  dependency trees. (Phase 1 of the Forge distribution — see docs/FORGE_ENV.md.)
 - **Forge environment system (seams).** A declarative `forge.toml` manifest, a
   generated `forge.lock`, and an `EnvironmentProvider` interface the app resolves
   the runtime through (`src/environment/`). The manifest's `[native]`, `[gpu]`,

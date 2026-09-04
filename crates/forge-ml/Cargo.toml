@@ -1,0 +1,27 @@
+[package]
+name = "forge_ml"
+version = "1.1.0"
+edition = "2021"
+description = "Umbrella crate re-exporting the curated Forge ML Rust data-science stack behind one prelude."
+publish = false
+
+[features]
+# Classical ML is on by default; deep learning is opt-in so a `use forge_ml`
+# project stays light unless it asks for tensors.
+default = ["classical"]
+classical = ["dep:millwright"]
+deep-learning = ["dep:burn"]
+
+[dependencies]
+# All pinned to the versions already resolved in the workspace, so the umbrella
+# adds no new dependency trees.
+ndarray = "0.16.1"
+millwright = { version = "2.2.1", optional = true, default-features = false, features = [
+    "smartcore-backend",
+    "linfa-backend",
+] }
+burn = { version = "0.22.0-pre.3", optional = true, default-features = false, features = [
+    "std",
+    "train",
+    "flex",
+] }
