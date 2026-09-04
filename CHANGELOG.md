@@ -12,6 +12,12 @@ grouped under the **0.98.0** release below.
 ## [Unreleased]
 
 ### Added
+- **Time-series examples.** `millwright_timeseries` (univariate forecasting as lag
+  regression — `LinearRegression` on lags 1/2/3/12 with a recursive 12-month
+  forecast) and `burn_timeseries` (a linear autoregressive forecaster over a
+  sliding window, SGD-trained), as both runnable `cargo` examples and `//# %%`
+  notebooks under `examples/notebooks/`. Self-contained (a deterministic synthetic
+  monthly series), compile-verified, and emitting `forge_table`/`forge_plot`.
 - **`forge` CLI + `forge_ml` umbrella crate.** A new thin, dependency-free
   `forge` command (`crates/forge-cli`) wraps Cargo/rustup with data-science
   defaults — `forge new <name> --profile …` scaffolds a project and `forge.toml`

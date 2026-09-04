@@ -28,6 +28,11 @@ paths. The first cell is a `:dep` line that pulls in only the features it needs
 - `notebooks/burn_regression.rs` — single-layer linear model, SGD (`std,train,flex`).
 - `notebooks/burn_classification.rs` — MLP 4→16→3, cross-entropy (`std,train,flex`).
 - `notebooks/burn_clustering.rs` — k-means from Burn tensor ops (`std,flex`).
+- `notebooks/millwright_timeseries.rs` — univariate forecasting as lag regression
+  (`LinearRegression` on lags 1/2/3/12) with a recursive 12-month forecast
+  (`smartcore-backend`).
+- `notebooks/burn_timeseries.rs` — a linear autoregressive forecaster over a
+  sliding window of the last 12 months, SGD-trained (`std,train,flex`).
 
 Each ends with an `//# %% explore` cell that emits `forge_table:` and
 `forge_plot:` markers, so running it populates the **Data viewer** (the dataset)
