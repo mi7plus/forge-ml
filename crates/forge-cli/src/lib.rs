@@ -8,7 +8,10 @@
 use std::path::PathBuf;
 use std::process::{Command, ExitCode};
 
-fn main() -> ExitCode {
+/// The `forge` command entry point. Called by the `forge` binary (shipped in the
+/// forge_ide package so it installs alongside the app) and by the standalone
+/// dev bin.
+pub fn run() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (cmd, rest) = match args.split_first() {
         Some((cmd, rest)) => (cmd.as_str(), rest),

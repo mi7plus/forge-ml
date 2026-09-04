@@ -1,13 +1,14 @@
 [package]
 name = "forge-cli"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2021"
 description = "The forge command-line entry point: scaffold, add, run, and diagnose Rust ML projects around Cargo."
 publish = false
 
-[[bin]]
-name = "forge"
-path = "src/main.rs"
+[lib]
+name = "forge_cli"
+path = "src/lib.rs"
 
 # Deliberately dependency-free: forge is a thin wrapper that shells out to cargo,
-# rustup, and forge_ide. Keeping it std-only makes it trivial to build and ship.
+# rustup, and forge_ide. The `forge` binary itself lives in the forge_ide package
+# (src/bin/forge.rs) so cargo-packager ships it in the installer alongside the app.
