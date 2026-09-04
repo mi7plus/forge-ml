@@ -12,6 +12,15 @@ grouped under the **0.98.0** release below.
 ## [Unreleased]
 
 ### Added
+- **Statistical plots in the Plots pane.** Proper Tukey box-and-whisker (per-group
+  boxes, median, 1.5·IQR whiskers, outliers), plus new **violin** (Gaussian-KDE
+  density) and **ECDF** kinds. Every plot also gained a **Hide outliers** toggle
+  (drops the extreme 1% per axis) and a discoverable zoom/pan/reset hint. The
+  `plotting_showcase` notebook demonstrates all ten kinds.
+- **Git pane: history, branch delete, and merge-conflict mediation.** A commit
+  history (log) view, Delete / Force-delete branch, and a conflict-resolution
+  section (Keep ours / Keep theirs / Mark resolved, Continue / Abort merge)
+  shown while a merge is in progress.
 - **Time-series examples.** `millwright_timeseries` (univariate forecasting as lag
   regression — `LinearRegression` on lags 1/2/3/12 with a recursive 12-month
   forecast) and `burn_timeseries` (a linear autoregressive forecaster over a
