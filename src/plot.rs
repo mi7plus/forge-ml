@@ -685,6 +685,9 @@ fn histogram_points(values: &[f64], bins: usize) -> Vec<[f64; 2]> {
 }
 
 fn box_points(values: &[f64]) -> Vec<[f64; 2]> {
+    if values.is_empty() {
+        return Vec::new();
+    }
     let mut values = values.to_vec();
     values.sort_by(f64::total_cmp);
     let at = |fraction: f64| values[((values.len() - 1) as f64 * fraction).round() as usize];

@@ -69,7 +69,9 @@ impl ModelRegistry {
         let extension = source.extension().and_then(|v| v.to_str()).unwrap_or("bin");
         let relative = format!("{model}/{version}/model.{extension}");
         let destination = self.root.join(&relative);
-        fs::create_dir_all(destination.parent().unwrap()).map_err(|e| e.to_string())?;
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
         if destination.exists() {
             return Err(
                 "Artifact destination already exists without matching registry metadata".into(),
@@ -150,7 +152,9 @@ impl ModelRegistry {
         }
         let relative = format!("{model}/{version}/model.{extension}");
         let destination = self.root.join(&relative);
-        fs::create_dir_all(destination.parent().unwrap()).map_err(|error| error.to_string())?;
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
         if destination.exists() {
             return Err(
                 "Artifact destination already exists without matching registry metadata".into(),

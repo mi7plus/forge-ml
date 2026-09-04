@@ -45,7 +45,9 @@ pub fn install_workflow(root: &Path) -> Result<String, String> {
             path.display()
         ));
     }
-    std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
     std::fs::write(&path, include_str!("../templates/coordinated-release.yml"))
         .map_err(|e| e.to_string())?;
     Ok(format!("Generated {}", path.display()))
