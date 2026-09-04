@@ -489,9 +489,18 @@ impl crate::ForgeApp {
             egui::CollapsingHeader::new(format!("{} · {}", spec.name, spec.kind.label()))
                 .default_open(true)
                 .show(ui, |ui| {
+                    // Outlier clipping is a per-plot UI toggle kept in egui memory
+                    // (ephemeral, so PlotSpec stays a pure data model).
+                    let clip_id = ui.make_persistent_id(("clip_outliers", index));
+                    let mut clip_outliers_on =
+                        ui.data(|d| d.get_temp::<bool>(clip_id).unwrap_or(false));
                     ui.horizontal_wrapped(|ui| {
                         ui.checkbox(&mut spec.x_log, "log X");
                         ui.checkbox(&mut spec.y_log, "log Y");
+                        ui.checkbox(&mut clip_outliers_on, "Hide outliers")
+                            .on_hover_text(
+                                "Drop the extreme 1% on each axis so the view fits the bulk",
+                            );
                         if ui
                             .add_enabled(index > 0, egui::Button::new("↑"))
                             .on_hover_text("Move plot earlier")
@@ -591,6 +600,12 @@ impl crate::ForgeApp {
                     for series in &mut spec.series {
                         ui.checkbox(&mut series.visible, &series.name);
                     }
+                    ui.data_mut(|d| d.insert_temp(clip_id, clip_outliers_on));
+                    ui.label(
+                        RichText::new("scroll = zoom · drag = pan · double-click = reset")
+                            .size(9.0)
+                            .color(MUTED),
+                    );
                     if spec.kind == PlotKind::Heatmap {
                         draw_heatmap(ui, &spec.matrix);
                         return;
@@ -600,11 +615,19 @@ impl crate::ForgeApp {
                     }
                     Plot::new(format!("structured_plot_{index}"))
                         .height(260.0)
+                        .allow_zoom(true)
+                        .allow_drag(true)
+                        .allow_scroll(true)
+                        .allow_boxed_zoom(true)
+                        .auto_bounds(true)
                         .show(ui, |plot_ui| {
                             for (series_index, series) in
                                 spec.series.iter().filter(|s| s.visible).enumerate()
                             {
-                                let points = transformed_points(series, spec.x_log, spec.y_log);
+                                let mut points = transformed_points(series, spec.x_log, spec.y_log);
+                                if clip_outliers_on {
+                                    points = crate::ui::plotting::clip_outliers(&points);
+                                }
                                 match spec.kind {
                                     PlotKind::Scatter | PlotKind::Residual => plot_ui.points(
                                         Points::new(&series.name, PlotPoints::from(points))

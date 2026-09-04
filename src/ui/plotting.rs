@@ -31,6 +31,29 @@ pub fn transformed_points(series: &plot::PlotSeries, x_log: bool, y_log: bool) -
         .collect()
 }
 
+/// Drop points outside the central 1st–99th percentile on either axis, so a few
+/// far outliers don't force the auto-fit to zoom out and squash the bulk of the
+/// data. A no-op for small sets (nothing meaningful to clip).
+pub fn clip_outliers(points: &[[f64; 2]]) -> Vec<[f64; 2]> {
+    if points.len() < 20 {
+        return points.to_vec();
+    }
+    let percentile = |source: &[f64], fraction: f64| {
+        let mut sorted: Vec<f64> = source.to_vec();
+        sorted.sort_by(f64::total_cmp);
+        sorted[((sorted.len() - 1) as f64 * fraction).round() as usize]
+    };
+    let xs: Vec<f64> = points.iter().map(|p| p[0]).collect();
+    let ys: Vec<f64> = points.iter().map(|p| p[1]).collect();
+    let (x_lo, x_hi) = (percentile(&xs, 0.01), percentile(&xs, 0.99));
+    let (y_lo, y_hi) = (percentile(&ys, 0.01), percentile(&ys, 0.99));
+    points
+        .iter()
+        .copied()
+        .filter(|[x, y]| *x >= x_lo && *x <= x_hi && *y >= y_lo && *y <= y_hi)
+        .collect()
+}
+
 pub fn histogram(values: &[f64], bins: usize) -> Vec<Bar> {
     if values.is_empty() {
         return Vec::new();
