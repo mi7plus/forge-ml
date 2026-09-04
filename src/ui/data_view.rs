@@ -478,3 +478,430 @@ impl crate::ForgeApp {
         self.docked_dataset_viewer(ui);
     }
 }
+
+// ── Dataset table renderer (moved from main.rs) ───────────────────────────
+
+fn sort_header_text(label: &str, sort: Option<bool>) -> egui::WidgetText {
+    use egui::text::{LayoutJob, TextFormat};
+    let color = accent();
+    let mut job = LayoutJob::default();
+    job.append(
+        label,
+        0.0,
+        TextFormat {
+            font_id: egui::FontId::proportional(12.5),
+            color,
+            ..Default::default()
+        },
+    );
+    if let Some(descending) = sort {
+        let caret = if descending {
+            egui_phosphor_icons::icons::CARET_DOWN
+        } else {
+            egui_phosphor_icons::icons::CARET_UP
+        };
+        job.append(
+            &format!(" {}", caret.as_str()),
+            0.0,
+            TextFormat {
+                font_id: egui::FontId::new(12.5, egui::FontFamily::Name("phosphor-regular".into())),
+                color,
+                ..Default::default()
+            },
+        );
+    }
+    job.into()
+}
+
+fn draw_dataset_table(
+    ui: &mut egui::Ui,
+    data: &std::sync::Arc<TableData>,
+    state: &mut DatasetViewState,
+    editable: bool,
+    id_salt: &str,
+    revision: Option<u64>,
+) -> DatasetViewResult {
+    let mut result = DatasetViewResult::default();
+    let immutable_data = data.clone();
+    let data = data.as_ref();
+    let column_count = data.columns.len();
+    state.visible.resize(column_count, true);
+    state.pinned.resize(column_count, false);
+    state.widths.resize(column_count, 120.0);
+    ui.horizontal(|ui| {
+        ui.label(format!(
+            "{} rows × {} columns",
+            data.rows.len(),
+            data.columns.len()
+        ));
+        ui.separator();
+        ui.label("Filter");
+        egui::ComboBox::from_id_salt(("filter_column", id_salt))
+            .selected_text(
+                state
+                    .filter
+                    .column
+                    .and_then(|index| data.columns.get(index))
+                    .map(String::as_str)
+                    .unwrap_or("All columns"),
+            )
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut state.filter.column, None, "All columns");
+                for (index, column) in data.columns.iter().enumerate() {
+                    ui.selectable_value(&mut state.filter.column, Some(index), column);
+                }
+            });
+        egui::ComboBox::from_id_salt(("filter_mode", id_salt))
+            .selected_text(state.filter.mode.label())
+            .show_ui(ui, |ui| {
+                for mode in FilterMode::ALL {
+                    ui.selectable_value(&mut state.filter.mode, mode, mode.label());
+                }
+            });
+        ui.add(
+            egui::TextEdit::singleline(&mut state.filter.text)
+                .desired_width(160.0)
+                .hint_text(if state.filter.mode.is_numeric() {
+                    "Number..."
+                } else {
+                    "Search values..."
+                }),
+        );
+        if ui.small_button("Clear").clicked() {
+            state.filter = RowFilter::default();
+        }
+        ui.menu_button("Columns", |ui| {
+            for (index, column) in data.columns.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut state.visible[index], column);
+                    ui.checkbox(&mut state.pinned[index], "Pin");
+                });
+            }
+        });
+        if editable && state.edit_draft.is_none() && ui.button("Edit cells").clicked() {
+            state.edit_draft = Some(data.clone());
+        }
+        if state.edit_draft.is_some() {
+            if ui.button("Save edits").clicked() {
+                result.committed = state.edit_draft.take();
+                state.row_index_cache = None;
+            }
+            if ui.button("Cancel edits").clicked() {
+                state.edit_draft = None;
+                state.row_index_cache = None;
+                result.message = Some("Discarded dataset edits.".into());
+            }
+        }
+    });
+    ui.collapsing("Column widths", |ui| {
+        for (index, column) in data
+            .columns
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| state.visible[*i])
+        {
+            ui.horizontal(|ui| {
+                ui.label(column);
+                ui.add(egui::Slider::new(&mut state.widths[index], 60.0..=360.0).suffix(" px"));
+            });
+        }
+    });
+    let mut ordered_columns = (0..column_count)
+        .filter(|index| state.visible[*index])
+        .collect::<Vec<_>>();
+    ordered_columns.sort_by_key(|index| !state.pinned[*index]);
+    let editing = state.edit_draft.is_some();
+    let DatasetViewState {
+        filter,
+        sort_column,
+        sort_descending,
+        selected_rows,
+        widths,
+        edit_draft,
+        linked_x,
+        linked_y,
+        row_index_cache,
+        row_index_pending,
+        row_index_worker,
+        ..
+    } = state;
+    let display = edit_draft.as_ref().unwrap_or(data);
+    ui.horizontal_wrapped(|ui| {
+        ui.label(format!("{} selected", selected_rows.len()));
+        if ui.button("Export selection CSV…").clicked() {
+            let table = selected_table(display, selected_rows, &ordered_columns);
+            if let Some(path) = rfd::FileDialog::new()
+                .set_file_name("dataset-selection.csv")
+                .save_file()
+            {
+                result.message = Some(
+                    data::Dataset::from_table(table, Some("selection".into()))
+                        .and_then(|dataset| {
+                            export::dataset(&dataset, &path, export::DataFormat::Csv)
+                        })
+                        .map(|()| format!("Exported selected data to {}", path.display()))
+                        .unwrap_or_else(|e| format!("Selection export failed: {e}")),
+                );
+            }
+        }
+        egui::ComboBox::from_id_salt(("linked_x", id_salt))
+            .selected_text(
+                display
+                    .columns
+                    .get(*linked_x)
+                    .map(String::as_str)
+                    .unwrap_or("X column"),
+            )
+            .show_ui(ui, |ui| {
+                for index in &ordered_columns {
+                    ui.selectable_value(
+                        linked_x,
+                        *index,
+                        format!("X: {}", display.columns[*index]),
+                    );
+                }
+            });
+        egui::ComboBox::from_id_salt(("linked_y", id_salt))
+            .selected_text(
+                display
+                    .columns
+                    .get(*linked_y)
+                    .map(String::as_str)
+                    .unwrap_or("Y column"),
+            )
+            .show_ui(ui, |ui| {
+                for index in &ordered_columns {
+                    ui.selectable_value(
+                        linked_y,
+                        *index,
+                        format!("Y: {}", display.columns[*index]),
+                    );
+                }
+            });
+        if ui.button("Linked scatter").clicked() {
+            let points = display
+                .rows
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| selected_rows.is_empty() || selected_rows.contains(index))
+                .filter_map(|(_, row)| {
+                    Some([
+                        row.get(*linked_x)?.parse().ok()?,
+                        row.get(*linked_y)?.parse().ok()?,
+                    ])
+                })
+                .collect::<Vec<_>>();
+            if points.is_empty() {
+                result.message =
+                    Some("Linked plots require numeric X/Y values in the selected rows.".into());
+            } else {
+                result.linked_plot = Some(PlotSpec {
+                    version: plot::PLOT_SPEC_VERSION,
+                    name: format!(
+                        "{} vs {}",
+                        display.columns[*linked_y], display.columns[*linked_x]
+                    ),
+                    kind: PlotKind::Scatter,
+                    x_label: display.columns[*linked_x].clone(),
+                    y_label: display.columns[*linked_y].clone(),
+                    series: vec![plot::PlotSeries {
+                        name: "selection".into(),
+                        points,
+                        values: Vec::new(),
+                        visible: true,
+                    }],
+                    matrix: Vec::new(),
+                    x_log: false,
+                    y_log: false,
+                });
+            }
+        }
+    });
+    ui.separator();
+    let uncached_rows;
+    let pending_rows = Vec::new();
+    let matching_rows: &[usize] = if let Some(revision) = revision.filter(|_| !editing) {
+        let key = RowIndexKey {
+            revision,
+            filter: filter.clone(),
+            sort_column: *sort_column,
+            sort_descending: *sort_descending,
+        };
+        while let Ok(cache) = row_index_worker.receiver.try_recv() {
+            let cache_key = RowIndexKey {
+                revision: cache.revision,
+                filter: cache.filter.clone(),
+                sort_column: cache.sort_column,
+                sort_descending: cache.sort_descending,
+            };
+            if cache_key == key {
+                *row_index_cache = Some(cache);
+                *row_index_pending = None;
+            }
+        }
+        let cache_matches = row_index_cache.as_ref().is_some_and(|cache| {
+            cache.revision == revision
+                && cache.filter == *filter
+                && cache.sort_column == *sort_column
+                && cache.sort_descending == *sort_descending
+        });
+        if !cache_matches
+            && row_index_pending.as_ref() != Some(&key)
+            && row_index_worker.submit(key.clone(), immutable_data).is_ok()
+        {
+            *row_index_pending = Some(key);
+        }
+        if cache_matches {
+            &row_index_cache.as_ref().expect("cache matched").rows
+        } else {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Filtering and sorting dataset in the background…");
+            });
+            ui.ctx().request_repaint_after(Duration::from_millis(50));
+            &pending_rows
+        }
+    } else {
+        uncached_rows = build_row_index(display, filter, *sort_column, *sort_descending);
+        &uncached_rows
+    };
+    let scroll_id = ui.make_persistent_id(("dataset_table_scroll", id_salt));
+    let horizontal_offset = egui::scroll_area::State::load(ui.ctx(), scroll_id)
+        .map(|state| state.offset.x)
+        .unwrap_or_default();
+    let column_window = visible_column_window(
+        &ordered_columns,
+        widths,
+        (horizontal_offset - 48.0).max(0.0),
+        ui.available_width().max(120.0),
+    );
+    let rendered_columns = &ordered_columns[column_window.start..column_window.end];
+    let display_columns = display.columns.clone();
+    egui::ScrollArea::both()
+        .id_salt(("dataset_table_scroll", id_salt))
+        .auto_shrink([false, false])
+        .show_rows(ui, 22.0, matching_rows.len() + 1, |ui, range| {
+            egui::Grid::new(("dataset_viewer_grid", id_salt))
+                .striped(true)
+                .min_col_width(90.0)
+                .show(ui, |ui| {
+                    if range.start == 0 {
+                        let all_selected = !matching_rows.is_empty()
+                            && matching_rows
+                                .iter()
+                                .all(|index| selected_rows.contains(index));
+                        ui.horizontal(|ui| {
+                            let mut select_all = all_selected;
+                            if ui
+                                .checkbox(&mut select_all, "")
+                                .on_hover_text("Select all matching rows")
+                                .changed()
+                            {
+                                if select_all {
+                                    selected_rows.extend(matching_rows.iter().copied());
+                                } else {
+                                    for index in matching_rows {
+                                        selected_rows.remove(index);
+                                    }
+                                }
+                            }
+                            let index_sort = (*sort_column == Some(INDEX_SORT_COLUMN))
+                                .then_some(*sort_descending);
+                            if ui
+                                .add(egui::Button::new(sort_header_text("#", index_sort)))
+                                .on_hover_text("Sort by original row order")
+                                .clicked()
+                            {
+                                if *sort_column == Some(INDEX_SORT_COLUMN) {
+                                    *sort_descending = !*sort_descending;
+                                } else {
+                                    *sort_column = Some(INDEX_SORT_COLUMN);
+                                    *sort_descending = false;
+                                }
+                            }
+                        });
+                        if column_window.leading > 0.0 {
+                            ui.add_space(column_window.leading);
+                        }
+                        for index in rendered_columns {
+                            let column = &display_columns[*index];
+                            let sort = (*sort_column == Some(*index)).then_some(*sort_descending);
+                            if ui
+                                .add_sized(
+                                    [widths[*index], 20.0],
+                                    egui::Button::new(sort_header_text(column, sort)),
+                                )
+                                .clicked()
+                            {
+                                if *sort_column == Some(*index) {
+                                    *sort_descending = !*sort_descending;
+                                } else {
+                                    *sort_column = Some(*index);
+                                    *sort_descending = false;
+                                }
+                            }
+                        }
+                        if column_window.trailing > 0.0 {
+                            ui.add_space(column_window.trailing);
+                        }
+                        ui.end_row();
+                    }
+                    for index in matching_rows
+                        .iter()
+                        .skip(range.start.saturating_sub(1))
+                        .take(range.len())
+                    {
+                        let mut selected = selected_rows.contains(index);
+                        if ui.checkbox(&mut selected, index.to_string()).changed() {
+                            if selected {
+                                selected_rows.insert(*index);
+                            } else {
+                                selected_rows.remove(index);
+                            }
+                        }
+                        if column_window.leading > 0.0 {
+                            ui.add_space(column_window.leading);
+                        }
+                        for column in rendered_columns {
+                            if editing {
+                                ui.add_sized(
+                                    [widths[*column], 20.0],
+                                    egui::TextEdit::singleline(
+                                        &mut edit_draft
+                                            .as_mut()
+                                            .expect("editing requires a draft")
+                                            .rows[*index][*column],
+                                    )
+                                    .font(egui::TextStyle::Monospace),
+                                );
+                            } else {
+                                ui.add_sized(
+                                    [widths[*column], 20.0],
+                                    egui::Label::new(
+                                        RichText::new(&data.rows[*index][*column])
+                                            .monospace()
+                                            .size(10.0),
+                                    )
+                                    .truncate(),
+                                );
+                            }
+                        }
+                        if column_window.trailing > 0.0 {
+                            ui.add_space(column_window.trailing);
+                        }
+                        ui.end_row();
+                    }
+                });
+        });
+    ui.label(
+        RichText::new(format!(
+            "{} matching rows · {} of {} visible columns rendered",
+            matching_rows.len(),
+            rendered_columns.len(),
+            ordered_columns.len()
+        ))
+        .size(9.0)
+        .color(MUTED),
+    );
+    result
+}
