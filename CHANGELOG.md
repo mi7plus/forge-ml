@@ -11,6 +11,34 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-09-05
+
+### Changed
+- **CI matches the shipped toolchain.** CI and the release build now install the
+  pinned `1.98.0` toolchain (`rust-toolchain.toml` — the one the offline bundle
+  ships) instead of `@stable`, so CI builds and lints exactly what users compile
+  against and clippy's version-drifting lint set can't make CI disagree with a
+  real build.
+- **`main.rs` slimmed further.** Two more `ForgeApp` method groups moved into
+  their own files — `app_exec.rs` (cell/console/Python execution, variable
+  inspection, background Cargo diagnostics) and `app_lsp.rs` (LSP sync, requests,
+  rename, workspace edits, definition probe). Pure moves, no behavior change.
+- **Named the command-result display collapse.** The pervasive
+  `Result<String, String>` "show the output or the error" pattern is now a
+  `ResultText::text()` extension (63 call sites), giving it one home. (Typed
+  error enums were deliberately not introduced: no call site branches on the
+  error kind, so they'd be unused machinery.)
+
+### Added
+- **Automated dependency security.** A `Security audit` workflow runs
+  `cargo audit` weekly and on dependency-manifest changes, and Dependabot keeps
+  the Cargo (grouped) and GitHub Actions dependencies current.
+- **Tests for the editor's text helpers.** `editing.rs`'s pure offset/position
+  helpers (`line_column`, `char_to_byte`, `lsp_pos_to_offset`, `apply_edits_to`,
+  `safe_file_stem`, `csv_field`, `word_start_at`, …) are now unit-tested —
+  multibyte offsets, UTF-16 LSP mapping, last-first edit application, and the
+  degenerate cases.
+
 ## [1.4.0] — 2026-09-05
 
 ### Added
