@@ -773,6 +773,8 @@ struct ForgeApp {
     /// In-place cell edit in the Notebook pane: (cell index, draft of the cell's
     /// raw text including its `//# %%` header). `None` when not editing.
     notebook_edit: Option<(usize, String)>,
+    /// Cell indices collapsed to just their header in the Notebook pane.
+    notebook_collapsed: std::collections::HashSet<usize>,
     code_actions: Vec<lsp::CodeAction>,
     cursor_offset: usize,
     document_version: i32,
@@ -1411,6 +1413,7 @@ impl ForgeApp {
             go_to_line_open: false,
             go_to_line_input: String::new(),
             notebook_edit: None,
+            notebook_collapsed: std::collections::HashSet::new(),
             code_actions: Vec::new(),
             hover_text: String::new(),
             cursor_offset: 0,

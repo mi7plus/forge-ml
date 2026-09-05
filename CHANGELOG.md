@@ -24,7 +24,9 @@ grouped under the **0.98.0** release below.
   injected into saved layouts that predate it, so no existing dock arrangement is
   reset. Toggle it under **View → Panes**. Cells can also be **edited in place**
   from the notebook (an Edit button per card writes the draft back over the
-  cell's raw range in the buffer) and run individually or all at once.
+  cell's raw range in the buffer), **collapsed** to their header, **reordered**
+  up/down (swapping the cells' buffer ranges), and run individually or all at
+  once.
 - **Go to line** (`Ctrl+G`) — a dialog that jumps the editor caret to a 1-based
   line and scrolls it into view. Also in the command palette.
 - **Toggle line comment** (`Ctrl+/`) — comments/uncomments the line under the

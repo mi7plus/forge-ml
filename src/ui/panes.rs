@@ -854,6 +854,9 @@ impl crate::ForgeApp {
         let mut edit = self.notebook_edit.take();
         let mut save: Option<(usize, String)> = None;
         let mut cancel_edit = false;
+        let mut swap_first: Option<usize> = None;
+        let mut toggle_collapse: Option<usize> = None;
+        let cell_count = cells.len();
         ui.horizontal(|ui| {
             ui.label(RichText::new("NOTEBOOK").size(10.0).strong().color(MUTED));
             run_all = ui
@@ -881,8 +884,20 @@ impl crate::ForgeApp {
                         CellState::Failed => ("[!]", RED),
                         CellState::Idle => ("[ ]", MUTED),
                     };
+                    let collapsed = self.notebook_collapsed.contains(&index);
                     egui::Frame::group(ui.style()).show(ui, |ui| {
                         ui.horizontal(|ui| {
+                            if ui
+                                .small_button(if collapsed { "▸" } else { "▾" })
+                                .on_hover_text(if collapsed {
+                                    "Expand cell"
+                                } else {
+                                    "Collapse cell"
+                                })
+                                .clicked()
+                            {
+                                toggle_collapse = Some(index);
+                            }
                             ui.label(RichText::new(mark).monospace().color(color));
                             if ui
                                 .selectable_label(
@@ -921,9 +936,25 @@ impl crate::ForgeApp {
                                     raw_ranges.get(index).cloned().unwrap_or_default(),
                                 ));
                             }
+                            if ui
+                                .add_enabled(index > 0, egui::Button::new("↑").small())
+                                .on_hover_text("Move cell up")
+                                .clicked()
+                            {
+                                swap_first = Some(index - 1);
+                            }
+                            if ui
+                                .add_enabled(index + 1 < cell_count, egui::Button::new("↓").small())
+                                .on_hover_text("Move cell down")
+                                .clicked()
+                            {
+                                swap_first = Some(index);
+                            }
                         });
                         let editing_this = matches!(&edit, Some((i, _)) if *i == index);
-                        if editing_this {
+                        if collapsed {
+                            // Collapsed: header only.
+                        } else if editing_this {
                             if let Some((_, draft)) = &mut edit {
                                 ui.add(
                                     egui::TextEdit::multiline(draft)
@@ -960,7 +991,7 @@ impl crate::ForgeApp {
                                     );
                                 });
                         }
-                        if let Some(record) = record {
+                        if let Some(record) = record.filter(|_| !collapsed) {
                             if !record.output.is_empty() {
                                 ui.separator();
                                 ui.label(
@@ -1066,6 +1097,30 @@ impl crate::ForgeApp {
             self.notebook_edit = None;
         } else {
             self.notebook_edit = edit;
+        }
+        if let Some(index) = toggle_collapse {
+            if !self.notebook_collapsed.remove(&index) {
+                self.notebook_collapsed.insert(index);
+            }
+        }
+        // Reorder: swap cell `first` with the one below it in the buffer. Cell
+        // outputs are keyed by index, so clear them (and collapse state) rather
+        // than mis-attribute; keep the selection pointed at the moved cell.
+        if let Some(first) = swap_first {
+            if let Some(updated) =
+                crate::notebook::swap_adjacent_cells(&self.active().content, first)
+            {
+                self.active_mut().content = updated;
+                self.active_mut().dirty = true;
+                self.cell_records.clear();
+                self.notebook_collapsed.clear();
+                if self.selected_cell == first {
+                    self.selected_cell = first + 1;
+                } else if self.selected_cell == first + 1 {
+                    self.selected_cell = first;
+                }
+                self.console = "Reordered notebook cells.".to_owned();
+            }
         }
         if let Some(index) = select {
             self.selected_cell = index;

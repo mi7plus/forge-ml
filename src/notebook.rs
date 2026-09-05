@@ -222,6 +222,21 @@ pub fn cell_byte_ranges(text: &str) -> Vec<std::ops::Range<usize>> {
         .collect()
 }
 
+/// Swap cell `first` with the cell after it (`first + 1`) by exchanging their
+/// raw byte ranges, preserving every other byte. Returns `None` if either index
+/// is out of range. Used by the Notebook pane's move up/down.
+pub fn swap_adjacent_cells(content: &str, first: usize) -> Option<String> {
+    let ranges = cell_byte_ranges(content);
+    let a = ranges.get(first)?.clone();
+    let b = ranges.get(first + 1)?.clone();
+    let mut out = String::with_capacity(content.len());
+    out.push_str(&content[..a.start]);
+    out.push_str(&content[b.clone()]);
+    out.push_str(&content[a]);
+    out.push_str(&content[b.end..]);
+    Some(out)
+}
+
 fn expose_main_body(code: &str) -> Option<String> {
     let main_start = code
         .lines()
@@ -318,6 +333,21 @@ mod tests {
         // The second cell's range still isolates just that cell.
         let ranges2 = cell_byte_ranges(&edited);
         assert_eq!(&edited[ranges2[1].clone()], "//# %% b\ny = 2;\n");
+    }
+
+    #[test]
+    fn swapping_adjacent_cells_reorders_only_that_pair() {
+        let content = "//# %% a\nx = 1;\n//# %% b\ny = 2;\n//# %% c\nz = 3;\n";
+        let swapped = swap_adjacent_cells(content, 0).unwrap();
+        assert_eq!(
+            swapped,
+            "//# %% b\ny = 2;\n//# %% a\nx = 1;\n//# %% c\nz = 3;\n"
+        );
+        // The third cell is untouched.
+        let ranges = cell_byte_ranges(&swapped);
+        assert_eq!(&swapped[ranges[2].clone()], "//# %% c\nz = 3;\n");
+        // Out-of-range is a no-op (None).
+        assert!(swap_adjacent_cells(content, 2).is_none());
     }
 
     #[test]
