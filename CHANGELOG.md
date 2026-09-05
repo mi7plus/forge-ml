@@ -11,6 +11,8 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-09-05
+
 ### Added
 - **Git pane: interactive branch list.** Refresh/Branches now render a selectable
   list (current branch and remotes flagged with icons). Left-click selects a
