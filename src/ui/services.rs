@@ -839,7 +839,11 @@ impl crate::ForgeApp {
             for (index, step) in self.pipeline_design.steps.iter().enumerate() {
                 ui.label(RichText::new(format!("{}  {}", index + 1, step.label())).color(accent()));
                 if index + 1 < self.pipeline_design.steps.len() {
-                    ui.label("→");
+                    ui.label(
+                        egui_phosphor_icons::icons::ARROW_RIGHT
+                            .regular()
+                            .color(MUTED),
+                    );
                 }
             }
         });

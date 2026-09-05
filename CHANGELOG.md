@@ -13,6 +13,12 @@ grouped under the **0.98.0** release below.
 
 ## [1.7.0] — 2026-09-05
 
+### Fixed
+- **Move/collapse icons rendered as squares.** The Notebook cell move-up/down and
+  collapse controls (and the Plots pane's move-earlier/later buttons, and the
+  pipeline-step separator) used raw Unicode arrows/triangles that aren't in the
+  app font. Switched to the bundled Phosphor icons so they render everywhere.
+
 ### Added
 - **Inline variable inspection.** The Variables pane's 🔍 Inspect now shows a
   non-tabular value's Debug output *inline* in the pane (a dismissible section

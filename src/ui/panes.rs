@@ -529,17 +529,23 @@ impl crate::ForgeApp {
                             .on_hover_text(
                                 "Drop the extreme 1% on each axis so the view fits the bulk",
                             );
-                        if ui
-                            .add_enabled(index > 0, egui::Button::new("↑"))
-                            .on_hover_text("Move plot earlier")
-                            .clicked()
+                        if enabled_compact_icon_button(
+                            ui,
+                            index > 0,
+                            egui_phosphor_icons::icons::ARROW_UP,
+                            "Move plot earlier",
+                        )
+                        .clicked()
                         {
                             move_up = Some(index);
                         }
-                        if ui
-                            .add_enabled(index + 1 < plot_count, egui::Button::new("↓"))
-                            .on_hover_text("Move plot later")
-                            .clicked()
+                        if enabled_compact_icon_button(
+                            ui,
+                            index + 1 < plot_count,
+                            egui_phosphor_icons::icons::ARROW_DOWN,
+                            "Move plot later",
+                        )
+                        .clicked()
                         {
                             move_down = Some(index);
                         }
@@ -885,14 +891,20 @@ impl crate::ForgeApp {
                     let collapsed = self.notebook_collapsed.contains(&index);
                     egui::Frame::group(ui.style()).show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            if ui
-                                .small_button(if collapsed { "▸" } else { "▾" })
-                                .on_hover_text(if collapsed {
+                            if compact_icon_button(
+                                ui,
+                                if collapsed {
+                                    icons::CARET_RIGHT
+                                } else {
+                                    icons::CARET_DOWN
+                                },
+                                if collapsed {
                                     "Expand cell"
                                 } else {
                                     "Collapse cell"
-                                })
-                                .clicked()
+                                },
+                            )
+                            .clicked()
                             {
                                 toggle_collapse = Some(index);
                             }
@@ -929,17 +941,23 @@ impl crate::ForgeApp {
                             {
                                 edit_request = Some(index);
                             }
-                            if ui
-                                .add_enabled(index > 0, egui::Button::new("↑").small())
-                                .on_hover_text("Move cell up")
-                                .clicked()
+                            if enabled_compact_icon_button(
+                                ui,
+                                index > 0,
+                                icons::ARROW_UP,
+                                "Move cell up",
+                            )
+                            .clicked()
                             {
                                 swap_first = Some(index - 1);
                             }
-                            if ui
-                                .add_enabled(index + 1 < cell_count, egui::Button::new("↓").small())
-                                .on_hover_text("Move cell down")
-                                .clicked()
+                            if enabled_compact_icon_button(
+                                ui,
+                                index + 1 < cell_count,
+                                icons::ARROW_DOWN,
+                                "Move cell down",
+                            )
+                            .clicked()
                             {
                                 swap_first = Some(index);
                             }
