@@ -125,6 +125,7 @@ impl crate::ForgeApp {
             PaneKind::Console => self.console_pane(ConsoleTab::Console, ui),
             PaneKind::History => self.console_pane(ConsoleTab::History, ui),
             PaneKind::Python => self.console_pane(ConsoleTab::Python, ui),
+            PaneKind::Notebook => self.notebook_pane(ui),
             PaneKind::Terminal(id) => self.terminal_pane(id, ui),
             PaneKind::RustConsole(id) => self.rust_console_pane(id, ui),
             PaneKind::DataViewer => self.dock_data_viewer(ui),

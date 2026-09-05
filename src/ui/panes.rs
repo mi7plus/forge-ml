@@ -824,6 +824,147 @@ impl crate::ForgeApp {
         }
     }
 
+    /// The Notebook pane: every cell stacked with its captured output (text,
+    /// rich MIME, and the plots it produced) rendered inline, Jupyter-style.
+    pub(crate) fn notebook_pane(&mut self, ui: &mut egui::Ui) {
+        use egui_phosphor_icons::icons;
+        let cells = self.cells();
+        if cells.is_empty() {
+            crate::ui::theme::empty_state(
+                ui,
+                icons::NOTEBOOK,
+                "No cells",
+                "Cells are separated by `//# %% name`. Run one to see its output here.",
+            );
+            return;
+        }
+        let mut run_cell: Option<usize> = None;
+        let mut run_all = false;
+        let mut select: Option<usize> = None;
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("NOTEBOOK").size(10.0).strong().color(MUTED));
+            run_all = ui
+                .small_button("Run all")
+                .on_hover_text("Run every cell top to bottom")
+                .clicked();
+            ui.label(
+                RichText::new(format!("{} cell(s)", cells.len()))
+                    .size(10.0)
+                    .color(MUTED),
+            );
+        });
+        ui.separator();
+        egui::ScrollArea::vertical()
+            .id_salt("notebook_view")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for (index, (title, source)) in cells.iter().enumerate() {
+                    let record = self.cell_records.get(&index);
+                    let state = record.and_then(|r| r.state).unwrap_or(CellState::Idle);
+                    let (mark, color) = match state {
+                        CellState::Queued => ("[q]", MUTED),
+                        CellState::Running => ("[>]", EMBER),
+                        CellState::Passed => ("[ok]", GREEN),
+                        CellState::Failed => ("[!]", RED),
+                        CellState::Idle => ("[ ]", MUTED),
+                    };
+                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(mark).monospace().color(color));
+                            if ui
+                                .selectable_label(
+                                    index == self.selected_cell,
+                                    RichText::new(format!("{:02}  {title}", index + 1))
+                                        .strong()
+                                        .color(if index == self.selected_cell {
+                                            accent()
+                                        } else {
+                                            TEXT
+                                        }),
+                                )
+                                .on_hover_text("Select and reveal in the editor")
+                                .clicked()
+                            {
+                                select = Some(index);
+                            }
+                            if let Some(ms) = record.and_then(|r| r.elapsed_ms) {
+                                ui.label(
+                                    RichText::new(format!("{ms} ms")).size(10.0).color(accent()),
+                                );
+                            }
+                            if ui.small_button("Run").clicked() {
+                                run_cell = Some(index);
+                            }
+                        });
+                        // Source (read-only), scrolled horizontally so long lines
+                        // don't force the whole pane wide.
+                        if !source.trim().is_empty() {
+                            egui::ScrollArea::horizontal()
+                                .id_salt(("nb_src", index))
+                                .max_height(160.0)
+                                .show(ui, |ui| {
+                                    ui.add(
+                                        egui::Label::new(
+                                            RichText::new(source.trim_end()).monospace().size(11.0),
+                                        )
+                                        .wrap(),
+                                    );
+                                });
+                        }
+                        if let Some(record) = record {
+                            if !record.output.is_empty() {
+                                ui.separator();
+                                ui.label(
+                                    RichText::new(&record.output).monospace().size(11.0).color(
+                                        if state == CellState::Failed {
+                                            RED
+                                        } else {
+                                            TEXT
+                                        },
+                                    ),
+                                );
+                            }
+                            for output in record
+                                .rich_outputs
+                                .iter()
+                                .filter(|output| output.mime != "text/plain")
+                            {
+                                ui.collapsing(&output.mime, |ui| {
+                                    ui.label(
+                                        RichText::new(&output.data).monospace().color(accent()),
+                                    );
+                                });
+                            }
+                            // Plots this cell emitted, rendered inline.
+                            for name in &record.plots {
+                                if let Some(spec) =
+                                    self.structured_plots.iter().find(|s| &s.name == name)
+                                {
+                                    ui.add_space(2.0);
+                                    ui.label(RichText::new(name).size(10.0).color(MUTED));
+                                    crate::ui::plotting::draw_inline_plot(
+                                        ui,
+                                        spec,
+                                        &format!("nb_plot_{index}_{name}"),
+                                    );
+                                }
+                            }
+                        }
+                    });
+                    ui.add_space(6.0);
+                }
+            });
+        if let Some(index) = select {
+            self.selected_cell = index;
+            self.focus_cell_in_editor(index);
+        }
+        if run_all {
+            self.enqueue_cells(0..self.cells().len());
+        } else if let Some(index) = run_cell {
+            self.enqueue_cells([index]);
+        }
+    }
+
     /// Body of one console-family dock pane (Rust console / history / Python).
     pub(crate) fn console_pane(&mut self, tab: ConsoleTab, ui: &mut egui::Ui) {
         ui.set_min_height(ui.available_height());

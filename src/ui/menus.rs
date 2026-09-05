@@ -296,6 +296,9 @@ impl crate::ForgeApp {
                     );
                     // Fixed panes plus any live terminals and Rust kernels.
                     let mut kinds = expected_panes();
+                    // Notebook is optional (kept out of `expected_panes` for
+                    // layout migration), but still toggleable here.
+                    kinds.push(PaneKind::Notebook);
                     if let Some(tree) = self.dock_tree.as_ref() {
                         let mut dynamic: Vec<PaneKind> = tree
                             .tiles

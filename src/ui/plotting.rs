@@ -220,6 +220,82 @@ pub fn draw_heatmap(ui: &mut egui::Ui, matrix: &[Vec<f64>]) {
     });
 }
 
+/// A compact, self-contained renderer for one plot spec, used inline in the
+/// Notebook pane (the Plots pane keeps its own full-fidelity viewer with
+/// per-plot controls). `id_salt` must be unique per rendered plot.
+pub fn draw_inline_plot(ui: &mut egui::Ui, spec: &PlotSpec, id_salt: &str) {
+    use crate::plot::PlotKind;
+    use egui_plot::{BarChart, Line, Plot, PlotPoints, Points};
+
+    match spec.kind {
+        // Heatmaps need a scrolling grid with a stable id; keep them in the
+        // Plots pane rather than risk id collisions between cell cards.
+        PlotKind::Heatmap => {
+            ui.label(
+                egui::RichText::new("heatmap — open in the Plots pane")
+                    .size(10.0)
+                    .italics()
+                    .color(Color32::GRAY),
+            );
+            return;
+        }
+        // The box summary table is informative and has a per-name id.
+        PlotKind::Box => {
+            draw_box_summary(ui, spec);
+            return;
+        }
+        _ => {}
+    }
+    Plot::new(id_salt)
+        .height(180.0)
+        .allow_scroll(true)
+        .allow_drag(true)
+        .allow_zoom(true)
+        .auto_bounds(true)
+        .show(ui, |plot_ui| {
+            for series in spec.series.iter().filter(|s| s.visible) {
+                let points = transformed_points(series, spec.x_log, spec.y_log);
+                match spec.kind {
+                    PlotKind::Scatter | PlotKind::Residual => plot_ui
+                        .points(Points::new(&series.name, PlotPoints::from(points)).radius(2.5)),
+                    PlotKind::Bar | PlotKind::FeatureImportance => {
+                        let bars = if series.values.is_empty() {
+                            points.iter().map(|p| Bar::new(p[0], p[1])).collect()
+                        } else {
+                            series
+                                .values
+                                .iter()
+                                .enumerate()
+                                .map(|(i, v)| Bar::new(i as f64, *v))
+                                .collect()
+                        };
+                        plot_ui.bar_chart(BarChart::new(&series.name, bars));
+                    }
+                    PlotKind::Histogram => plot_ui
+                        .bar_chart(BarChart::new(&series.name, histogram(&series.values, 24))),
+                    PlotKind::Area => plot_ui.line(
+                        Line::new(&series.name, PlotPoints::from(points))
+                            .fill(0.0)
+                            .fill_alpha(0.25),
+                    ),
+                    PlotKind::Ecdf => plot_ui.line(
+                        Line::new(&series.name, PlotPoints::from(ecdf(&series.values))).width(2.0),
+                    ),
+                    PlotKind::Violin => {
+                        // Density-vs-value profile (a compact stand-in for the
+                        // Plots pane's mirrored violin).
+                        let profile: Vec<[f64; 2]> = kde(&series.values, 48)
+                            .iter()
+                            .map(|d| [d[1], d[0]])
+                            .collect();
+                        plot_ui.line(Line::new(&series.name, PlotPoints::from(profile)));
+                    }
+                    _ => plot_ui.line(Line::new(&series.name, PlotPoints::from(points)).width(2.0)),
+                }
+            }
+        });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -319,6 +395,35 @@ mod tests {
                 y_log: false,
             };
             draw_box_summary(ui, &spec);
+            // The inline renderer (Notebook pane) across representative kinds.
+            for kind in [
+                plot::PlotKind::Line,
+                plot::PlotKind::Scatter,
+                plot::PlotKind::Bar,
+                plot::PlotKind::Histogram,
+                plot::PlotKind::Area,
+                plot::PlotKind::Ecdf,
+                plot::PlotKind::Violin,
+                plot::PlotKind::Heatmap,
+            ] {
+                let spec = PlotSpec {
+                    version: plot::PLOT_SPEC_VERSION,
+                    name: format!("k_{kind:?}"),
+                    kind,
+                    x_label: String::new(),
+                    y_label: String::new(),
+                    series: vec![plot::PlotSeries {
+                        name: "s".into(),
+                        points: vec![[0.0, 1.0], [1.0, 2.0], [2.0, 1.5]],
+                        values: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+                        visible: true,
+                    }],
+                    matrix: vec![vec![1.0, 2.0], vec![3.0, 4.0]],
+                    x_log: false,
+                    y_log: false,
+                };
+                draw_inline_plot(ui, &spec, &format!("inline_{kind:?}"));
+            }
         });
         // egui insists texture deltas are consumed before the output is dropped.
         output.textures_delta.clear();

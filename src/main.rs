@@ -476,6 +476,9 @@ enum PaneKind {
     Console,
     History,
     Python,
+    /// A read-oriented notebook view: every cell stacked with its captured
+    /// output (text, rich MIME, and the plots it produced) shown inline.
+    Notebook,
     /// A terminal instance. Each carries a unique id so several terminals can
     /// coexist as independent, dockable/floatable tiles.
     Terminal(u32),
@@ -495,6 +498,7 @@ impl PaneKind {
             PaneKind::Console => "Console",
             PaneKind::History => "History",
             PaneKind::Python => "Python",
+            PaneKind::Notebook => "Notebook",
             PaneKind::Terminal(_) => "Terminal",
             PaneKind::RustConsole(_) => "Rust kernel",
             PaneKind::DataViewer => "Data viewer",
@@ -512,6 +516,7 @@ impl PaneKind {
             PaneKind::Console => icons::TERMINAL_WINDOW.as_str(),
             PaneKind::History => icons::CLOCK_COUNTER_CLOCKWISE.as_str(),
             PaneKind::Python => icons::CODE_SIMPLE.as_str(),
+            PaneKind::Notebook => icons::NOTEBOOK.as_str(),
             PaneKind::Terminal(_) => icons::TERMINAL.as_str(),
             PaneKind::RustConsole(_) => icons::CUBE.as_str(),
             PaneKind::DataViewer => icons::TABLE.as_str(),
@@ -584,6 +589,9 @@ struct CellRecord {
     git_commit: Option<String>,
     git_dirty: bool,
     rich_outputs: Vec<RichOutput>,
+    /// Names of the structured plots this cell emitted (`forge_plot:` events),
+    /// so the Notebook pane can render them inline with the cell.
+    plots: Vec<String>,
 }
 
 struct ProjectSearchResult {
@@ -2567,6 +2575,12 @@ impl ForgeApp {
                     for spec in plot::parse_output(&self.console) {
                         self.structured_plots
                             .retain(|existing| existing.name != spec.name);
+                        if cell_id != CONSOLE_CELL_ID {
+                            let record = self.cell_records.entry(cell_id).or_default();
+                            if !record.plots.contains(&spec.name) {
+                                record.plots.push(spec.name.clone());
+                            }
+                        }
                         self.structured_plots.push(spec);
                     }
                     for envelope in events {
@@ -3148,7 +3162,15 @@ fn build_dock_tree() -> Tree<PaneKind> {
     let python = tiles.insert_pane(PaneKind::Python);
     let terminal = tiles.insert_pane(PaneKind::Terminal(1));
     let data_viewer = tiles.insert_pane(PaneKind::DataViewer);
-    let bottom = tiles.insert_tab_tile(vec![console, history, python, terminal, data_viewer]);
+    let notebook = tiles.insert_pane(PaneKind::Notebook);
+    let bottom = tiles.insert_tab_tile(vec![
+        console,
+        history,
+        python,
+        terminal,
+        data_viewer,
+        notebook,
+    ]);
 
     let mut center = Linear::new(LinearDir::Vertical, vec![editor, bottom]);
     center.shares.set_share(editor, 0.76);
@@ -3206,7 +3228,7 @@ fn expected_panes() -> Vec<PaneKind> {
 /// terminal panes is allowed; every other pane must be a known fixed pane.
 fn load_dock_tree(serialized: Option<&str>) -> Tree<PaneKind> {
     if let Some(json) = serialized {
-        if let Ok(tree) = serde_json::from_str::<Tree<PaneKind>>(json) {
+        if let Ok(mut tree) = serde_json::from_str::<Tree<PaneKind>>(json) {
             let present: Vec<PaneKind> = tree
                 .tiles
                 .iter()
@@ -3218,15 +3240,40 @@ fn load_dock_tree(serialized: Option<&str>) -> Tree<PaneKind> {
             let required = expected_panes();
             let all_required = required.iter().all(|kind| present.contains(kind));
             let no_strangers = present.iter().all(|kind| {
-                matches!(kind, PaneKind::Terminal(_) | PaneKind::RustConsole(_))
-                    || required.contains(kind)
+                matches!(
+                    kind,
+                    PaneKind::Terminal(_) | PaneKind::RustConsole(_) | PaneKind::Notebook
+                ) || required.contains(kind)
             });
             if all_required && no_strangers {
+                // The Notebook pane was added after some layouts were saved; inject
+                // it rather than discarding the user's customized arrangement.
+                if !present.contains(&PaneKind::Notebook) {
+                    inject_notebook_pane(&mut tree);
+                }
                 return tree;
             }
         }
     }
     build_dock_tree()
+}
+
+/// Add the Notebook pane to a restored tree that predates it, as a tab beside
+/// the Console group (falling back to the root), so the layout isn't reset.
+fn inject_notebook_pane(tree: &mut Tree<PaneKind>) {
+    let new_tile = tree.tiles.insert_pane(PaneKind::Notebook);
+    let anchor = tree
+        .tiles
+        .iter()
+        .find_map(|(tid, tile)| match tile {
+            Tile::Pane(PaneKind::Console) => Some(*tid),
+            _ => None,
+        })
+        .and_then(|tile| tree.tiles.parent_of(tile))
+        .or_else(|| tree.root());
+    if let Some(parent) = anchor {
+        tree.move_tile_to_container(new_tile, parent, usize::MAX, false);
+    }
 }
 
 impl eframe::App for ForgeApp {
@@ -3482,8 +3529,10 @@ mod editor_tests {
             v
         };
         assert_eq!(panes(&restored), panes(&original));
-        // The default tree is the fixed panes plus one terminal.
-        assert_eq!(panes(&restored).len(), expected_panes().len() + 1);
+        // The default tree is the fixed panes, one terminal, and the Notebook
+        // pane (kept out of `expected_panes` so older saved layouts still load).
+        assert_eq!(panes(&restored).len(), expected_panes().len() + 2);
+        assert!(panes(&restored).contains(&PaneKind::Notebook));
 
         // Missing, unparseable, or incomplete layouts fall back to the default.
         assert_eq!(panes(&load_dock_tree(None)), panes(&original));
@@ -3494,6 +3543,31 @@ mod editor_tests {
             panes(&load_dock_tree(Some(&incomplete_json))),
             panes(&original)
         );
+    }
+
+    #[test]
+    fn legacy_layout_without_notebook_has_it_injected_not_reset() {
+        // Simulate a saved layout from before the Notebook pane existed: every
+        // required pane, but no Notebook. It must be accepted (not reset to the
+        // default) with the Notebook pane injected.
+        let mut tiles = Tiles::default();
+        let mut ids: Vec<TileId> = expected_panes()
+            .into_iter()
+            .map(|kind| tiles.insert_pane(kind))
+            .collect();
+        ids.push(tiles.insert_pane(PaneKind::Terminal(1)));
+        let root = tiles.insert_tab_tile(ids);
+        let legacy = Tree::new("forge_dock", root, tiles);
+        let json = serde_json::to_string(&legacy).unwrap();
+        let restored = load_dock_tree(Some(&json));
+        let has = |tree: &Tree<PaneKind>, kind: PaneKind| {
+            tree.tiles
+                .iter()
+                .any(|(_, t)| matches!(t, Tile::Pane(p) if *p == kind))
+        };
+        // The user's terminal survived (layout not reset) and Notebook was added.
+        assert!(has(&restored, PaneKind::Notebook));
+        assert!(has(&restored, PaneKind::Terminal(1)));
     }
 
     #[test]
