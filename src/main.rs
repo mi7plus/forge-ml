@@ -592,6 +592,9 @@ struct CellRecord {
     /// Names of the structured plots this cell emitted (`forge_plot:` events),
     /// so the Notebook pane can render them inline with the cell.
     plots: Vec<String>,
+    /// Datasets this cell emitted, as `open_dataset` refs (`table:name` /
+    /// `vector:name`), for inline preview + open in the Notebook pane.
+    datasets: Vec<String>,
 }
 
 struct ProjectSearchResult {
@@ -2584,6 +2587,23 @@ impl ForgeApp {
                         self.structured_plots.push(spec);
                     }
                     for envelope in events {
+                        if cell_id != CONSOLE_CELL_ID {
+                            let dataset_ref = match &envelope.event {
+                                forge_protocol::ForgeEvent::Table { name, .. } => {
+                                    Some(format!("table:{name}"))
+                                }
+                                forge_protocol::ForgeEvent::Vector { name, .. } => {
+                                    Some(format!("vector:{name}"))
+                                }
+                                forge_protocol::ForgeEvent::Metric { .. } => None,
+                            };
+                            if let Some(dataset_ref) = dataset_ref {
+                                let record = self.cell_records.entry(cell_id).or_default();
+                                if !record.datasets.contains(&dataset_ref) {
+                                    record.datasets.push(dataset_ref);
+                                }
+                            }
+                        }
                         self.data.apply(envelope.event);
                     }
                     if cell_id != CONSOLE_CELL_ID {

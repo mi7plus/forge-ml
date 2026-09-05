@@ -13,14 +13,16 @@ grouped under the **0.98.0** release below.
 
 ### Added
 - **Notebook pane (inline cell output).** A new read-oriented pane stacks every
-  cell with its captured output shown *inline* — text, rich MIME blocks, and the
-  plots the cell produced — instead of scattering output across the Console and
-  Plots panes. Each card has a run-state badge, the source, timing, a per-cell
-  Run button, and click-to-reveal-in-editor. Plots are attributed to the cell
-  that emitted them (`CellRecord` now records its `forge_plot` names) and drawn
-  with a compact inline renderer. Added to fresh layouts and injected into saved
-  layouts that predate it, so no existing dock arrangement is reset. Toggle it
-  under **View → Panes**.
+  cell with its captured output shown *inline* — text, rich MIME blocks, the
+  plots the cell produced, and a preview of the tables/vectors it emitted —
+  instead of scattering output across the Console, Plots, and Data panes. Each
+  card has a run-state badge, the source, timing, a per-cell Run button, and
+  click-to-reveal-in-editor. Plots and datasets are attributed to the cell that
+  emitted them (`CellRecord` records its `forge_plot`/`forge_table`/`forge_vector`
+  names); plots use a compact inline renderer and datasets show a first-rows
+  preview with an **Open in Data viewer** button. Added to fresh layouts and
+  injected into saved layouts that predate it, so no existing dock arrangement is
+  reset. Toggle it under **View → Panes**.
 - **Go to line** (`Ctrl+G`) — a dialog that jumps the editor caret to a 1-based
   line and scrolls it into view. Also in the command palette.
 - **Toggle line comment** (`Ctrl+/`) — comments/uncomments the line under the

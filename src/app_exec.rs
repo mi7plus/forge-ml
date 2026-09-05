@@ -57,6 +57,7 @@ impl crate::ForgeApp {
                     record.output.clear();
                     record.rich_outputs.clear();
                     record.plots.clear();
+                    record.datasets.clear();
                     record.elapsed_ms = None;
                     if let Some((commit, dirty)) = provenance {
                         record.git_commit = Some(commit);
@@ -82,6 +83,7 @@ impl crate::ForgeApp {
             record.output.clear();
             record.rich_outputs.clear();
             record.plots.clear();
+            record.datasets.clear();
             if let Some((commit, dirty)) = provenance {
                 record.git_commit = Some(commit);
                 record.git_dirty = dirty;

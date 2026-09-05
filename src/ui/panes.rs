@@ -841,6 +841,7 @@ impl crate::ForgeApp {
         let mut run_cell: Option<usize> = None;
         let mut run_all = false;
         let mut select: Option<usize> = None;
+        let mut open_dataset: Option<String> = None;
         ui.horizontal(|ui| {
             ui.label(RichText::new("NOTEBOOK").size(10.0).strong().color(MUTED));
             run_all = ui
@@ -949,6 +950,51 @@ impl crate::ForgeApp {
                                     );
                                 }
                             }
+                            // Datasets this cell emitted, as a compact preview.
+                            for dataset_ref in &record.datasets {
+                                if let Some((kind, name)) = dataset_ref.split_once(':') {
+                                    ui.add_space(2.0);
+                                    if kind == "table" {
+                                        if let Some(data) = self.data.tables.get(name) {
+                                            ui.label(
+                                                RichText::new(format!(
+                                                    "{name} — {} rows × {} cols",
+                                                    data.rows.len(),
+                                                    data.columns.len()
+                                                ))
+                                                .size(10.0)
+                                                .color(MUTED),
+                                            );
+                                            draw_table_preview(
+                                                ui,
+                                                &data.columns,
+                                                &data.rows,
+                                                ("nb_tbl", index, name),
+                                            );
+                                        }
+                                    } else if let Some(values) = self.data.vectors.get(name) {
+                                        let preview = values
+                                            .iter()
+                                            .take(12)
+                                            .map(|v| format!("{v:.4}"))
+                                            .collect::<Vec<_>>()
+                                            .join(", ");
+                                        ui.label(
+                                            RichText::new(format!(
+                                                "{name} — {} value(s): [{preview}{}]",
+                                                values.len(),
+                                                if values.len() > 12 { ", …" } else { "" }
+                                            ))
+                                            .size(10.0)
+                                            .monospace()
+                                            .color(MUTED),
+                                        );
+                                    }
+                                    if ui.small_button("Open in Data viewer").clicked() {
+                                        open_dataset = Some(dataset_ref.clone());
+                                    }
+                                }
+                            }
                         }
                     });
                     ui.add_space(6.0);
@@ -957,6 +1003,10 @@ impl crate::ForgeApp {
         if let Some(index) = select {
             self.selected_cell = index;
             self.focus_cell_in_editor(index);
+        }
+        if let Some(dataset_ref) = open_dataset {
+            self.open_dataset = Some(dataset_ref);
+            self.inspector_tab = InspectorTab::Data;
         }
         if run_all {
             self.enqueue_cells(0..self.cells().len());
@@ -1181,5 +1231,66 @@ impl crate::ForgeApp {
             }
         }
         ui.take_available_space();
+    }
+}
+
+/// A compact read-only preview of a table's first rows, for the Notebook pane.
+fn draw_table_preview(
+    ui: &mut egui::Ui,
+    columns: &[String],
+    rows: &[Vec<String>],
+    id_salt: impl std::hash::Hash + std::fmt::Debug,
+) {
+    const MAX_ROWS: usize = 5;
+    const MAX_COLS: usize = 10;
+    let cols = columns.len().min(MAX_COLS);
+    egui::ScrollArea::horizontal()
+        .id_salt(id_salt)
+        .max_height(150.0)
+        .show(ui, |ui| {
+            egui::Grid::new("nb_table_grid")
+                .striped(true)
+                .spacing([10.0, 2.0])
+                .show(ui, |ui| {
+                    for column in columns.iter().take(cols) {
+                        ui.label(RichText::new(column).strong().size(11.0).color(accent()));
+                    }
+                    if columns.len() > cols {
+                        ui.label(RichText::new("…").color(MUTED));
+                    }
+                    ui.end_row();
+                    for row in rows.iter().take(MAX_ROWS) {
+                        for cell in row.iter().take(cols) {
+                            ui.label(RichText::new(cell).monospace().size(11.0));
+                        }
+                        ui.end_row();
+                    }
+                });
+            if rows.len() > MAX_ROWS {
+                ui.label(
+                    RichText::new(format!("… {} more row(s)", rows.len() - MAX_ROWS))
+                        .size(10.0)
+                        .color(MUTED),
+                );
+            }
+        });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn table_preview_renders_headlessly() {
+        // Empty, small, and over-limit tables must all render without panicking.
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            draw_table_preview(ui, &[], &[], "empty");
+            let cols: Vec<String> = (0..15).map(|i| format!("c{i}")).collect();
+            let rows: Vec<Vec<String>> =
+                (0..20).map(|r| (0..15).map(|c| format!("{r}.{c}")).collect()).collect();
+            draw_table_preview(ui, &cols, &rows, "big");
+        });
+        output.textures_delta.clear();
     }
 }
