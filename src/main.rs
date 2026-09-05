@@ -939,6 +939,9 @@ struct ForgeApp {
     remote_command: String,
     remote_token: String,
     remote_kernel_name: String,
+    /// Kernel names discovered by the last "Test Jupyter" probe, offered as
+    /// one-click fills for `remote_kernel_name` (e.g. `rust` for remote Evcxr).
+    remote_kernelspecs: Vec<String>,
     remote_kernel_session: Option<remote::RemoteKernelSession>,
     remote_code: String,
     remote_mime_outputs: Vec<RichOutput>,
@@ -1574,6 +1577,7 @@ impl ForgeApp {
             remote_command: "cargo run --release".into(),
             remote_token: String::new(),
             remote_kernel_name: "python3".into(),
+            remote_kernelspecs: Vec::new(),
             remote_kernel_session: None,
             remote_code: "print(\"hello from Forge ML\")".into(),
             remote_mime_outputs: Vec::new(),
@@ -2444,9 +2448,13 @@ impl ForgeApp {
                         .map(|path| format!("Downloaded {}", path.display()))
                         .unwrap_or_else(|error| error);
                 }
-                ResultEvent::RemoteMessage(result) => {
-                    self.sql_output = result.unwrap_or_else(|error| error);
-                }
+                ResultEvent::RemoteKernelspecs(result) => match result {
+                    Ok((summary, names)) => {
+                        self.sql_output = summary;
+                        self.remote_kernelspecs = names;
+                    }
+                    Err(error) => self.sql_output = error,
+                },
                 ResultEvent::RemoteKernelStarted(result) => match result {
                     Ok(session) => {
                         self.sql_output = format!(

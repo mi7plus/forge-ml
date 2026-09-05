@@ -16,6 +16,12 @@ grouped under the **0.98.0** release below.
   non-tabular value's Debug output *inline* in the pane (a dismissible section
   per variable), instead of only routing it to the console. Tabular values still
   open in the full Data viewer.
+- **Selectable remote kernelspecs (remote Rust kernels).** "Test Jupyter" now
+  surfaces the discovered kernel names as one-click fills for the remote
+  kernelspec field, so pointing at a remote Jupyter server running the Evcxr
+  kernel and picking `rust` gives a **remote Rust kernel** — no more guessing the
+  name. (The language-agnostic remote-kernel path already supported this; this
+  makes it discoverable.)
 
 ### Changed
 - **Notebook render performance.** The Notebook pane no longer clones the whole

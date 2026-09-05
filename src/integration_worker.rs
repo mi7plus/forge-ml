@@ -112,7 +112,8 @@ pub enum ResultEvent {
     },
     ObjectMessage(Result<String, String>),
     ObjectDownload(Result<PathBuf, String>),
-    RemoteMessage(Result<String, String>),
+    /// A remote kernelspec probe: (human summary, sorted kernel names).
+    RemoteKernelspecs(Result<(String, Vec<String>), String>),
     RemoteKernelStarted(Result<crate::remote::RemoteKernelSession, String>),
     RemoteKernelStopped(Result<String, String>),
     RemoteKernelInterrupted(Result<String, String>),
@@ -328,7 +329,7 @@ fn execute(request: Request, events: &Sender<ResultEvent>) -> ResultEvent {
             ResultEvent::ObjectDownload(profile.download(&key, &root))
         }
         Request::RemoteTest(profile) => {
-            ResultEvent::RemoteMessage(crate::remote::test_jupyter(&profile))
+            ResultEvent::RemoteKernelspecs(crate::remote::test_jupyter(&profile))
         }
         Request::RemoteKernelStart {
             profile,

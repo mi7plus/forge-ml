@@ -65,7 +65,10 @@ pub fn validate_profile(profile: &RemoteProfile) -> Result<(), String> {
     Ok(())
 }
 
-pub fn test_jupyter(profile: &RemoteProfile) -> Result<String, String> {
+/// Probe the remote's kernelspecs, returning a human summary and the sorted
+/// kernel names (so the UI can offer them for one-click selection — e.g. `rust`
+/// for a remote Evcxr kernel).
+pub fn test_jupyter(profile: &RemoteProfile) -> Result<(String, Vec<String>), String> {
     validate_profile(profile)?;
     let endpoint = kernelspec_endpoint(&profile.jupyter_url)?;
     let token = crate::database::load_secret(&profile.credential_key).unwrap_or_default();
@@ -104,7 +107,7 @@ pub fn test_jupyter(profile: &RemoteProfile) -> Result<String, String> {
     })?;
     let mut names = kernels.keys().cloned().collect::<Vec<_>>();
     names.sort();
-    Ok(format!(
+    let summary = format!(
         "Connected to `{}`: {} kernelspec(s){}.",
         profile.name,
         names.len(),
@@ -113,7 +116,8 @@ pub fn test_jupyter(profile: &RemoteProfile) -> Result<String, String> {
         } else {
             format!(" ({})", names.join(", "))
         }
-    ))
+    );
+    Ok((summary, names))
 }
 
 pub fn start_kernel(

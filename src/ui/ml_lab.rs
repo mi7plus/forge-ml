@@ -725,6 +725,17 @@ impl crate::ForgeApp {
                 egui::TextEdit::singleline(&mut self.remote_kernel_name)
                     .hint_text("for example: python3 or rust"),
             );
+            // One-click fills from the last "Test Jupyter" probe. A `rust`
+            // kernelspec here is a remote Evcxr (Rust) kernel.
+            for name in &self.remote_kernelspecs {
+                if ui
+                    .small_button(name)
+                    .on_hover_text("Use this discovered kernelspec")
+                    .clicked()
+                {
+                    self.remote_kernel_name = name.clone();
+                }
+            }
             if let Some(session) = &self.remote_kernel_session {
                 ui.label(format!(
                     "Active: {} · {} · {}",
