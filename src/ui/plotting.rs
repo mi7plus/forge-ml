@@ -219,3 +219,121 @@ pub fn draw_heatmap(ui: &mut egui::Ui, matrix: &[Vec<f64>]) {
             });
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // These helpers all do unguarded float arithmetic on user data, so the cases
+    // that matter are the degenerate ones: empty, single-valued, and all-equal
+    // inputs (zero range / zero variance). None may panic or produce NaN/inf.
+
+    #[test]
+    fn histogram_handles_empty_and_constant_input() {
+        assert!(histogram(&[], 10).is_empty());
+        // All-equal values: range is zero, so width falls back to EPSILON and
+        // every value lands in the first bin without an out-of-range index.
+        let bars = histogram(&[5.0, 5.0, 5.0], 8);
+        let total: f64 = bars.iter().map(|b| b.value).sum();
+        assert_eq!(total, 3.0);
+        assert!(bars
+            .iter()
+            .all(|b| b.value.is_finite() && b.bar_width.is_finite()));
+    }
+
+    #[test]
+    fn quartiles_degenerate_inputs() {
+        assert!(quartiles(&[]).is_none());
+        let (min, q1, median, q3, max) = quartiles(&[7.0]).unwrap();
+        assert_eq!([min, q1, median, q3, max], [7.0; 5]);
+        // Ordering invariant holds regardless of input order.
+        let (min, q1, median, q3, max) = quartiles(&[9.0, 1.0, 5.0, 3.0, 7.0]).unwrap();
+        assert!(min <= q1 && q1 <= median && median <= q3 && q3 <= max);
+    }
+
+    #[test]
+    fn box_stats_constant_group_has_no_outliers() {
+        assert!(box_stats(&[]).is_none());
+        let stats = box_stats(&[4.0, 4.0, 4.0, 4.0]).unwrap();
+        assert!(stats.outliers.is_empty());
+        assert_eq!(stats.whisker_lo, 4.0);
+        assert_eq!(stats.whisker_hi, 4.0);
+        // A far value beyond 1.5·IQR is flagged as an outlier.
+        let stats = box_stats(&[1.0, 2.0, 3.0, 4.0, 100.0]).unwrap();
+        assert!(stats.outliers.contains(&100.0));
+    }
+
+    #[test]
+    fn kde_is_finite_even_with_zero_variance() {
+        assert!(kde(&[1.0], 32).is_empty()); // needs at least two points
+        let curve = kde(&[3.0, 3.0, 3.0], 16);
+        assert_eq!(curve.len(), 16);
+        assert!(curve
+            .iter()
+            .all(|[y, d]| y.is_finite() && d.is_finite() && *d >= 0.0));
+    }
+
+    #[test]
+    fn ecdf_is_monotonic_and_reaches_one() {
+        assert!(ecdf(&[]).is_empty());
+        let points = ecdf(&[3.0, 1.0, 2.0]);
+        let fractions: Vec<f64> = points.iter().map(|p| p[1]).collect();
+        assert!(fractions.windows(2).all(|w| w[0] <= w[1]));
+        assert_eq!(points.last().unwrap()[1], 1.0);
+    }
+
+    #[test]
+    fn clip_outliers_is_a_noop_below_the_threshold() {
+        let small = vec![[0.0, 0.0], [1.0, 1.0], [1000.0, 1000.0]];
+        assert_eq!(clip_outliers(&small), small);
+        // With enough points, an extreme pair is dropped but the bulk survives.
+        let mut many: Vec<[f64; 2]> = (0..100).map(|i| [i as f64, i as f64]).collect();
+        many.push([1e9, 1e9]);
+        let clipped = clip_outliers(&many);
+        assert!(clipped.len() < many.len());
+        assert!(!clipped.contains(&[1e9, 1e9]));
+    }
+
+    /// Headless render smoke test: drive the actual egui layout pass (no window,
+    /// no GPU) over our plotting widgets so a panic in the drawing code — an
+    /// out-of-range index, a bad color cast — is caught in CI, not at runtime.
+    #[test]
+    fn plotting_widgets_render_headlessly() {
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            draw_heatmap(ui, &[vec![1.0, 2.0], vec![3.0, 4.0]]);
+            let spec = PlotSpec {
+                version: plot::PLOT_SPEC_VERSION,
+                name: "smoke".into(),
+                kind: plot::PlotKind::Box,
+                x_label: String::new(),
+                y_label: String::new(),
+                series: vec![plot::PlotSeries {
+                    name: "a".into(),
+                    points: vec![],
+                    values: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+                    visible: true,
+                }],
+                matrix: vec![],
+                x_log: false,
+                y_log: false,
+            };
+            draw_box_summary(ui, &spec);
+        });
+        // egui insists texture deltas are consumed before the output is dropped.
+        output.textures_delta.clear();
+    }
+
+    #[test]
+    fn transformed_points_drops_nonpositive_under_log() {
+        let series = plot::PlotSeries {
+            name: "s".into(),
+            values: vec![],
+            points: vec![[-1.0, 10.0], [10.0, -1.0], [10.0, 100.0]],
+            visible: true,
+        };
+        let out = transformed_points(&series, true, true);
+        assert_eq!(out.len(), 1);
+        assert!(out[0].iter().all(|v| v.is_finite()));
+    }
+}

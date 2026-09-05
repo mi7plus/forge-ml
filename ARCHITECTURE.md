@@ -28,11 +28,14 @@ forge-ml/
 ### App shell & state
 - **`main.rs`** — `ForgeApp` (the `eframe::App`), the frame loop, splash/icon,
   the Windows console handling, and the `--env-*` / `--notebook-selftest` CLI
-  flags. *(Large; a target for extraction — see ROADMAP.)*
+  flags. *(Large; extraction into `app_*`/`ui` modules is ongoing — see ROADMAP.)*
+- **`app_files.rs`** — `ForgeApp` methods for the project/file/editor-tab
+  lifecycle (open/create/delete/save, Cargo/clippy/format, tab close-guards,
+  jump-to navigation), split out of `main.rs`.
 - **`session.rs`** — the serialized `SessionState` (theme, layout, recents,
   settings) persisted by eframe.
-- **`workspace.rs` / `pane_layout.rs`** — workspace snapshots and the dockable
-  pane layout tree (`egui_tiles`).
+- **`workspace.rs`** — workspace snapshots for the dockable pane layout tree
+  (`egui_tiles`).
 - **`keymap.rs`** — customizable keyboard shortcuts.
 
 ### Execution & runtime

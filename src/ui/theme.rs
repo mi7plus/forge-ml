@@ -517,14 +517,6 @@ pub fn compact_panel_frame(fill: Color32, dark: bool) -> Frame {
         .inner_margin(Margin::symmetric(8, 4))
 }
 
-// Retained for the console styling now that the console renders inside a dock tile.
-#[allow(dead_code)]
-pub fn console_panel_frame(dark: bool) -> Frame {
-    Frame::new()
-        .fill(theme_colors(dark).surface)
-        .inner_margin(Margin::same(12))
-}
-
 pub fn toolbar_icon_button(
     ui: &mut egui::Ui,
     icon: egui_phosphor_icons::Icon,

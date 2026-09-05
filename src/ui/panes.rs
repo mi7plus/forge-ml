@@ -331,7 +331,10 @@ impl crate::ForgeApp {
     }
 
     pub(crate) fn charts(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
+        // `horizontal_wrapped` so the run/export controls flow onto the next line
+        // on a narrow pane instead of overflowing off the right edge (the pane is
+        // a vertical-only scroll area, so an overflowing row would be unreachable).
+        ui.horizontal_wrapped(|ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut self.experiment_name)
                     .desired_width(110.0)
@@ -405,21 +408,35 @@ impl crate::ForgeApp {
             }
         });
         self.structured_plot_viewer(ui);
-        ui.horizontal(|ui| {
+        // Explicit widths + wrapping: a bare singleline TextEdit expands to fill
+        // the row, so two/three side by side would push each other off a narrow
+        // pane. Fixed widths let them sit together when wide and wrap when narrow.
+        ui.horizontal_wrapped(|ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut self.experiment_tags)
+                    .desired_width(180.0)
                     .hint_text("tags, comma separated"),
             );
-            ui.add(egui::TextEdit::singleline(&mut self.experiment_notes).hint_text("run notes"));
+            ui.add(
+                egui::TextEdit::singleline(&mut self.experiment_notes)
+                    .desired_width(220.0)
+                    .hint_text("run notes"),
+            );
         });
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut self.experiment_github_issue)
+                    .desired_width(180.0)
                     .hint_text("GitHub issue URL"),
             );
-            ui.add(egui::TextEdit::singleline(&mut self.experiment_github_pr).hint_text("PR URL"));
+            ui.add(
+                egui::TextEdit::singleline(&mut self.experiment_github_pr)
+                    .desired_width(160.0)
+                    .hint_text("PR URL"),
+            );
             ui.add(
                 egui::TextEdit::singleline(&mut self.experiment_github_action)
+                    .desired_width(180.0)
                     .hint_text("Actions run URL"),
             );
         });

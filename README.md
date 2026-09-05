@@ -4,7 +4,7 @@
 
 # Forge ML
 
-Forge ML is an experimental desktop compute studio for interactive Rust machine-learning work.
+Forge ML is a desktop compute studio for interactive Rust machine-learning work, shipping as signed Windows, macOS, and Linux installers.
 
 Its workspace follows the scientific-IDE model popularized by Spyder — an editor surrounded by project, outline, variable, plot, help, diagnostics, console, and history panes — but every surface is a fully dockable pane. Split, drag between regions, tab together, reorder, or hide any pane; the arrangement is remembered across restarts.
 
@@ -12,114 +12,93 @@ A browsable feature site lives under [`site/`](site/) (homepage plus a detailed 
 
 See the [user guide](docs/USER_GUIDE.md), [architecture](ARCHITECTURE.md), [roadmap](ROADMAP.md), [environment design](docs/FORGE_ENV.md), [privacy guide](docs/PRIVACY.md), [event protocol](docs/PROTOCOL.md), [extension guide](docs/EXTENSIONS.md), and [contributor guide](CONTRIBUTING.md).
 
-## Current prototype
+## What it does
 
-- Fully dockable `egui_tiles` workspace: split, drag between regions, tab, reorder, or hide any pane, with the layout persisted across restarts and a **View → Panes** menu to toggle visibility
-- Every tool surface is a first-class pane — editor, files, outline, notebook cells, console, history, Python, data viewer, and all inspector panes
-- Bottom status bar with runtime state, active file, pending background tasks, cursor position, and language-server status
-- Icon-labeled pane tabs, `Ctrl+1`–`Ctrl+9` inspector jumps, `F6` pane cycling, and drag-to-reorder / middle-click-close editor tabs
-- Persistent Evcxr session running away from the UI thread
-- Notebook cells separated with `//# %% <name>`
-- Selectable cell navigator and active execution state
-- Captured standard output, expression results, compiler errors, and execution time
-- Runtime reset without restarting the application
-- Variable and training-metric inspector surfaces
-- Live Evcxr variable names and Rust types after every successful cell
-- Multiple editor tabs with independent unsaved-state protection
-- Run Cell, Run Above, and Run All execution flows with per-cell status/output
-- Restored project, open files, active file, window, and dockable pane layout across launches
-- Recent-project history with safe unsaved-change handling
-- Persistent appearance settings for theme, editor font size, and caret blinking
-- Background Cargo diagnostics in the Problems inspector
-- Telemetry-driven line charts and vector bar visualizations
-- Dataset viewer as a dockable pane (or a floating window), with row filtering and two-dimensional tables
-- Deletable live datasets and plots, with experiment snapshots and comparison settings persisted across launches
-- SHA-256 experiment provenance for datasets, source identities, Cargo lockfiles, environments, and project bundles
-- Files and Outline navigation panes, plus a dedicated notebook-cell rail pane
-- Project-wide search with clickable line and column results
-- Clickable source outline for functions, structs, enums, traits, implementations, and modules
-- Spyder-style Variable Explorer table and Plots/Help/Problems tool panes
-- Interactive Rust console with persistent Evcxr state and command history
-- `rust-analyzer` document synchronization, diagnostics, completion, hover, and definition requests
-- Inline rust-analyzer diagnostic underlines with hover messages
-- Caret-anchored, clickable rust-analyzer completion popup
-- Dataset export to CSV, TSV, JSON Lines, Parquet, and Arrow IPC
-- Notebook export to `.ipynb`, Markdown, and self-contained HTML
-- Compressed experiment bundles containing the run manifest and referenced artifacts
-- Project-local versioned model registry with promotion/rollback aliases
-- SHA-256 model integrity, immutable version enforcement, and tamper-aware deployment readiness
-- Native Millwright 2.2 ONNX export/round-trip cells using the published crates.io API
-- Non-blocking native Millwright 2.2.1 CSV/Parquet imports normalized through Forge's bounded data pipeline
-- Always-embedded Millwright 2.2.1 plus Burn 0.22 training, metrics, Flex CPU, and WGPU runtimes
-- One-click embedded Burn Flex/autodiff linear training with native SGD and typed Forge telemetry
-- Backend-aware embedded Burn training across Flex CPU and compatible WGPU adapters
-- Non-blocking embedded Burn training with live typed progress and cooperative cancellation
-- Validated native Burn epoch and learning-rate controls with configuration-labeled runs
-- Native Burn univariate regression over selected dataset columns with bounded numeric preparation
-- Deterministic native validation holdouts, validation-loss telemetry, and patience-based early stopping
-- Leakage-safe native feature/target standardization with original-unit loss reporting
-- Attested schema-2 native regression artifacts with schema-1 compatibility, atomic JSON import/export, and in-IDE inference
-- Background native batch inference into Arrow-backed prediction datasets
-- Configurable native batch feature-drift policy with mean-shift and scale-ratio monitoring plots
-- Restart-safe active native model, inference value, and drift-policy session state
-- Restart-safe embedded Burn backend, optimizer, validation, early-stopping, and dataset-column setup
-- Offline native regression model cards with equation, evaluation, provenance, preprocessing, and drift policy
-- Immutable model-registry versioning and integrity-verified loading for native regression artifacts
-- Standalone generated Rust inference services for registered native regression models
-- Native batch evaluation with MAE, RMSE, R², actual-vs-predicted, and residual plots
-- Schema-2 native model provenance with exact data fingerprints and schema-1 compatibility
-- Bounded framework-neutral training event monitoring with validated JSON/CSV export
-- All-or-nothing validated training JSON import for reopening archived telemetry
-- Self-contained offline training summary and event-audit HTML reports
-- Atomic paginated native PDF training summaries with bounded event audits
-- Compressed attested training bundles with events, reports, plots, and SHA-256 manifest entries
-- Integrity-verified training bundle import with all-or-nothing event and plot restoration
-- One-click native loss, metric, trial-score, and throughput plots from training telemetry
-- Regression-tested right-pane dataset docking, divider clamping, and persisted layout defaults
-- Cached dataset-quality profiles with missingness, type coverage, standard deviation, bounded correlations, and alerts
-- Background Arrow construction and quality preparation for file, SQL, and native Millwright imports
-- Live decoded-row progress for CSV, TSV, JSON Lines, Parquet, and Arrow IPC imports
-- Bounded 8,192-row Arrow batch storage with streaming multi-batch data exports
-- Validated remote Jupyter profiles with credential-safe, bounded background kernelspec probes
-- Authenticated background start/stop lifecycle for Forge-managed remote Jupyter kernels
-- Bounded authenticated Jupyter WebSocket execution with rich MIME, responsive interrupts, direct notebook-cell routing, and secure stdin prompts
-- Self-contained Rust/Axum inference services with real Millwright ONNX inference, health, readiness, metadata, Docker, Compose, and Kubernetes templates
-- Framework-neutral request/error/latency and explainable feature-drift monitoring in the deployment pane
-- Bounded validated deployment-monitor snapshots with all-or-nothing JSON import/export
-- One-click native request, error-rate, p95-latency, and drift-threshold monitoring plots
-- Self-contained offline deployment health and drift-breach HTML reports
-- Native paginated deployment health and drift-breach PDF reports
-- Attested portable deployment-monitoring bundles with snapshots, reports, and native plots
-- Integrity-verified monitoring-bundle import with all-or-nothing live-state restoration
-- Bounded atomic service-health and feature-drift CSV audit exports
-- Native bounded multi-model deployment health and latest-feature-drift overview
-- Native bounded multi-run training status, progress, metric, and score overview
-- Atomic analysis-ready training-run summary CSV exports
-- Explicit bounded run contexts for interleaved concurrent training telemetry
-- Run-aware native loss, metric, trial-score, and throughput plots for concurrent training
-- Run-aware bounded HTML and native PDF training reports for concurrent jobs
-- Schema-2 attested training bundles with validated run summaries and schema-1 import compatibility
-- S3-compatible and rclone object-storage profiles with bounded browsing, reachability probes, and atomic prefix-aware project caching
-- Hardened SQLite, DuckDB, PostgreSQL, and verified-TLS MySQL profiles with test probes, command timeouts, output caps, and credential-safe errors
-- Project-scoped successful SQL history with bounded deduplication, recall, JSON export, and explicit clearing
-- Defense-in-depth read-only SQL workbench validation with single-statement enforcement
-- Connection-profile removal with persisted rollback and OS credential cleanup
-- Non-blocking database and object-storage operations with typed background result delivery
-- Non-blocking CSV, TSV, JSON Lines, Parquet, and Arrow IPC imports with a 512 MiB interactive safety limit
-- Bounded dataset materialization with row, column, decoded-text, cell, and Parquet batch limits
-- Non-blocking full-dataset exports with shallow Arrow handoff and crash-safe destination replacement
-- Private Cargo and PyPI-compatible registry discovery plus GitHub Enterprise authentication validation
-- Attested stable/beta update discovery that validates release manifests without silently installing binaries
-- Packaging preflight and executable notebook/table/plot performance budgets
-- Searchable keyboard command palette, inspector-pane cycling, high contrast, and reduced motion
-- Off-by-default local diagnostics and reviewable crash-report ZIP export with no automatic upload
-- Durable, reorderable framework-neutral plot history with duplication, bulk JSON interchange, 11 plot families, consistent plot semantics, and SVG/PNG/PDF/interactive HTML export
-- Two-axis virtualized data grids with selection, hidden/pinned/resizable columns, explicit draft editing, selection export, and linked plots
-- Revision-aware filter/sort indexes and zero-copy steady-state table viewing
-- Coalescing background filter/sort indexing with revision-safe result delivery
-- Generation-cancelled indexing with precomputed numeric or text sort keys
-- Reproducible project bundles plus standalone EDA and experiment-comparison HTML reports
-- Atomic offline PDF reports for bounded dataset EDA and experiment comparisons
+Forge ML has grown past a prototype — it ships signed Windows, macOS, and Linux
+installers, each carrying an offline Rust runtime so notebooks and generated
+projects build with no user-installed toolchain and no network. The highlights
+below are grouped by workflow; the [feature site](site/) and
+[user guide](docs/USER_GUIDE.md) carry the exhaustive list.
+
+### Workspace & editor
+- Fully dockable `egui_tiles` workspace — split, drag between regions, tab,
+  reorder, or hide any pane, with the layout persisted across restarts and a
+  **View → Panes** menu to toggle visibility
+- Multiple editor tabs with independent unsaved-state protection, drag-to-reorder
+  and middle-click-close, plus a bottom status bar (runtime state, active file,
+  background tasks, cursor position, language-server status)
+- Session restore for project, open files, active file, window, layout, and
+  appearance (theme, editor font size, caret blink); recent-project history with
+  safe unsaved-change handling
+- Command palette, `Ctrl+1`–`Ctrl+9` inspector jumps, `F6` pane cycling, high
+  contrast, and reduced-motion modes
+
+### Notebooks & the Rust runtime
+- Persistent Evcxr session off the UI thread; cells separated with `//# %% <name>`
+- Run Cell / Run Above / Run All with per-cell status, captured stdout,
+  expression results, compiler errors, and timing; runtime reset without restart
+- Live variable names and Rust types after every successful cell, a selectable
+  cell rail, and an interactive Rust console with persistent state and history
+- `rust-analyzer` synchronization, diagnostics with inline underlines, a
+  caret-anchored completion popup, hover, and go-to-definition across files;
+  project-wide search and a clickable symbol outline
+
+### Data
+- Dataset viewer as a dockable pane or floating window: two-axis virtualized
+  grids with selection, hidden/pinned/resizable columns, draft editing, filter
+  and sort, selection export, and linked plots
+- Non-blocking CSV/TSV/JSON Lines/Parquet/Arrow IPC import and export with a
+  512 MiB interactive safety limit, bounded Arrow-batch materialization, and live
+  decoded-row progress
+- Cached dataset-quality profiles (missingness, type coverage, standard
+  deviation, bounded correlations, alerts) built in the background
+- SQLite, DuckDB, PostgreSQL, and verified-TLS MySQL connection profiles with
+  a read-only SQL workbench and project-scoped query history; S3-compatible and
+  rclone object-storage profiles with bounded browsing
+
+### Machine learning
+- Classical ML with **Millwright 2.2** compiled in (smartcore + linfa backends,
+  pure Rust): design a pipeline and train it in-process on the selected table —
+  no toolchain, no network — with ONNX export/round-trip
+- Deep learning with **Burn 0.22** compiled in: one-click Flex/autodiff and
+  WGPU-backend training with native SGD, validated epoch/learning-rate controls,
+  deterministic validation holdouts, patience-based early stopping, and
+  leakage-safe standardization
+- Framework-neutral training telemetry: live loss/metric/throughput plots,
+  concurrent run contexts, and self-contained HTML/PDF reports and bundles
+
+### Models & deployment
+- Project-local versioned model registry with promotion/rollback aliases,
+  SHA-256 integrity, immutable-version enforcement, and integrity-verified loading
+- Attested regression artifacts with atomic JSON import/export and in-IDE
+  inference; background batch inference into Arrow-backed prediction datasets with
+  feature-drift monitoring
+- Self-contained Rust/Axum inference services (real Millwright ONNX inference)
+  with health/readiness/metadata endpoints and Docker/Compose/Kubernetes
+  templates, plus a deployment-monitoring pane (requests, errors, p95 latency,
+  drift) with HTML/PDF reports
+
+### Experiments, plots & provenance
+- Durable, reorderable plot history across 11 plot families — including
+  statistical box/violin/ECDF — with SVG/PNG/PDF/interactive-HTML export and a
+  **Hide outliers** / zoom / pan toolkit
+- Telemetry-driven line charts and vector bar plots; experiment snapshots and
+  comparison settings persisted across launches
+- SHA-256 provenance for datasets, source identities, Cargo lockfiles,
+  environments, and project bundles; reproducible project bundles and standalone
+  EDA / experiment-comparison HTML and PDF reports
+
+### Distribution & packaging
+- A thin `forge` CLI (scaffold projects with `forge.toml`, pass through to Cargo,
+  `env sync|doctor`) and a `forge_ml` umbrella crate re-exporting the curated
+  stack — both shipped in the installer
+- A declarative `forge.toml` / `forge.lock` environment system with reserved
+  `[native]`/`[gpu]`/`[python]` seams for a future environment manager
+- Tagged releases build an NSIS installer, a macOS DMG, and Linux DEB/AppImage
+  packages with build-provenance attestations; updates are discovered and
+  verified but never installed silently
+- Off-by-default local diagnostics with reviewable crash-report export — no
+  automatic upload (see the [privacy guide](docs/PRIVACY.md))
 
 ## Notebook controls
 

@@ -12,6 +12,49 @@ grouped under the **0.98.0** release below.
 ## [Unreleased]
 
 ### Added
+- **Git pane: interactive branch list.** Refresh/Branches now render a selectable
+  list (current branch and remotes flagged with icons). Left-click selects a
+  branch; right-click opens a context menu — **Checkout**, **Merge into current
+  branch**, **Delete**, **Force delete** — each disabled where it doesn't apply
+  (the checked-out branch, or a remote). A conflicting merge flows straight into
+  the conflict-mediation section.
+- **Plots pane: Clear plots.** A dedicated button that removes all structured
+  plots while leaving the metric/vector datasets in place (distinct from *Clear
+  current*, which wipes both).
+
+### Changed
+- **Cells explorer navigation.** Clicking a cell in the Notebook Cells rail now
+  jumps the editor to that cell — moving the caret to its start and scrolling it
+  into view — instead of only marking it selected.
+- **Responsive pane toolbars.** The Data viewer's filter/dataset rows and the
+  Plots pane's run/export and experiment-metadata rows now wrap onto the next
+  line on a narrow pane instead of overflowing off the right edge.
+- **CI hardening.** Build & test now run on **Windows and macOS** as well as
+  Linux (catching the platform-specific console/icon/rust-analyzer paths that
+  previously only surfaced at release), clippy runs with `--all-features` (so
+  `adbc` and `forge_ml`'s `deep-learning` code is linted, not left to rot), and
+  the examples are compiled in CI.
+- **Testable status/plot internals.** The status-bar run-state label is now a
+  pure `run_state_chip` function, and the plotting/stats helpers gained
+  edge-case coverage (empty / single / all-equal inputs) plus a headless egui
+  render smoke test — the class of bug behind the console-overflow panic.
+
+### Fixed
+- **Editor caret-scroll.** Jump-to navigation (cell rail, symbol outline,
+  insert-cell, find/replace) moved the caret but never scrolled the editor to
+  it, because the scroll-area id didn't match the one `CodeEditor` actually
+  uses. It now reveals the target line.
+- **Status-bar overflow panic.** Running code from the console
+  (`RunState::Running(usize::MAX)`) formatted `cell + 1` and panicked in debug;
+  it now shows "Running console".
+
+### Removed
+- Dead code: the unused `pane_layout` module (superseded by `egui_tiles`), the
+  unused `console_panel_frame` helper, and the no-op `millwright` feature alias.
+
+## [1.3.0] — 2026-09-05
+
+### Added
 - **Statistical plots in the Plots pane.** Proper Tukey box-and-whisker (per-group
   boxes, median, 1.5·IQR whiskers, outliers), plus new **violin** (Gaussian-KDE
   density) and **ECDF** kinds. Every plot also gained a **Hide outliers** toggle
@@ -21,18 +64,10 @@ grouped under the **0.98.0** release below.
   history (log) view, Delete / Force-delete branch, and a conflict-resolution
   section (Keep ours / Keep theirs / Mark resolved, Continue / Abort merge)
   shown while a merge is in progress.
-- **Git pane: interactive branch list.** Refresh/Branches now render a selectable
-  list (current branch and remotes flagged with icons). Left-click selects a
-  branch; right-click opens a context menu with **Checkout**, **Merge into current
-  branch**, **Delete**, and **Force delete** (disabled where they don't apply, e.g.
-  the checked-out or a remote branch). A conflicting merge flows straight into the
-  conflict-mediation section.
-- **Time-series examples.** `millwright_timeseries` (univariate forecasting as lag
-  regression — `LinearRegression` on lags 1/2/3/12 with a recursive 12-month
-  forecast) and `burn_timeseries` (a linear autoregressive forecaster over a
-  sliding window, SGD-trained), as both runnable `cargo` examples and `//# %%`
-  notebooks under `examples/notebooks/`. Self-contained (a deterministic synthetic
-  monthly series), compile-verified, and emitting `forge_table`/`forge_plot`.
+
+## [1.2.0] — 2026-09-05
+
+### Added
 - **`forge` CLI + `forge_ml` umbrella crate.** A new thin, dependency-free
   `forge` command (`crates/forge-cli`) wraps Cargo/rustup with data-science
   defaults — `forge new <name> --profile …` scaffolds a project and `forge.toml`
@@ -42,6 +77,23 @@ grouped under the **0.98.0** release below.
   (ndarray + Millwright by default, Burn behind `deep-learning`) behind one
   `prelude`. Both pin the versions already in the workspace, so they add no new
   dependency trees. (Phase 1 of the Forge distribution — see docs/FORGE_ENV.md.)
+  The `forge` binary ships inside the installer alongside `forge_ide`.
+- **Time-series examples.** `millwright_timeseries` (univariate forecasting as lag
+  regression — `LinearRegression` on lags 1/2/3/12 with a recursive 12-month
+  forecast) and `burn_timeseries` (a linear autoregressive forecaster over a
+  sliding window, SGD-trained), as both runnable `cargo` examples and `//# %%`
+  notebooks under `examples/notebooks/`. Self-contained (a deterministic synthetic
+  monthly series), compile-verified, and emitting `forge_table`/`forge_plot`.
+
+### Changed
+- **Repo hygiene.** Consolidated four planning docs into a single `ROADMAP.md`
+  plus a new `ARCHITECTURE.md` code map, gated CI on `cargo fmt --check` and
+  clippy `-D warnings`, moved the dataset-table renderer out of `main.rs` into
+  `ui/data_view.rs`, and gave `forge.lock` a real structural fingerprint.
+
+## [1.1.0] — 2026-09-02
+
+### Added
 - **Forge environment system (seams).** A declarative `forge.toml` manifest, a
   generated `forge.lock`, and an `EnvironmentProvider` interface the app resolves
   the runtime through (`src/environment/`). The manifest's `[native]`, `[gpu]`,
@@ -51,6 +103,13 @@ grouped under the **0.98.0** release below.
   provider today wraps the offline runtime bundle, so activation behavior is
   unchanged. New `--env-doctor [dir]` and `--env-sync [dir]` CLI entry points
   report the environment and write `forge.lock`. See `docs/FORGE_ENV.md`.
+
+## [1.0.0] — 2026-09-02
+
+First installer release: Windows/macOS/Linux packages built and published by the
+release pipeline, each carrying the offline Rust runtime.
+
+### Added
 - **Brand logo.** A new Forge ML mark — a forged anvil with a neural-spark crown,
   in a Rust-hot amber→red palette — now appears as the app window/taskbar icon,
   the installer icon (Windows `.ico`, macOS `.icns`, Linux PNGs), the splash
@@ -71,21 +130,18 @@ grouped under the **0.98.0** release below.
   forces offline mode and replaces crates.io with the bundle's absolute `vendor/`
   path, and grants evcxr a large persistent compile cache. Inert no-op in
   development builds. Ships `packaging/build-offline-bundle.{sh,ps1}`, the blessed
-  `packaging/offline-deps` manifest, a pinned `rust-toolchain.toml`, `Packager.toml`
-  resource wiring, and `docs/OFFLINE_RUNTIME.md`; the ML Lab shows whether the
-  offline runtime is active. **Verified end-to-end on Windows**: a cell using both
+  `packaging/offline-deps` manifest, a pinned `rust-toolchain.toml`, resource
+  wiring, and `docs/OFFLINE_RUNTIME.md`; the ML Lab shows whether the offline
+  runtime is active. **Verified end-to-end on Windows**: a cell using both
   Millwright and Burn resolves, compiles, and runs entirely offline against the
-  vendored bundle (~1.6 GB uncompressed per platform). Producing the per-platform
-  bundles is a release-pipeline step.
-- **In-process Millwright training.** The Millwright Studio can now train a
-  designed pipeline **inside Forge** — *Train pipeline in Forge* and *Train &
-  export ONNX* fit the pipeline on the table selected in the Data viewer using
-  the compiled-in classical backends, with no Rust toolchain or network. Results
-  stream into the existing training telemetry (run overview, plots, report) and
-  the console shows held-out metrics (accuracy for classifiers, R² for
-  regressors) from a deterministic 80/20 split. The "generate notebook cell"
-  buttons remain for producing a portable Evcxr cell. This closes the last ML
-  path that would otherwise compile Millwright on the end user's machine.
+  vendored bundle (~1.6 GB uncompressed per platform).
+- **In-process Millwright training.** The Millwright Studio can train a designed
+  pipeline **inside Forge** — *Train pipeline in Forge* and *Train & export ONNX*
+  fit the pipeline on the table selected in the Data viewer using the compiled-in
+  classical backends, with no Rust toolchain or network. Results stream into the
+  existing training telemetry (run overview, plots, report) and the console shows
+  held-out metrics (accuracy for classifiers, R² for regressors) from a
+  deterministic 80/20 split.
 
 ### Changed
 - **Millwright is now fully native.** The `smartcore-backend` and `linfa-backend`
@@ -94,8 +150,7 @@ grouped under the **0.98.0** release below.
   `eda` and `onnx` features — no longer scoped to example builds. Both backends
   are pure Rust (linfa uses `linfa-linalg`, not a system BLAS), so this keeps the
   Windows/macOS/Linux installer self-contained with no toolchain or network
-  needed at runtime. The bundled ML examples now inherit these features from the
-  main dependency instead of a `[dev-dependencies]` override.
+  needed at runtime.
 
 ## [0.99.0] — 2026-08-31
 

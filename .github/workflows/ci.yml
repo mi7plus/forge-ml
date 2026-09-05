@@ -14,18 +14,26 @@ env:
 
 jobs:
   build-test:
-    name: Build & test
-    runs-on: ubuntu-latest
+    name: Build & test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux is the primary gate; Windows and macOS catch the platform-specific
+        # code (hidden-console handling, winresource, the .icns/.ico paths, the
+        # rust-analyzer .zip vs .gz split) that would otherwise only surface during
+        # the ~1h release build.
+        os: [ubuntu-latest, windows-latest, macos-14]
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
-      - name: Build
-        run: cargo build --workspace --locked
+        with:
+          key: ${{ matrix.os }}
+      - name: Build (workspace + examples)
+        run: cargo build --workspace --examples --locked
       - name: Test
         run: cargo test --workspace --locked
 
@@ -43,5 +51,7 @@ jobs:
       # Gating: the tree is formatted and clippy-clean, so keep it that way.
       - name: rustfmt check
         run: cargo fmt --all --check
+      # `--all-features` so feature-gated code (adbc, forge_ml's deep-learning)
+      # is compiled and linted too, instead of quietly rotting.
       - name: clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
