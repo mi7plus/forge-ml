@@ -11,6 +11,23 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+## [1.8.0] — 2026-09-06
+
+### Added
+- **Quick edit operations in the menu and toolbar.** The Edit menu and top
+  toolbar gained one-click **Cut / Copy / Paste** (operating on the editor
+  selection; native `Ctrl+X/C/V` still work) and quick **Format (rustfmt)** and
+  **Run clippy** buttons, so the common actions no longer require hunting through
+  menus. Cut/Copy are disabled when there's no selection.
+
+### Documentation
+- Refreshed `docs/USER_GUIDE.md` for the Notebook pane / inline output, in-place
+  cell edit, collapse/reorder, cut/copy/paste, `Ctrl+G` / `Ctrl+/`, the
+  violin/ECDF plot kinds, git branch/merge, and remote Rust kernelspecs.
+- Added `docs/SIGNING.md` (a verifiable recipe for Windows Authenticode + macOS
+  Developer ID/notarization) and a first-launch bypass note on the download page,
+  since the installers are not yet OS code-signed.
+
 ## [1.7.0] — 2026-09-05
 
 ### Fixed
@@ -26,11 +43,6 @@ grouped under the **0.98.0** release below.
   removed `✓` marker.)
 
 ### Added
-- **Quick edit operations in the menu and toolbar.** The Edit menu and top
-  toolbar gained one-click **Cut / Copy / Paste** (operating on the editor
-  selection; native `Ctrl+X/C/V` still work) and quick **Format (rustfmt)** and
-  **Run clippy** buttons, so the common actions no longer require hunting through
-  menus. Cut/Copy are disabled when there's no selection.
 - **Inline variable inspection.** The Variables pane's 🔍 Inspect now shows a
   non-tabular value's Debug output *inline* in the pane (a dismissible section
   per variable), instead of only routing it to the console. Tabular values still

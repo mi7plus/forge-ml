@@ -1,6 +1,6 @@
 [package]
 name = "forge_ide"
-version = "1.7.0"
+version = "1.8.0"
 edition = "2021"
 
 # Installer configuration for `cargo packager` (see .github/workflows/release.yml).
