@@ -305,6 +305,22 @@ mod tests {
     }
 
     #[test]
+    fn editing_a_cell_range_replaces_only_that_cell() {
+        // The Notebook pane's in-place edit replaces cell_byte_ranges[index]
+        // (marker + body) with the draft, leaving the other cells untouched.
+        let content = "//# %% a\nx = 1;\n//# %% b\ny = 2;\n";
+        let ranges = cell_byte_ranges(content);
+        assert_eq!(ranges.len(), 2);
+        // Edit the first cell.
+        let mut edited = content.to_owned();
+        edited.replace_range(ranges[0].clone(), "//# %% a\nx = 99;\n");
+        assert_eq!(edited, "//# %% a\nx = 99;\n//# %% b\ny = 2;\n");
+        // The second cell's range still isolates just that cell.
+        let ranges2 = cell_byte_ranges(&edited);
+        assert_eq!(&edited[ranges2[1].clone()], "//# %% b\ny = 2;\n");
+    }
+
+    #[test]
     fn markdown_and_ipynb_round_trip() {
         let source = "//# %% [markdown]\n//# # Results\n//# hello\n//# %%\nlet score = 0.9;";
         let notebook = NotebookDocument::parse_rust(source);

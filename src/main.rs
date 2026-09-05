@@ -770,6 +770,9 @@ struct ForgeApp {
     rename_input: String,
     go_to_line_open: bool,
     go_to_line_input: String,
+    /// In-place cell edit in the Notebook pane: (cell index, draft of the cell's
+    /// raw text including its `//# %%` header). `None` when not editing.
+    notebook_edit: Option<(usize, String)>,
     code_actions: Vec<lsp::CodeAction>,
     cursor_offset: usize,
     document_version: i32,
@@ -1407,6 +1410,7 @@ impl ForgeApp {
             rename_input: String::new(),
             go_to_line_open: false,
             go_to_line_input: String::new(),
+            notebook_edit: None,
             code_actions: Vec::new(),
             hover_text: String::new(),
             cursor_offset: 0,

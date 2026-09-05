@@ -842,6 +842,18 @@ impl crate::ForgeApp {
         let mut run_all = false;
         let mut select: Option<usize> = None;
         let mut open_dataset: Option<String> = None;
+        // In-place editing works on each cell's raw byte range (marker + body),
+        // so a save round-trips exactly. Take the draft out of `self` for the
+        // duration so the editable TextEdit doesn't clash with the immutable
+        // reads of `cell_records`/`data` inside the list.
+        let content = self.active().content.clone();
+        let raw_ranges: Vec<String> = crate::notebook::cell_byte_ranges(&content)
+            .into_iter()
+            .map(|range| content.get(range).unwrap_or_default().to_owned())
+            .collect();
+        let mut edit = self.notebook_edit.take();
+        let mut save: Option<(usize, String)> = None;
+        let mut cancel_edit = false;
         ui.horizontal(|ui| {
             ui.label(RichText::new("NOTEBOOK").size(10.0).strong().color(MUTED));
             run_all = ui
@@ -896,10 +908,46 @@ impl crate::ForgeApp {
                             if ui.small_button("Run").clicked() {
                                 run_cell = Some(index);
                             }
+                            let editing_this = matches!(&edit, Some((i, _)) if *i == index);
+                            if !editing_this
+                                && edit.is_none()
+                                && ui
+                                    .small_button("Edit")
+                                    .on_hover_text("Edit this cell's source in place")
+                                    .clicked()
+                            {
+                                edit = Some((
+                                    index,
+                                    raw_ranges.get(index).cloned().unwrap_or_default(),
+                                ));
+                            }
                         });
-                        // Source (read-only), scrolled horizontally so long lines
-                        // don't force the whole pane wide.
-                        if !source.trim().is_empty() {
+                        let editing_this = matches!(&edit, Some((i, _)) if *i == index);
+                        if editing_this {
+                            if let Some((_, draft)) = &mut edit {
+                                ui.add(
+                                    egui::TextEdit::multiline(draft)
+                                        .code_editor()
+                                        .desired_rows(4)
+                                        .desired_width(f32::INFINITY),
+                                );
+                                ui.horizontal(|ui| {
+                                    if ui.button("Save").clicked() {
+                                        save = Some((index, draft.clone()));
+                                    }
+                                    if ui.button("Cancel").clicked() {
+                                        cancel_edit = true;
+                                    }
+                                    ui.label(
+                                        RichText::new("includes the //# %% header")
+                                            .size(9.0)
+                                            .color(MUTED),
+                                    );
+                                });
+                            }
+                        } else if !source.trim().is_empty() {
+                            // Source (read-only), scrolled horizontally so long lines
+                            // don't force the whole pane wide.
                             egui::ScrollArea::horizontal()
                                 .id_salt(("nb_src", index))
                                 .max_height(160.0)
@@ -1000,6 +1048,25 @@ impl crate::ForgeApp {
                     ui.add_space(6.0);
                 }
             });
+        // Resolve the in-place edit: save writes the draft back over the cell's
+        // raw byte range; cancel discards; otherwise carry the draft forward.
+        if let Some((index, draft)) = save {
+            let current = self.active().content.clone();
+            let ranges = crate::notebook::cell_byte_ranges(&current);
+            if let Some(range) = ranges.get(index).cloned() {
+                let mut updated = current.clone();
+                updated.replace_range(range, &draft);
+                self.active_mut().content = updated;
+                self.active_mut().dirty = true;
+                self.cell_records.clear();
+                self.console = format!("Edited cell {} in the notebook.", index + 1);
+            }
+            self.notebook_edit = None;
+        } else if cancel_edit {
+            self.notebook_edit = None;
+        } else {
+            self.notebook_edit = edit;
+        }
         if let Some(index) = select {
             self.selected_cell = index;
             self.focus_cell_in_editor(index);
@@ -1287,8 +1354,9 @@ mod tests {
         let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
             draw_table_preview(ui, &[], &[], "empty");
             let cols: Vec<String> = (0..15).map(|i| format!("c{i}")).collect();
-            let rows: Vec<Vec<String>> =
-                (0..20).map(|r| (0..15).map(|c| format!("{r}.{c}")).collect()).collect();
+            let rows: Vec<Vec<String>> = (0..20)
+                .map(|r| (0..15).map(|c| format!("{r}.{c}")).collect())
+                .collect();
             draw_table_preview(ui, &cols, &rows, "big");
         });
         output.textures_delta.clear();

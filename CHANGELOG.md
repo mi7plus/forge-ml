@@ -22,7 +22,9 @@ grouped under the **0.98.0** release below.
   names); plots use a compact inline renderer and datasets show a first-rows
   preview with an **Open in Data viewer** button. Added to fresh layouts and
   injected into saved layouts that predate it, so no existing dock arrangement is
-  reset. Toggle it under **View → Panes**.
+  reset. Toggle it under **View → Panes**. Cells can also be **edited in place**
+  from the notebook (an Edit button per card writes the draft back over the
+  cell's raw range in the buffer) and run individually or all at once.
 - **Go to line** (`Ctrl+G`) — a dialog that jumps the editor caret to a 1-based
   line and scrolls it into view. Also in the command palette.
 - **Toggle line comment** (`Ctrl+/`) — comments/uncomments the line under the
