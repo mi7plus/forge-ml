@@ -72,7 +72,7 @@ jobs:
     needs: package
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: release-artifacts
       - run: find release-artifacts -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
