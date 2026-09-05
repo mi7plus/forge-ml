@@ -97,7 +97,9 @@ forge-ml/
 
 ### UI (`src/ui/`)
 View code only, driven by the state above. **`panes.rs`/`dock.rs`** host the
-dockable layout; **`editor.rs`/`editor_pane.rs`/`editing.rs`** the code editor;
+dockable layout — including the **Notebook pane** (`panes.rs::notebook_pane`),
+which stacks cells with their output (text, MIME, plots, and dataset previews)
+inline and supports in-place editing; **`editor.rs`/`editor_pane.rs`/`editing.rs`** the code editor;
 **`data_view.rs`/`grid.rs`** the virtualized data grid; **`plotting.rs`** the
 plots; **`ml_lab.rs`** the ML/training surfaces; **`services.rs`/`scm.rs`** the
 deployment and source-control panes; **`menus.rs`/`shortcuts.rs`** menus and the
