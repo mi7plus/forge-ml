@@ -63,7 +63,7 @@ impl crate::ForgeApp {
                 table_names.sort();
                 for name in table_names {
                     let data = &self.data.tables[&name];
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         if ui
                             .button(RichText::new(&name).strong().color(accent()))
                             .on_hover_text("Open in the data viewer")
@@ -528,7 +528,10 @@ fn draw_dataset_table(
     state.visible.resize(column_count, true);
     state.pinned.resize(column_count, false);
     state.widths.resize(column_count, 120.0);
-    ui.horizontal(|ui| {
+    // `horizontal_wrapped` so the filter controls flow onto the next line on a
+    // narrow pane instead of overflowing off the right edge (matching the
+    // selection/export row below).
+    ui.horizontal_wrapped(|ui| {
         ui.label(format!(
             "{} rows × {} columns",
             data.rows.len(),
