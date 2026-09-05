@@ -343,10 +343,19 @@ impl crate::ForgeApp {
                 )));
             state.store(ui.ctx(), output.response.id);
             let caret = output.galley.pos_from_cursor(target_cursor);
-            let scroll_id =
-                ui.make_persistent_id(format!("editor_{}_outer_scroll", self.active_tab));
+            // Must match how `CodeEditor`'s outer `ScrollArea` derives its id:
+            // it passes the salt through `IdSalt::new` before `Ui::make_persistent_id`,
+            // so we have to wrap the salt the same way. Passing a bare `String`
+            // here hashes differently, `State::load` returns `None`, and the
+            // scroll silently never happens.
+            let scroll_id = ui.make_persistent_id(egui::IdSalt::new(format!(
+                "editor_{}_outer_scroll",
+                self.active_tab
+            )));
             if let Some(mut scroll_state) = egui::scroll_area::State::load(ui.ctx(), scroll_id) {
-                let viewport_height = ui.available_height().max(120.0);
+                // `ui.available_height()` here is the sliver left below the editor,
+                // not the editor's own viewport, so fall back to the pane height.
+                let viewport_height = ui.available_height().max(ui.clip_rect().height());
                 scroll_state.offset.y = (caret.center().y - viewport_height * 0.45).max(0.0);
                 scroll_state.store(ui.ctx(), scroll_id);
             }
