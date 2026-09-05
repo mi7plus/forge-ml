@@ -1,6 +1,6 @@
 [package]
 name = "forge-cli"
-version = "1.6.0"
+version = "1.7.0"
 edition = "2021"
 description = "The forge command-line entry point: scaffold, add, run, and diagnose Rust ML projects around Cargo."
 publish = false
