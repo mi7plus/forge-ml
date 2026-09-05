@@ -1580,7 +1580,11 @@ impl ForgeApp {
                 RunState::Ready => (icons::CHECK_CIRCLE.as_str(), "Ready".to_owned(), GREEN),
                 RunState::Running(cell) => (
                     icons::CIRCLE_NOTCH.as_str(),
-                    format!("Running cell {}", cell + 1),
+                    if cell == CONSOLE_CELL_ID {
+                        "Running console".to_owned()
+                    } else {
+                        format!("Running cell {}", cell + 1)
+                    },
                     accent(),
                 ),
                 RunState::Failed => (icons::X_CIRCLE.as_str(), "Runtime failed".to_owned(), RED),
