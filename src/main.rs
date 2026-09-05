@@ -822,6 +822,9 @@ struct ForgeApp {
     find_query: String,
     replace_query: String,
     pending_editor_selection: Option<(usize, usize)>,
+    /// The editor's current selection as an ordered char range (start == end
+    /// means just a caret). Captured each frame for copy/cut/paste menu actions.
+    editor_selection: (usize, usize),
     run_all_after_reset: bool,
     experiment_name: String,
     experiment_tags: String,
@@ -1459,6 +1462,7 @@ impl ForgeApp {
             find_query: String::new(),
             replace_query: String::new(),
             pending_editor_selection: None,
+            editor_selection: (0, 0),
             run_all_after_reset: false,
             experiment_name: session.experiment_name,
             experiment_tags: String::new(),
@@ -1885,6 +1889,75 @@ impl ForgeApp {
         self.active_mut().dirty = true;
         self.cursor_offset = new_cursor;
         self.pending_editor_selection = Some((new_cursor, new_cursor));
+        self.cell_records.clear();
+    }
+
+    /// The active editor's selected text, if any (empty selection returns None).
+    fn selected_text(&self) -> Option<String> {
+        let (start, end) = self.editor_selection;
+        if start >= end {
+            return None;
+        }
+        let content = &self.active().content;
+        let (s, e) = (
+            ui::editing::char_to_byte(content, start),
+            ui::editing::char_to_byte(content, end),
+        );
+        content.get(s..e).map(str::to_owned)
+    }
+
+    /// Copy the editor selection to the system clipboard (Edit → Copy).
+    fn copy_selection(&self, ctx: &egui::Context) {
+        if let Some(text) = self.selected_text() {
+            ctx.copy_text(text);
+        }
+    }
+
+    /// Copy the selection, then delete it from the buffer (Edit → Cut).
+    fn cut_selection(&mut self, ctx: &egui::Context) {
+        let (start, end) = self.editor_selection;
+        if start >= end {
+            return;
+        }
+        self.copy_selection(ctx);
+        let content = &self.active().content;
+        let (s, e) = (
+            ui::editing::char_to_byte(content, start),
+            ui::editing::char_to_byte(content, end),
+        );
+        self.active_mut().content.replace_range(s..e, "");
+        self.finish_edit_at(start);
+    }
+
+    /// Insert clipboard text at the caret, replacing any selection (Edit → Paste).
+    fn paste_clipboard(&mut self) {
+        let text = match arboard::Clipboard::new().and_then(|mut cb| cb.get_text()) {
+            Ok(text) => text,
+            Err(error) => {
+                self.console = format!("Clipboard unavailable: {error}");
+                return;
+            }
+        };
+        if text.is_empty() {
+            return;
+        }
+        let (start, end) = self.editor_selection;
+        let content = &self.active().content;
+        let (s, e) = (
+            ui::editing::char_to_byte(content, start),
+            ui::editing::char_to_byte(content, end.max(start)),
+        );
+        self.active_mut().content.replace_range(s..e, &text);
+        self.finish_edit_at(start + text.chars().count());
+    }
+
+    /// Shared tail for cut/paste: mark dirty, move the caret to `cursor` (char
+    /// offset), sync the editor, and drop stale cell outputs.
+    fn finish_edit_at(&mut self, cursor: usize) {
+        self.active_mut().dirty = true;
+        self.cursor_offset = cursor;
+        self.editor_selection = (cursor, cursor);
+        self.pending_editor_selection = Some((cursor, cursor));
         self.cell_records.clear();
     }
 

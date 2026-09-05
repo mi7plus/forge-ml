@@ -166,6 +166,8 @@ impl crate::ForgeApp {
         }
         if let Some(range) = output.cursor_range {
             self.cursor_offset = range.primary.index.0;
+            let (a, b) = (range.primary.index.0, range.secondary.index.0);
+            self.editor_selection = (a.min(b), a.max(b));
             self.select_cell_from_caret();
             if output.response.has_focus() {
                 paint_editor_caret(

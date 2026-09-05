@@ -86,6 +86,7 @@ zip = { version = "4", default-features = false, features = ["deflate"] }
 millwright = { version = "2.2.1", default-features = false, features = ["eda", "onnx", "smartcore-backend", "linfa-backend"] }
 burn = { version = "0.22.0-pre.3", default-features = false, features = ["std", "train", "flex", "wgpu", "metrics"] }
 egui_tiles = { version = "0.17.1", features = ["serde"] }
+arboard = "3.6"
 portable-pty = "0.9.0"
 alacritty_terminal = "0.26.0"
 

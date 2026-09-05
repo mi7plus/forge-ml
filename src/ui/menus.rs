@@ -117,8 +117,34 @@ impl crate::ForgeApp {
                     ui.close();
                 }
                 ui.separator();
+                let has_selection = self.editor_selection.0 < self.editor_selection.1;
+                if ui
+                    .add_enabled(has_selection, egui::Button::new("Cut   Ctrl+X"))
+                    .clicked()
+                {
+                    let ctx = ui.ctx().clone();
+                    self.cut_selection(&ctx);
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(has_selection, egui::Button::new("Copy   Ctrl+C"))
+                    .clicked()
+                {
+                    let ctx = ui.ctx().clone();
+                    self.copy_selection(&ctx);
+                    ui.close();
+                }
+                if ui.button("Paste   Ctrl+V").clicked() {
+                    self.paste_clipboard();
+                    ui.close();
+                }
+                ui.separator();
                 if ui.button("Format document (rustfmt)").clicked() {
                     self.format_document();
+                    ui.close();
+                }
+                if ui.button("Run clippy").clicked() {
+                    self.run_clippy();
                     ui.close();
                 }
             });
@@ -397,6 +423,39 @@ impl crate::ForgeApp {
                 self.pending_editor_history = Some(EditorHistoryCommand::Redo);
             }
             ui.separator();
+            let has_selection = self.editor_selection.0 < self.editor_selection.1;
+            if enabled_toolbar_icon_button(
+                ui,
+                has_selection,
+                icons::COPY,
+                "Copy selection (Ctrl+C)",
+            )
+            .clicked()
+            {
+                let ctx = ui.ctx().clone();
+                self.copy_selection(&ctx);
+            }
+            if enabled_toolbar_icon_button(
+                ui,
+                has_selection,
+                icons::SCISSORS,
+                "Cut selection (Ctrl+X)",
+            )
+            .clicked()
+            {
+                let ctx = ui.ctx().clone();
+                self.cut_selection(&ctx);
+            }
+            if toolbar_icon_button(ui, icons::CLIPBOARD, "Paste at cursor (Ctrl+V)").clicked() {
+                self.paste_clipboard();
+            }
+            ui.separator();
+            if toolbar_icon_button(ui, icons::PAINT_BRUSH, "Format document (rustfmt)").clicked() {
+                self.format_document();
+            }
+            if toolbar_icon_button(ui, icons::BUG, "Run clippy").clicked() {
+                self.run_clippy();
+            }
             if toolbar_icon_button(ui, icons::CHECK_CIRCLE, "Run code analysis").clicked() {
                 self.run_diagnostics();
             }
