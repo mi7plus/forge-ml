@@ -11,6 +11,8 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-09-05
+
 ### Added
 - **Notebook pane (inline cell output).** A new read-oriented pane stacks every
   cell with its captured output shown *inline* — text, rich MIME blocks, the
