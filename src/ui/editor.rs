@@ -162,6 +162,7 @@ impl crate::ForgeApp {
                         .clicked()
                     {
                         self.selected_cell = index;
+                        self.focus_cell_in_editor(index);
                     }
                 }
             });

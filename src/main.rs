@@ -1680,6 +1680,19 @@ impl ForgeApp {
             .collect()
     }
 
+    /// Move the editor caret to the start of the `index`-th cell and scroll it
+    /// into view. The inverse of [`Self::select_cell_from_caret`]: clicking a
+    /// cell in the rail jumps the editor to that cell.
+    fn focus_cell_in_editor(&mut self, index: usize) {
+        let offset = {
+            let content = &self.active().content;
+            let ranges = cell_byte_ranges(content);
+            let byte = ranges.get(index).map(|range| range.start).unwrap_or(0);
+            content[..byte].chars().count()
+        };
+        self.pending_editor_selection = Some((offset, offset));
+    }
+
     fn select_cell_from_caret(&mut self) {
         let ranges = cell_byte_ranges(&self.active().content);
         if ranges.is_empty() {
