@@ -382,6 +382,16 @@ impl crate::ForgeApp {
                         .unwrap_or_else(|error| format!("Plot history export failed: {error}"));
                 }
             }
+            if !self.structured_plots.is_empty()
+                && ui
+                    .button("Clear plots")
+                    .on_hover_text("Remove all plots (keeps metric/vector datasets)")
+                    .clicked()
+            {
+                let count = self.structured_plots.len();
+                self.structured_plots.clear();
+                self.console = format!("Cleared {count} plot(s).");
+            }
             if (self.data.has_telemetry() || !self.structured_plots.is_empty())
                 && ui
                     .button("Clear current")
