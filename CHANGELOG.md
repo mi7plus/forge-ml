@@ -14,10 +14,13 @@ grouped under the **0.98.0** release below.
 ## [1.7.0] — 2026-09-05
 
 ### Fixed
-- **Move/collapse icons rendered as squares.** The Notebook cell move-up/down and
-  collapse controls (and the Plots pane's move-earlier/later buttons, and the
-  pipeline-step separator) used raw Unicode arrows/triangles that aren't in the
-  app font. Switched to the bundled Phosphor icons so they render everywhere.
+- **UI glyphs rendered as squares.** Controls and hints used raw Unicode
+  arrows/triangles/symbols (`↑ ↓ ▾ ▸ → 🔍 ✓ •`) that aren't in the app's fonts.
+  Converted them to bundled Phosphor icons (Notebook move/collapse, Plots
+  move-earlier/later, the Variables Inspect button) or plain ASCII (`->` for
+  arrows in messages, "Up/Down" in the palette hint), so nothing depends on
+  font coverage. (Also fixed the LSP-ready splash check that keyed on the
+  removed `✓` marker.)
 
 ### Added
 - **Inline variable inspection.** The Variables pane's 🔍 Inspect now shows a

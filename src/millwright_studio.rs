@@ -910,7 +910,7 @@ pub fn train_pipeline_in_process(
         .iter()
         .map(|s| s.label())
         .collect::<Vec<_>>()
-        .join(" → ");
+        .join(" -> ");
     let run_id = format!(
         "millwright-inproc-{}",
         NEXT_INPROCESS_RUN.fetch_add(1, Ordering::Relaxed)

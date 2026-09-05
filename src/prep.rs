@@ -69,7 +69,7 @@ impl PrepReport {
     /// A compact multi-line summary for the inspector.
     pub fn summary(&self) -> String {
         let mut lines = vec![format!(
-            "Prepared {} → {} rows · {} numeric + {} encoded feature columns.",
+            "Prepared {} -> {} rows · {} numeric + {} encoded feature columns.",
             self.rows_in, self.rows_out, self.numeric_features, self.encoded_features
         )];
         if self.dropped_rows > 0 {
@@ -423,7 +423,7 @@ mod tests {
         assert_eq!(report.imputed_cells, 1);
         // Missing age imputed with mean of {20,40,60} = 40.
         assert_eq!(out.rows[1][1], "40");
-        // Row 0 is city=NYC → [1,0,0].
+        // Row 0 is city=NYC -> [1,0,0].
         assert_eq!(&out.rows[0][2..5], &["1", "0", "0"]);
         // Passthrough label preserved.
         assert_eq!(out.rows[3][0], "b");
@@ -456,7 +456,7 @@ mod tests {
         let mut cfg = config();
         cfg.scaling = Scaling::MinMax;
         let (out, _) = transform(&table(), &cfg).unwrap();
-        // age after mean-impute: [20,40,40,60] → min 20, max 60.
+        // age after mean-impute: [20,40,40,60] -> min 20, max 60.
         assert_eq!(out.rows[0][1], "0"); // (20-20)/40
         assert_eq!(out.rows[3][1], "1"); // (60-20)/40
         assert_eq!(out.rows[1][1], "0.5"); // (40-20)/40

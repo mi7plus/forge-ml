@@ -271,9 +271,9 @@ impl crate::ForgeApp {
                 response.request_focus();
                 let hint =
                     if self.command_query.trim().is_empty() && !self.recent_commands.is_empty() {
-                        "Recent commands · ↑/↓ select · Enter run · Esc close"
+                        "Recent commands · Up/Down select · Enter run · Esc close"
                     } else {
-                        "↑/↓ select · Enter run · Esc close"
+                        "Up/Down select · Enter run · Esc close"
                     };
                 ui.label(RichText::new(hint).size(10.0).color(MUTED));
                 ui.separator();

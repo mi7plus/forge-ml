@@ -206,7 +206,13 @@ impl crate::ForgeApp {
                             ui.label("No missingness, constant-column, or mixed-type alerts.");
                         } else {
                             for alert in &quality.alerts {
-                                ui.label(RichText::new(format!("• {alert}")).color(EMBER));
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{}  {alert}",
+                                        egui_phosphor_icons::icons::DOT.as_str()
+                                    ))
+                                    .color(EMBER),
+                                );
                             }
                         }
                     });

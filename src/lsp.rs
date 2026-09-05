@@ -257,7 +257,7 @@ fn worker(commands: Receiver<LspCommand>, events: Sender<LspEvent>) {
                 if let Some(since) = active.idle_since {
                     if since.elapsed() >= Duration::from_millis(8000) {
                         active.announced_ready = true;
-                        let _ = events.send(LspEvent::Status("rust-analyzer ready ✓".to_owned()));
+                        let _ = events.send(LspEvent::Status("rust-analyzer ready".to_owned()));
                     }
                 }
             }
@@ -749,7 +749,7 @@ fn handle_message(server: &mut Server, message: Value, events: &Sender<LspEvent>
         if quiescent {
             if !server.announced_ready {
                 server.announced_ready = true;
-                let _ = events.send(LspEvent::Status("rust-analyzer ready ✓".to_owned()));
+                let _ = events.send(LspEvent::Status("rust-analyzer ready".to_owned()));
             }
         } else {
             // Still working (initial load, or re-indexing after edits).

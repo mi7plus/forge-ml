@@ -1060,7 +1060,7 @@ impl crate::ForgeApp {
 
     /// A start screen with quick actions, recent projects, and language-server
     /// status. Closing it (or acting) hides it for future launches; reopen from
-    /// Help → Welcome.
+    /// Help -> Welcome.
     pub(crate) fn welcome_window(&mut self, ctx: &egui::Context) {
         if !self.welcome_open {
             return;
@@ -1132,7 +1132,7 @@ impl crate::ForgeApp {
                 ui.add_space(6.0);
                 ui.label(
                     RichText::new(
-                        "Closing this hides it on future launches — reopen from Help → Welcome.",
+                        "Closing this hides it on future launches — reopen from Help -> Welcome.",
                     )
                     .size(10.0)
                     .color(MUTED),

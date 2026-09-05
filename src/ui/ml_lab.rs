@@ -431,7 +431,7 @@ impl crate::ForgeApp {
                 match export::import_native_regression_artifact(&path) {
                     Ok(artifact) => {
                         self.sql_output = format!(
-                            "Imported native regression model for {} → {}.",
+                            "Imported native regression model for {} -> {}.",
                             artifact.feature, artifact.target
                         );
                         self.native_burn_artifact = Some(artifact);
@@ -1254,7 +1254,7 @@ impl crate::ForgeApp {
                 .take(8)
                 .map(|r| {
                     format!(
-                        "  lr {:<5} epochs {:<4} → acc {:.3}, macro-F1 {:.3}",
+                        "  lr {:<5} epochs {:<4} -> acc {:.3}, macro-F1 {:.3}",
                         r.learning_rate, r.epochs, r.accuracy, r.macro_f1
                     )
                 })

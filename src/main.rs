@@ -1662,7 +1662,11 @@ impl ForgeApp {
                             "{}  {}{}",
                             icons::FILE_CODE.as_str(),
                             name,
-                            if dirty { " •" } else { "" }
+                            if dirty {
+                                format!(" {}", icons::DOT.as_str())
+                            } else {
+                                String::new()
+                            }
                         ))
                         .color(if dirty { EMBER } else { MUTED })
                         .size(11.0),
@@ -2741,11 +2745,11 @@ impl ForgeApp {
         while let Some(event) = self.lsp.try_recv() {
             match event {
                 LspEvent::Status(status) => {
-                    // Only the authoritative "rust-analyzer ready ✓" marker
+                    // Only the authoritative "rust-analyzer ready" marker
                     // dismisses the splash — not looser phrases like the
                     // post-install "Language services are ready", which is sent
                     // before indexing begins.
-                    if status.contains("ready ✓") {
+                    if status.contains("rust-analyzer ready") {
                         self.lsp_ready = true;
                     }
                     self.lsp_status = status;
@@ -2857,9 +2861,12 @@ impl ForgeApp {
                             .color(MUTED),
                     );
                     ui.label(
-                        RichText::new("· click 🔍 to explore a value")
-                            .size(10.0)
-                            .color(MUTED),
+                        RichText::new(format!(
+                            "· click {} to explore a value",
+                            egui_phosphor_icons::icons::MAGNIFYING_GLASS.as_str()
+                        ))
+                        .size(10.0)
+                        .color(MUTED),
                     );
                 });
                 let mut inspect: Option<(String, String)> = None;
@@ -2882,7 +2889,9 @@ impl ForgeApp {
                                     .color(MUTED),
                             );
                             if ui
-                                .small_button("🔍")
+                                .small_button(
+                                    egui_phosphor_icons::icons::MAGNIFYING_GLASS.regular(),
+                                )
                                 .on_hover_text(
                                     "Inspect: show this value in the Data viewer (or the console)",
                                 )
@@ -3172,7 +3181,7 @@ impl egui_tiles::Behavior<PaneKind> for ForgeApp {
             }
             if ui
                 .button("Hide pane")
-                .on_hover_text("Bring it back from View → Panes")
+                .on_hover_text("Bring it back from View -> Panes")
                 .clicked()
             {
                 self.pending_dock_action = Some((tile_id, DockAction::Hide));
@@ -3740,7 +3749,7 @@ mod editor_tests {
     #[test]
     fn rustfmt_formats_rust_source_when_available() {
         let messy = "fn  main( ) {let x=1;println!(\"{}\",x);}\n";
-        // Ok → verify formatting; Err → rustfmt not installed here, nothing to check.
+        // Ok -> verify formatting; Err -> rustfmt not installed here, nothing to check.
         if let Ok(formatted) = run_rustfmt(messy) {
             assert!(formatted.contains("fn main() {"), "got:\n{formatted}");
             assert!(formatted.contains("let x = 1;"), "got:\n{formatted}");

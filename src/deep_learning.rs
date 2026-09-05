@@ -666,7 +666,7 @@ fn native_burn_training_demo_inner(
                 data.inputs,
                 data.targets,
                 format!(
-                    "{} {}→{} ({rows} rows)",
+                    "{} {}->{} ({rows} rows)",
                     data.dataset, data.feature, data.target
                 ),
                 data.dataset,
@@ -950,7 +950,7 @@ impl<B: Backend> Model<B> {
 }
 
 fn main() {
-    println!(r#"forge_model:{"name":"BurnModel","layers":[["linear","Linear 4→2",10]],"parameters":10,"trainable_parameters":10}"#);
+    println!(r#"forge_model:{"name":"BurnModel","layers":[["linear","Linear 4->2",10]],"parameters":10,"trainable_parameters":10}"#);
     // Add your dataset and LearnerBuilder here. Forge monitors framework-neutral outputs.
 }
 "##;
@@ -1094,7 +1094,7 @@ mod tests {
         assert!(matches!(
             &events[1],
             TrainingEvent::Started { job, .. }
-                if job.contains("sample feature→target (3 rows)")
+                if job.contains("sample feature->target (3 rows)")
         ));
         let prediction = outcome.artifact.predict(2.0).unwrap();
         assert!(prediction.is_finite());
