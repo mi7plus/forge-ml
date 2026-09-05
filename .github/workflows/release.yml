@@ -109,7 +109,7 @@ jobs:
           subject-path: |
             release-artifacts/**/*
             update-*.json
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: |
             release-artifacts/**/*
