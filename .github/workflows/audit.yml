@@ -3,7 +3,9 @@ name: Security audit
 # The dependency tree is large (burn, wgpu, arrow, rusqlite, TLS via
 # tungstenite), so scan it for RUSTSEC advisories automatically instead of
 # relying on the in-app "Audit" button. Runs weekly, and whenever the
-# dependency manifests change.
+# dependency manifests change. Advisories we can't act on today (transitive
+# pins, unmaintained-only) are acknowledged in .cargo/audit.toml, so this job
+# fails only on NEW, actionable findings.
 on:
   schedule:
     - cron: "0 6 * * 1" # Mondays 06:00 UTC
@@ -11,15 +13,17 @@ on:
     paths:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
+      - ".cargo/audit.toml"
+      - ".github/workflows/audit.yml"
   pull_request:
     paths:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
+      - ".cargo/audit.toml"
   workflow_dispatch:
 
 permissions:
   contents: read
-  issues: write # so scheduled runs can file an advisory issue
 
 concurrency:
   group: audit-${{ github.ref }}
@@ -31,6 +35,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2
+      # Prebuilt binary (fast) rather than compiling cargo-audit each run. A plain
+      # `cargo audit` step reads .cargo/audit.toml, unlike the check-run action.
+      - uses: taiki-e/install-action@v2
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          tool: cargo-audit
+      - name: cargo audit
+        run: cargo audit

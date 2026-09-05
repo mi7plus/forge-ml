@@ -1,0 +1,25 @@
+# cargo-audit configuration (see the "Security audit" workflow).
+#
+# These advisories are all in TRANSITIVE dependencies we cannot currently bump:
+# the vulnerable versions are pinned deep under millwright -> polars (=0.55.2) ->
+# polars-io -> object_store, or are compiler/font/crypto crates pulled by
+# egui/burn/wgpu. None is fixable from this repo today; each is tracked here with
+# its blocker so the audit still fails on NEW, actionable advisories.
+[advisories]
+ignore = [
+    # quick-xml <0.41 DoS (quadratic attribute scan / unbounded ns allocation).
+    # Pinned via object_store 0.13.2 (quick-xml ^0.39) under polars-io; polars is
+    # =0.55.2-pinned by millwright 2.2.1. Not driven by the app (polars cloud IO;
+    # the app's own object storage is src/object_storage.rs). Unblocks when
+    # millwright ships a polars with a newer object_store.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+    # Unmaintained (advisory only, no fix available) — all transitive:
+    "RUSTSEC-2025-0141", # bincode
+    "RUSTSEC-2024-0436", # paste (proc-macro helper, via burn/wgpu)
+    "RUSTSEC-2026-0192", # ttf-parser (via egui/epaint font stack)
+]
+
+[yanked]
+# chacha20 has a yanked version in the lock via a transitive pin; warn, don't fail.
+update_index = false
