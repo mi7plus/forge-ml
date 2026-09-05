@@ -10,7 +10,7 @@ Its workspace follows the scientific-IDE model popularized by Spyder — an edit
 
 A browsable feature site lives under [`site/`](site/) (homepage plus a detailed guide), deployed to GitHub Pages by [`.github/workflows/pages.yml`](.github/workflows/pages.yml).
 
-See the [user guide](docs/USER_GUIDE.md), [architecture](ARCHITECTURE.md), [roadmap](ROADMAP.md), [environment design](docs/FORGE_ENV.md), [privacy guide](docs/PRIVACY.md), [event protocol](docs/PROTOCOL.md), [extension guide](docs/EXTENSIONS.md), and [contributor guide](CONTRIBUTING.md).
+See the [user guide](docs/USER_GUIDE.md), [architecture](ARCHITECTURE.md), [roadmap](ROADMAP.md), [environment design](docs/FORGE_ENV.md), [privacy guide](docs/PRIVACY.md), [event protocol](docs/PROTOCOL.md), [extension guide](docs/EXTENSIONS.md), [contributor guide](CONTRIBUTING.md), and [installer signing](docs/SIGNING.md).
 
 ## What it does
 
