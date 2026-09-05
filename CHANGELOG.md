@@ -11,6 +11,19 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+### Added
+- **Inline variable inspection.** The Variables pane's 🔍 Inspect now shows a
+  non-tabular value's Debug output *inline* in the pane (a dismissible section
+  per variable), instead of only routing it to the console. Tabular values still
+  open in the full Data viewer.
+
+### Changed
+- **Notebook render performance.** The Notebook pane no longer clones the whole
+  buffer on every repaint (the Edit draft is fetched lazily on click), and
+  `cells()` is memoized on a title+content hash so the notebook parse runs once
+  per change rather than on every repaint across the cell rail, Notebook pane,
+  and status bar.
+
 ## [1.6.0] — 2026-09-05
 
 ### Added

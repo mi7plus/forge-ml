@@ -749,6 +749,11 @@ struct ForgeApp {
     runtime: RuntimeHandle,
     runtime_restart_attempts: usize,
     variables: Vec<VariableMeta>,
+    /// The variable name awaiting an inline inspect result (non-tabular values
+    /// route their console output here rather than only to the console pane).
+    pending_inspect: Option<String>,
+    /// Inline Debug previews of inspected variables, keyed by name.
+    variable_previews: std::collections::HashMap<String, String>,
     data: DataWorkspace,
     structured_plots: Vec<PlotSpec>,
     open_dataset: Option<String>,
@@ -1396,6 +1401,8 @@ impl ForgeApp {
             runtime: RuntimeHandle::spawn(),
             runtime_restart_attempts: 0,
             variables: Vec::new(),
+            pending_inspect: None,
+            variable_previews: std::collections::HashMap::new(),
             data: DataWorkspace::default(),
             structured_plots: session::bounded_plots(&session.structured_plots),
             open_dataset: None,
@@ -2582,6 +2589,13 @@ impl ForgeApp {
                     } else {
                         output
                     };
+                    // Capture an inline variable inspect result (a console-cell
+                    // snippet that pretty-prints a non-tabular value).
+                    if cell_id == CONSOLE_CELL_ID {
+                        if let Some(name) = self.pending_inspect.take() {
+                            self.variable_previews.insert(name, self.console.clone());
+                        }
+                    }
                     let (training_events, reports) =
                         millwright_studio::parse_runtime_output(&self.console);
                     for event in training_events {
@@ -2680,6 +2694,8 @@ impl ForgeApp {
                     self.run_state = RunState::Ready;
                     self.execution_count = 0;
                     self.variables.clear();
+                    self.variable_previews.clear();
+                    self.pending_inspect = None;
                     self.data.clear();
                     self.structured_plots.clear();
                     self.open_dataset = None;
@@ -2871,6 +2887,31 @@ impl ForgeApp {
                     });
                 if let Some((name, type_name)) = inspect {
                     self.inspect_variable(&name, &type_name);
+                }
+                // Inline inspect previews (Debug output of non-tabular values).
+                let mut dismiss: Option<String> = None;
+                for variable in &self.variables {
+                    if let Some(preview) = self.variable_previews.get(&variable.name) {
+                        egui::CollapsingHeader::new(
+                            RichText::new(format!("{} inspected", variable.name)).color(accent()),
+                        )
+                        .id_salt(("var_preview", &variable.name))
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            if ui.small_button("Dismiss").clicked() {
+                                dismiss = Some(variable.name.clone());
+                            }
+                            egui::ScrollArea::vertical()
+                                .id_salt(("var_preview_scroll", &variable.name))
+                                .max_height(200.0)
+                                .show(ui, |ui| {
+                                    ui.label(RichText::new(preview).monospace().size(11.0));
+                                });
+                        });
+                    }
+                }
+                if let Some(name) = dismiss {
+                    self.variable_previews.remove(&name);
                 }
                 if self.variables.is_empty() {
                     ui::theme::empty_state(

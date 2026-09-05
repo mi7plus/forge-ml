@@ -122,6 +122,11 @@ impl crate::ForgeApp {
                 // switch to the Data viewer so it shows up in place.
                 self.open_dataset = Some(key);
                 self.inspector_tab = InspectorTab::Data;
+                self.pending_inspect = None;
+            } else {
+                // Non-tabular value: capture its Debug output inline in the
+                // Variables pane when the snippet's result comes back.
+                self.pending_inspect = Some(name.to_owned());
             }
         }
     }
