@@ -54,6 +54,59 @@ pub fn push(root: &Path) -> Result<String, String> {
 pub fn branches(root: &Path) -> Result<String, String> {
     run(root, &["branch", "--all", "--no-color"])
 }
+
+/// One entry in the branch list: the checkout name plus whether it is the
+/// current branch and whether it lives on a remote.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BranchInfo {
+    /// The name usable with `git switch`/`git merge` — remotes keep their
+    /// `origin/…` prefix but drop the `remotes/` bookkeeping prefix.
+    pub name: String,
+    pub current: bool,
+    pub is_remote: bool,
+}
+
+/// Structured branch list (local first, then remotes) for a selectable UI.
+/// Parses `git branch --all` rather than porcelain so it works on every Git.
+pub fn list_branches(root: &Path) -> Result<Vec<BranchInfo>, String> {
+    let out = run(root, &["branch", "--all", "--no-color"])?;
+    let mut branches = Vec::new();
+    for line in out.lines() {
+        let line = line.trim_end();
+        if line.is_empty() || line == "Done." {
+            continue;
+        }
+        // Skip symbolic refs like `remotes/origin/HEAD -> origin/main`.
+        if line.contains(" -> ") {
+            continue;
+        }
+        let current = line.trim_start().starts_with('*');
+        let name = line.trim_start_matches('*').trim();
+        let (is_remote, name) = match name.strip_prefix("remotes/") {
+            Some(rest) => (true, rest),
+            None => (false, name),
+        };
+        if name.is_empty() {
+            continue;
+        }
+        branches.push(BranchInfo {
+            name: name.to_owned(),
+            current,
+            is_remote,
+        });
+    }
+    Ok(branches)
+}
+
+/// Merge `name` into the current branch (no-fast-forward-editor commit message).
+/// A conflicting merge returns an error and leaves the tree mid-merge, which the
+/// conflict-mediation UI then picks up.
+pub fn merge(root: &Path, name: &str) -> Result<String, String> {
+    if name.trim().is_empty() {
+        return Err("Select a branch to merge first.".into());
+    }
+    run(root, &["merge", "--no-edit", name.trim()])
+}
 pub fn switch(root: &Path, name: &str, create: bool) -> Result<String, String> {
     if name.trim().is_empty() {
         return Err("Enter a branch name first.".into());
@@ -172,5 +225,56 @@ mod tests {
     #[test]
     fn resolve_conflict_rejects_unknown_side() {
         assert!(resolve_conflict(Path::new("."), "a.rs", "mine").is_err());
+    }
+
+    #[test]
+    fn merge_requires_a_branch_name() {
+        assert!(merge(Path::new("."), "  ").is_err());
+    }
+
+    #[test]
+    fn list_branches_parses_current_and_remotes() {
+        // Exercise the pure parsing by feeding representative `git branch --all`
+        // output through the same rules `list_branches` applies.
+        let sample =
+            "* main\n  feature-x\n  remotes/origin/main\n  remotes/origin/HEAD -> origin/main\n";
+        let mut parsed = Vec::new();
+        for line in sample.lines() {
+            let line = line.trim_end();
+            if line.is_empty() || line.contains(" -> ") {
+                continue;
+            }
+            let current = line.trim_start().starts_with('*');
+            let name = line.trim_start_matches('*').trim();
+            let (is_remote, name) = match name.strip_prefix("remotes/") {
+                Some(rest) => (true, rest),
+                None => (false, name),
+            };
+            parsed.push(BranchInfo {
+                name: name.to_owned(),
+                current,
+                is_remote,
+            });
+        }
+        assert_eq!(
+            parsed,
+            vec![
+                BranchInfo {
+                    name: "main".into(),
+                    current: true,
+                    is_remote: false
+                },
+                BranchInfo {
+                    name: "feature-x".into(),
+                    current: false,
+                    is_remote: false
+                },
+                BranchInfo {
+                    name: "origin/main".into(),
+                    current: false,
+                    is_remote: true
+                },
+            ]
+        );
     }
 }

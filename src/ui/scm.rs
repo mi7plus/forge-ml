@@ -23,6 +23,7 @@ impl crate::ForgeApp {
                     .map(|s| format!("Branch: {}\n{}", s.branch, s.summary))
                     .unwrap_or_else(|e| e);
                 self.git_conflicts = git::conflicts(&root).unwrap_or_default();
+                self.git_branches = git::list_branches(&root).unwrap_or_default();
                 if let Some(p) = &mut self.project {
                     p.refresh_git_status();
                 }
@@ -43,6 +44,7 @@ impl crate::ForgeApp {
                 self.git_output = git::unstage_all(&root).unwrap_or_else(|e| e);
             }
             if ui.button("Branches").clicked() {
+                self.git_branches = git::list_branches(&root).unwrap_or_default();
                 self.git_output = git::branches(&root).unwrap_or_else(|e| e);
             }
             if ui.button("Pull").clicked() {
@@ -85,6 +87,117 @@ impl crate::ForgeApp {
                     git::delete_branch(&root, &self.git_branch_name, true).unwrap_or_else(|e| e);
             }
         });
+
+        // Selectable branch list with a right-click context menu. Populated by
+        // "Refresh"/"Branches"; a left-click selects and mirrors the name into
+        // the text field, a right-click offers checkout/merge/delete actions.
+        if !self.git_branches.is_empty() {
+            /// One deferred action, applied after the borrow of `git_branches` ends.
+            enum BranchAction {
+                Checkout(String),
+                Merge(String),
+                Delete(String),
+                ForceDelete(String),
+            }
+            let mut action: Option<BranchAction> = None;
+            ui.add_space(2.0);
+            ui.label(
+                RichText::new("Branches — click to select, right-click for actions")
+                    .size(10.0)
+                    .color(MUTED),
+            );
+            egui::ScrollArea::vertical()
+                .id_salt("branch_list")
+                .max_height(140.0)
+                .show(ui, |ui| {
+                    for branch in &self.git_branches {
+                        let selected =
+                            self.git_selected_branch.as_deref() == Some(branch.name.as_str());
+                        let icon = if branch.current {
+                            egui_phosphor_icons::icons::CHECK_CIRCLE
+                        } else if branch.is_remote {
+                            egui_phosphor_icons::icons::CLOUD
+                        } else {
+                            egui_phosphor_icons::icons::GIT_BRANCH
+                        };
+                        let mut label =
+                            RichText::new(format!("{}  {}", icon.as_str(), branch.name));
+                        if branch.current {
+                            label = label.color(GREEN).strong();
+                        } else if branch.is_remote {
+                            label = label.color(MUTED);
+                        }
+                        let response = ui.selectable_label(selected, label);
+                        if response.clicked() {
+                            self.git_selected_branch = Some(branch.name.clone());
+                            self.git_branch_name = branch.name.clone();
+                        }
+                        response.context_menu(|ui| {
+                            ui.label(RichText::new(&branch.name).strong());
+                            ui.separator();
+                            if branch.current {
+                                ui.add_enabled(
+                                    false,
+                                    egui::Button::new("Checkout (current branch)"),
+                                );
+                            } else if ui.button("Checkout").clicked() {
+                                action = Some(BranchAction::Checkout(branch.name.clone()));
+                                ui.close();
+                            }
+                            if branch.current {
+                                ui.add_enabled(false, egui::Button::new("Merge into current"));
+                            } else if ui
+                                .button("Merge into current branch")
+                                .on_hover_text("git merge --no-edit")
+                                .clicked()
+                            {
+                                action = Some(BranchAction::Merge(branch.name.clone()));
+                                ui.close();
+                            }
+                            ui.separator();
+                            let deletable = !branch.current && !branch.is_remote;
+                            if ui
+                                .add_enabled(deletable, egui::Button::new("Delete"))
+                                .on_hover_text(if deletable {
+                                    "git branch -d (refuses unmerged work)"
+                                } else if branch.current {
+                                    "Can't delete the checked-out branch"
+                                } else {
+                                    "Remote branches can't be deleted here"
+                                })
+                                .clicked()
+                            {
+                                action = Some(BranchAction::Delete(branch.name.clone()));
+                                ui.close();
+                            }
+                            if ui
+                                .add_enabled(deletable, egui::Button::new("Force delete"))
+                                .on_hover_text("git branch -D (drops unmerged commits)")
+                                .clicked()
+                            {
+                                action = Some(BranchAction::ForceDelete(branch.name.clone()));
+                                ui.close();
+                            }
+                        });
+                    }
+                });
+            if let Some(action) = action {
+                self.git_output = match action {
+                    BranchAction::Checkout(name) => git::switch(&root, &name, false),
+                    BranchAction::Merge(name) => git::merge(&root, &name),
+                    BranchAction::Delete(name) => git::delete_branch(&root, &name, false),
+                    BranchAction::ForceDelete(name) => git::delete_branch(&root, &name, true),
+                }
+                .unwrap_or_else(|e| e);
+                // The action may have changed the current branch, the branch set,
+                // or (a conflicting merge) left the tree mid-merge.
+                self.git_branches = git::list_branches(&root).unwrap_or_default();
+                self.git_conflicts = git::conflicts(&root).unwrap_or_default();
+                if let Some(p) = &mut self.project {
+                    p.refresh_git_status();
+                }
+            }
+        }
 
         // Merge-conflict mediation: shown only while a merge is in progress.
         if !self.git_conflicts.is_empty() {

@@ -21,6 +21,12 @@ grouped under the **0.98.0** release below.
   history (log) view, Delete / Force-delete branch, and a conflict-resolution
   section (Keep ours / Keep theirs / Mark resolved, Continue / Abort merge)
   shown while a merge is in progress.
+- **Git pane: interactive branch list.** Refresh/Branches now render a selectable
+  list (current branch and remotes flagged with icons). Left-click selects a
+  branch; right-click opens a context menu with **Checkout**, **Merge into current
+  branch**, **Delete**, and **Force delete** (disabled where they don't apply, e.g.
+  the checked-out or a remote branch). A conflicting merge flows straight into the
+  conflict-mediation section.
 - **Time-series examples.** `millwright_timeseries` (univariate forecasting as lag
   regression — `LinearRegression` on lags 1/2/3/12 with a recursive 12-month
   forecast) and `burn_timeseries` (a linear autoregressive forecaster over a
