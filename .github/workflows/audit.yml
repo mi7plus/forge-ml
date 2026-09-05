@@ -1,0 +1,36 @@
+name: Security audit
+
+# The dependency tree is large (burn, wgpu, arrow, rusqlite, TLS via
+# tungstenite), so scan it for RUSTSEC advisories automatically instead of
+# relying on the in-app "Audit" button. Runs weekly, and whenever the
+# dependency manifests change.
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  push:
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+  pull_request:
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write # so scheduled runs can file an advisory issue
+
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
