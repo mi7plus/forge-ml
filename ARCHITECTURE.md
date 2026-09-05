@@ -32,6 +32,11 @@ forge-ml/
 - **`app_files.rs`** — `ForgeApp` methods for the project/file/editor-tab
   lifecycle (open/create/delete/save, Cargo/clippy/format, tab close-guards,
   jump-to navigation), split out of `main.rs`.
+- **`app_exec.rs`** — `ForgeApp` execution orchestration: enqueueing/running
+  cells, the Rust and Python consoles, variable inspection, Python-runtime
+  discovery, and background Cargo diagnostics.
+- **`app_lsp.rs`** — `ForgeApp` language-server integration: document sync,
+  on-demand LSP requests, rename, workspace edits, and the definition probe.
 - **`session.rs`** — the serialized `SessionState` (theme, layout, recents,
   settings) persisted by eframe.
 - **`workspace.rs`** — workspace snapshots for the dockable pane layout tree
