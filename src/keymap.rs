@@ -28,10 +28,12 @@ pub enum KeyAction {
     CloseTab,
     StopExecution,
     OpenSettings,
+    GoToLine,
+    ToggleComment,
 }
 
 impl KeyAction {
-    pub const ALL: [KeyAction; 16] = [
+    pub const ALL: [KeyAction; 18] = [
         KeyAction::Save,
         KeyAction::NewFile,
         KeyAction::FindInFile,
@@ -48,6 +50,8 @@ impl KeyAction {
         KeyAction::CloseTab,
         KeyAction::StopExecution,
         KeyAction::OpenSettings,
+        KeyAction::GoToLine,
+        KeyAction::ToggleComment,
     ];
 
     pub fn label(self) -> &'static str {
@@ -68,6 +72,8 @@ impl KeyAction {
             KeyAction::CloseTab => "Close editor tab",
             KeyAction::StopExecution => "Stop execution",
             KeyAction::OpenSettings => "Open settings",
+            KeyAction::GoToLine => "Go to line",
+            KeyAction::ToggleComment => "Toggle line comment",
         }
     }
 
@@ -89,6 +95,8 @@ impl KeyAction {
             KeyAction::CloseTab => "close_tab",
             KeyAction::StopExecution => "stop_execution",
             KeyAction::OpenSettings => "open_settings",
+            KeyAction::GoToLine => "go_to_line",
+            KeyAction::ToggleComment => "toggle_comment",
         }
     }
 
@@ -119,6 +127,8 @@ impl KeyAction {
             KeyAction::CloseTab => (cmd, Key::W),
             KeyAction::StopExecution => (cmd, Key::Period),
             KeyAction::OpenSettings => (cmd, Key::Comma),
+            KeyAction::GoToLine => (cmd, Key::G),
+            KeyAction::ToggleComment => (cmd, Key::Slash),
         };
         KeyboardShortcut::new(mods, key)
     }

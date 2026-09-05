@@ -11,6 +11,22 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+### Added
+- **Go to line** (`Ctrl+G`) — a dialog that jumps the editor caret to a 1-based
+  line and scrolls it into view. Also in the command palette.
+- **Toggle line comment** (`Ctrl+/`) — comments/uncomments the line under the
+  caret (`// ` after the indentation), with the caret preserved. Also in the
+  palette. The string transform is a pure, unit-tested `editing` helper.
+- **Restart runtime** command — resets the Evcxr session to a clean state
+  without running all cells (distinct from *Restart & run all*).
+
+### Changed
+- **Parallel background work.** The integration worker now drains its request
+  queue with a small thread pool (2–4, by core count) instead of a single
+  serial thread, so a long import/export no longer blocks a quick query queued
+  behind it. Interrupts keep their dedicated lane; each request is still handled
+  start-to-finish by one thread, so a run's progress events stay ordered.
+
 ## [1.5.0] — 2026-09-05
 
 ### Changed

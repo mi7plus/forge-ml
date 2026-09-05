@@ -757,6 +757,8 @@ struct ForgeApp {
     lsp_signature: String,
     rename_open: bool,
     rename_input: String,
+    go_to_line_open: bool,
+    go_to_line_input: String,
     code_actions: Vec<lsp::CodeAction>,
     cursor_offset: usize,
     document_version: i32,
@@ -1392,6 +1394,8 @@ impl ForgeApp {
             lsp_signature: String::new(),
             rename_open: false,
             rename_input: String::new(),
+            go_to_line_open: false,
+            go_to_line_input: String::new(),
             code_actions: Vec::new(),
             hover_text: String::new(),
             cursor_offset: 0,
@@ -1792,6 +1796,34 @@ impl ForgeApp {
         self.run_state = RunState::Booting;
         self.console = "Restarting runtime before running all cells...".to_owned();
         let _ = self.runtime.reset();
+    }
+
+    /// Reset the Evcxr runtime to a clean session without running anything —
+    /// the "Restart runtime" command. Clears the pending queue and forgets all
+    /// live variables/state.
+    fn restart_runtime(&mut self) {
+        if self.remote_notebook_execution {
+            self.console = "Remote kernel restart is not available.".into();
+            return;
+        }
+        self.run_queue.clear();
+        self.run_all_after_reset = false;
+        self.run_state = RunState::Booting;
+        self.console = "Restarting runtime…".to_owned();
+        let _ = self.runtime.reset();
+    }
+
+    /// Toggle a `// ` line comment on the line under the caret (Ctrl+/). The
+    /// string transformation lives in [`ui::editing::toggle_line_comment`] so it
+    /// can be unit-tested; this just applies the result to the active buffer.
+    fn toggle_line_comment(&mut self) {
+        let (new_content, new_cursor) =
+            ui::editing::toggle_line_comment(&self.active().content, self.cursor_offset);
+        self.active_mut().content = new_content;
+        self.active_mut().dirty = true;
+        self.cursor_offset = new_cursor;
+        self.pending_editor_selection = Some((new_cursor, new_cursor));
+        self.cell_records.clear();
     }
 
     fn stop_execution(&mut self) {

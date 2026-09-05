@@ -25,6 +25,8 @@ impl crate::ForgeApp {
             C::NewTerminal => K::NewTerminal,
             C::Stop => K::StopExecution,
             C::Settings => K::OpenSettings,
+            C::GoToLine => K::GoToLine,
+            C::ToggleComment => K::ToggleComment,
             _ => return None,
         })
     }
@@ -54,6 +56,12 @@ impl crate::ForgeApp {
             CargoBuild => self.run_cargo_task("build"),
             CargoTest => self.run_cargo_task("test"),
             CargoRun => self.run_cargo_task("run"),
+            GoToLine => {
+                self.go_to_line_open = true;
+                self.go_to_line_input.clear();
+            }
+            ToggleComment => self.toggle_line_comment(),
+            RestartRuntime => self.restart_runtime(),
             NewTerminal => self.pending_new_terminal = Some(None),
             NewKernel => self.pending_new_kernel = Some(None),
             ImportData => self.import_dataset(),
@@ -183,6 +191,13 @@ impl crate::ForgeApp {
         }
         if self.keymap.triggered(K::OpenSettings, ctx) {
             self.settings_open = true;
+        }
+        if self.keymap.triggered(K::GoToLine, ctx) {
+            self.go_to_line_open = true;
+            self.go_to_line_input.clear();
+        }
+        if self.keymap.triggered(K::ToggleComment, ctx) {
+            self.toggle_line_comment();
         }
         // Ctrl+1..=9 jump straight to the first nine inspector panes.
         const NUM_KEYS: [egui::Key; 9] = [

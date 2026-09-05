@@ -108,6 +108,8 @@ below are grouped by workflow; the [feature site](site/) and
 - `Ctrl+left-click`: open the definition of the clicked Rust symbol, including definitions in other files
 - `Ctrl+F`: find and replace in the active file
 - `Ctrl+Shift+F`: search all editable files in the open project
+- `Ctrl+G`: go to a line number in the active file
+- `Ctrl+/`: toggle a line comment on the line under the caret
 - `Ctrl+Space`: request and open rust-analyzer completions at the caret
 - `Ctrl+Shift+P`: open the command palette
 - `F6`: cycle through inspector panes

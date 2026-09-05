@@ -66,6 +66,7 @@ impl crate::ForgeApp {
         self.settings_window(ui.ctx());
         self.welcome_window(ui.ctx());
         self.rename_window(ui.ctx());
+        self.go_to_line_window(ui.ctx());
         self.code_actions_window(ui.ctx());
         self.dataset_window(ui.ctx());
         self.dock_floating_windows(ui.ctx());

@@ -49,6 +49,46 @@ pub fn word_start_at(text: &str, offset: usize) -> Option<usize> {
     Some(index)
 }
 
+/// Toggle a `// ` line comment on the line containing char offset `cursor`.
+/// Comment inserts after the existing indentation; uncomment strips a leading
+/// `// ` (or bare `//`). Returns the new content and the adjusted caret offset.
+pub fn toggle_line_comment(content: &str, cursor: usize) -> (String, usize) {
+    let chars: Vec<char> = content.chars().collect();
+    let cursor = cursor.min(chars.len());
+    let mut line_start = cursor;
+    while line_start > 0 && chars[line_start - 1] != '\n' {
+        line_start -= 1;
+    }
+    let mut line_end = cursor;
+    while line_end < chars.len() && chars[line_end] != '\n' {
+        line_end += 1;
+    }
+    let line: String = chars[line_start..line_end].iter().collect();
+    let indent: String = line.chars().take_while(|c| c.is_whitespace()).collect();
+    let indent_len = indent.chars().count();
+    let body: String = line.chars().skip(indent_len).collect();
+    let (new_body, delta): (String, isize) = if let Some(rest) = body.strip_prefix("// ") {
+        (rest.to_owned(), -3)
+    } else if let Some(rest) = body.strip_prefix("//") {
+        (rest.to_owned(), -2)
+    } else {
+        (format!("// {body}"), 3)
+    };
+    let mut new_content: String = chars[..line_start].iter().collect();
+    new_content.push_str(&indent);
+    new_content.push_str(&new_body);
+    new_content.extend(chars[line_end..].iter());
+    // The edit happens at the indent boundary, so shift the caret by `delta`
+    // only if it sat at or after that boundary.
+    let boundary = line_start + indent_len;
+    let new_cursor = if cursor >= boundary {
+        (cursor as isize + delta).max(boundary as isize) as usize
+    } else {
+        cursor
+    };
+    (new_content, new_cursor)
+}
+
 pub fn char_to_byte(text: &str, char_offset: usize) -> usize {
     text.char_indices()
         .nth(char_offset)
@@ -543,6 +583,24 @@ mod tests {
             ],
         );
         assert_eq!(content, "X Y");
+    }
+
+    #[test]
+    fn toggle_line_comment_round_trips() {
+        // Comment inserts after indentation.
+        let (out, cur) = toggle_line_comment("    let x = 1;", 4);
+        assert_eq!(out, "    // let x = 1;");
+        assert_eq!(cur, 7); // caret shifted by the inserted "// "
+                            // Uncommenting restores the original.
+        let (back, cur2) = toggle_line_comment(&out, cur);
+        assert_eq!(back, "    let x = 1;");
+        assert_eq!(cur2, 4);
+        // Only the caret's line changes in a multi-line buffer.
+        let (out, _) = toggle_line_comment("a\nb\nc", 2); // caret on line "b"
+        assert_eq!(out, "a\n// b\nc");
+        // A bare `//` (no trailing space) also uncomments.
+        let (out, _) = toggle_line_comment("//x", 3);
+        assert_eq!(out, "x");
     }
 
     #[test]

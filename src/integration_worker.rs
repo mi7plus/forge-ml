@@ -10,7 +10,7 @@ use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, Sender},
-        Arc,
+        Arc, Mutex,
     },
     thread,
 };
@@ -138,15 +138,43 @@ impl IntegrationWorker {
         let (request_tx, request_rx) = mpsc::channel();
         let (result_tx, result_rx) = mpsc::channel();
         let (control_tx, control_rx) = mpsc::channel();
-        let control_result_tx = result_tx.clone();
-        thread::spawn(move || {
-            while let Ok(request) = request_rx.recv() {
-                let result = execute(request, &result_tx);
-                if result_tx.send(result).is_err() {
-                    break;
+
+        // A small pool drains the request channel so a long operation (a big
+        // import or export) doesn't block a quick one (a query) queued behind
+        // it. The lock is held only around `recv`, never during `execute`, so
+        // the workers run concurrently. Each request is still handled start to
+        // finish by a single thread, so a run's progress events stay ordered;
+        // only unrelated requests can now interleave, which nothing relies on.
+        let pool = thread::available_parallelism()
+            .map(|n| n.get().clamp(2, 4))
+            .unwrap_or(2);
+        let shared_rx = Arc::new(Mutex::new(request_rx));
+        for _ in 0..pool {
+            let rx = Arc::clone(&shared_rx);
+            let tx = result_tx.clone();
+            thread::spawn(move || loop {
+                let request = {
+                    let guard = match rx.lock() {
+                        Ok(guard) => guard,
+                        Err(_) => break, // a panicked peer poisoned the lock
+                    };
+                    guard.recv()
+                };
+                match request {
+                    Ok(request) => {
+                        let result = execute(request, &tx);
+                        if tx.send(result).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break, // all senders dropped
                 }
-            }
-        });
+            });
+        }
+
+        // Interrupts run on a dedicated thread so a cancel is never stuck behind
+        // in-flight work in the pool.
+        let control_result_tx = result_tx;
         thread::spawn(move || {
             while let Ok(request) = control_rx.recv() {
                 let result = execute(request, &control_result_tx);
@@ -536,6 +564,50 @@ mod tests {
             }
             _ => panic!("unexpected integration result"),
         }
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn worker_pool_drains_multiple_concurrent_requests() {
+        // Submit several exports at once and confirm they all come back, in any
+        // order — the pool must not serialize or drop requests.
+        let root = std::env::temp_dir().join(format!("forge-pool-worker-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let worker = IntegrationWorker::new();
+        let count = 5;
+        for i in 0..count {
+            let dataset = crate::data::Dataset::from_table(
+                TableData {
+                    columns: vec!["value".into()],
+                    rows: vec![vec![i.to_string()]],
+                },
+                None,
+            )
+            .unwrap();
+            worker
+                .submit(Request::DataExport {
+                    name: format!("r{i}"),
+                    batches: dataset.batches,
+                    path: root.join(format!("r{i}.csv")),
+                    format: crate::export::DataFormat::Csv,
+                })
+                .unwrap();
+        }
+        let mut done = 0;
+        while done < count {
+            match worker
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("export result")
+            {
+                ResultEvent::DataExport { result, .. } => {
+                    result.unwrap();
+                    done += 1;
+                }
+                _ => panic!("unexpected worker result"),
+            }
+        }
+        assert_eq!(done, count);
         let _ = std::fs::remove_dir_all(root);
     }
 

@@ -1756,7 +1756,17 @@ Implementation notes:
 
 ## Known technical risks
 
-- `src/main.rs` is too large for safe parallel feature development.
+- **Transitive `quick-xml` DoS advisory (tracked).** RUSTSEC-2026-0194/0195
+  (quadratic attribute scan / unbounded namespace allocation) affect
+  `quick-xml < 0.41`, pinned four levels deep: `millwright 2.2.1 → polars =0.55.2
+  → polars-io → object_store 0.13.2` (requires `quick-xml ^0.39`, which excludes
+  0.41). Not driven by the app (polars cloud IO; Forge's own object storage is
+  `src/object_storage.rs`). Acknowledged in `.cargo/audit.toml`; **re-check and
+  drop the ignore when Millwright ships a polars with a newer `object_store`.**
+  Same for the unmaintained `bincode`/`paste`/`ttf-parser` warnings (via
+  egui/burn/wgpu), which clear when those upstreams move off them.
+- `src/main.rs` is large; extraction into `app_*`/`ui` modules is ongoing
+  (`app_files.rs`, `app_exec.rs`, `app_lsp.rs` done).
 - Evcxr compilation latency and cancellation semantics require careful UX.
 - Arrow/Polars version alignment will affect Forge, Millwright, ADBC, and Python interchange.
 - Large egui tables require virtualization rather than regular grids.

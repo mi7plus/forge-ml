@@ -1176,6 +1176,57 @@ impl crate::ForgeApp {
         }
     }
 
+    /// The "Go to line" dialog (Ctrl+G): jump the editor caret to a 1-based line.
+    pub(crate) fn go_to_line_window(&mut self, ctx: &egui::Context) {
+        if !self.go_to_line_open {
+            return;
+        }
+        let total = self.active().content.lines().count().max(1);
+        let mut open = true;
+        let mut go = false;
+        let mut cancel = false;
+        egui::Window::new("Go to line")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(format!("Line number (1–{total}):"));
+                let response = ui.add(
+                    egui::TextEdit::singleline(&mut self.go_to_line_input)
+                        .desired_width(120.0)
+                        .hint_text("e.g. 42"),
+                );
+                response.request_focus();
+                if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    go = true;
+                }
+                ui.horizontal(|ui| {
+                    go |= ui.button("Go").clicked();
+                    cancel |= ui.button("Cancel").clicked();
+                });
+            });
+        if go {
+            if let Ok(line) = self.go_to_line_input.trim().parse::<usize>() {
+                let target = line.saturating_sub(1); // 0-based line index
+                let content = &self.active().content;
+                let offset = content
+                    .split_inclusive('\n')
+                    .take(target)
+                    .map(|segment| segment.chars().count())
+                    .sum::<usize>()
+                    .min(content.chars().count());
+                self.cursor_offset = offset;
+                self.pending_editor_selection = Some((offset, offset));
+                self.editor_needs_initial_focus = true;
+                self.select_cell_from_caret();
+            }
+            self.go_to_line_open = false;
+        } else if cancel || !open {
+            self.go_to_line_open = false;
+        }
+    }
+
     /// Show available code actions; applying one runs its workspace edit.
     pub(crate) fn code_actions_window(&mut self, ctx: &egui::Context) {
         if self.code_actions.is_empty() {
