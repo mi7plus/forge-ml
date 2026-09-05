@@ -440,3 +440,115 @@ pub fn collect_editable_files(nodes: &[FileNode], paths: &mut Vec<PathBuf>) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn safe_file_stem_sanitizes_and_defaults() {
+        assert_eq!(safe_file_stem("a b/c.d"), "a_b_c_d");
+        assert_eq!(safe_file_stem("ok-name_1"), "ok-name_1");
+        assert_eq!(safe_file_stem(""), "plot");
+        assert_eq!(safe_file_stem("***"), "___");
+    }
+
+    #[test]
+    fn word_start_at_finds_the_token_start() {
+        assert_eq!(word_start_at("let foo", 6), Some(4)); // inside "foo"
+        assert_eq!(word_start_at("let foo", 7), Some(4)); // caret at end of "foo"
+        assert_eq!(word_start_at("foo", 0), Some(0));
+        assert_eq!(word_start_at("a b", 1), Some(0)); // caret just after "a" selects it
+        assert_eq!(word_start_at("a  b", 2), None); // caret in whitespace, no adjacent word
+        assert_eq!(word_start_at("", 0), None);
+    }
+
+    #[test]
+    fn char_to_byte_handles_multibyte() {
+        // 'é' is two UTF-8 bytes, so char 2 starts at byte 3.
+        assert_eq!(char_to_byte("héllo", 2), 3);
+        assert_eq!(char_to_byte("abc", 0), 0);
+        assert_eq!(char_to_byte("abc", 99), 3); // past the end clamps to len
+    }
+
+    #[test]
+    fn line_column_is_one_based() {
+        assert_eq!(line_column("ab\ncd", 0), (1, 1));
+        assert_eq!(line_column("ab\ncd", 4), (2, 2)); // 'd'
+        assert_eq!(line_column("ab\ncd", 3), (2, 1)); // start of line 2
+    }
+
+    #[test]
+    fn csv_field_quotes_only_when_needed() {
+        assert_eq!(csv_field("plain"), "plain");
+        assert_eq!(csv_field("a,b"), "\"a,b\"");
+        assert_eq!(csv_field("he\"llo"), "\"he\"\"llo\"");
+        assert_eq!(csv_field("line\nbreak"), "\"line\nbreak\"");
+    }
+
+    #[test]
+    fn content_hash_is_stable_and_distinct() {
+        assert_eq!(content_hash("abc"), content_hash("abc"));
+        assert_ne!(content_hash("abc"), content_hash("abd"));
+    }
+
+    #[test]
+    fn file_title_falls_back_to_untitled() {
+        assert_eq!(file_title(Path::new("/x/y/foo.rs")), "foo.rs");
+        assert_eq!(file_title(Path::new("/")), "untitled");
+    }
+
+    #[test]
+    fn lsp_pos_to_offset_maps_lines_and_utf16() {
+        assert_eq!(lsp_pos_to_offset("ab\ncd", 0, 0), 0);
+        assert_eq!(lsp_pos_to_offset("ab\ncd", 1, 1), 4); // 'd'
+                                                          // '😀' is one char but two UTF-16 code units, so column 3 lands past it.
+        assert_eq!(lsp_pos_to_offset("a😀b", 0, 3), 2);
+    }
+
+    #[test]
+    fn apply_edits_to_applies_last_first() {
+        let mut content = "hello world".to_owned();
+        apply_edits_to(
+            &mut content,
+            &[lsp::TextEdit {
+                start_line: 0,
+                start_col: 6,
+                end_line: 0,
+                end_col: 11,
+                new_text: "there".into(),
+            }],
+        );
+        assert_eq!(content, "hello there");
+
+        // Two non-overlapping edits on one line must both land.
+        let mut content = "aaa bbb".to_owned();
+        apply_edits_to(
+            &mut content,
+            &[
+                lsp::TextEdit {
+                    start_line: 0,
+                    start_col: 0,
+                    end_line: 0,
+                    end_col: 3,
+                    new_text: "X".into(),
+                },
+                lsp::TextEdit {
+                    start_line: 0,
+                    start_col: 4,
+                    end_line: 0,
+                    end_col: 7,
+                    new_text: "Y".into(),
+                },
+            ],
+        );
+        assert_eq!(content, "X Y");
+    }
+
+    #[test]
+    fn infer_size_classifies_type_shape() {
+        assert_eq!(infer_size("Vec<f64>"), "dynamic");
+        assert_eq!(infer_size("[f64; 3]"), "array");
+        assert_eq!(infer_size("f64"), "scalar");
+    }
+}
