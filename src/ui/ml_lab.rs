@@ -296,7 +296,7 @@ impl crate::ForgeApp {
                 ui.add(
                     egui::DragValue::new(&mut self.drift_mean_shift_threshold)
                         .speed(0.05)
-                        .prefix("mean σ "),
+                        .prefix("std "),
                 );
                 ui.add(
                     egui::DragValue::new(&mut self.drift_scale_ratio_lower)

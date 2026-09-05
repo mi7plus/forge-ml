@@ -306,7 +306,7 @@ pub fn monitoring_plots(
                 .or_default()
                 .push([index as f64, value]);
             mean_thresholds
-                .entry(format!("{name} 1σ boundary"))
+                .entry(format!("{name} 1 sd boundary"))
                 .or_default()
                 .push([index as f64, event.mean_shift_threshold.unwrap_or(1.0)]);
         }
@@ -492,7 +492,7 @@ pub fn monitoring_report(
         })
         .collect::<String>();
     Ok(format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'\"><title>Forge ML deployment monitoring report</title><style>body{{font:14px system-ui,sans-serif;max-width:1100px;margin:32px auto;padding:0 16px;color:#20242b}}.cards{{display:flex;gap:10px;flex-wrap:wrap}}.card{{border:1px solid #ccd2da;border-radius:6px;padding:10px;min-width:130px}}table{{border-collapse:collapse;width:100%;margin:12px 0 24px}}th,td{{border:1px solid #ccd2da;padding:6px;text-align:left}}</style></head><body><h1>Deployment monitoring report</h1><div class=\"cards\"><div class=\"card\"><strong>Service events</strong><br>{}</div><div class=\"card\"><strong>Drift events</strong><br>{}</div><div class=\"card\"><strong>Latest requests</strong><br>{}</div><div class=\"card\"><strong>Latest error rate</strong><br>{error_rate:.3}%</div><div class=\"card\"><strong>Latest p95</strong><br>{}</div><div class=\"card\"><strong>Drift breaches</strong><br>{breaches}</div></div><h2>Recent service health</h2><p>Newest {} events shown.</p><table><tr><th>#</th><th>Model</th><th>Version</th><th>Requests</th><th>Errors</th><th>p95 ms</th></tr>{service_rows}</table><h2>Recent feature drift</h2><p>Newest {} events shown.</p><table><tr><th>#</th><th>Model</th><th>Version</th><th>Feature</th><th>Score</th><th>Threshold</th><th>Observed</th><th>Mean shift (σ)</th><th>Scale ratio</th><th>Status</th></tr>{drift_rows}</table></body></html>",
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'\"><title>Forge ML deployment monitoring report</title><style>body{{font:14px system-ui,sans-serif;max-width:1100px;margin:32px auto;padding:0 16px;color:#20242b}}.cards{{display:flex;gap:10px;flex-wrap:wrap}}.card{{border:1px solid #ccd2da;border-radius:6px;padding:10px;min-width:130px}}table{{border-collapse:collapse;width:100%;margin:12px 0 24px}}th,td{{border:1px solid #ccd2da;padding:6px;text-align:left}}</style></head><body><h1>Deployment monitoring report</h1><div class=\"cards\"><div class=\"card\"><strong>Service events</strong><br>{}</div><div class=\"card\"><strong>Drift events</strong><br>{}</div><div class=\"card\"><strong>Latest requests</strong><br>{}</div><div class=\"card\"><strong>Latest error rate</strong><br>{error_rate:.3}%</div><div class=\"card\"><strong>Latest p95</strong><br>{}</div><div class=\"card\"><strong>Drift breaches</strong><br>{breaches}</div></div><h2>Recent service health</h2><p>Newest {} events shown.</p><table><tr><th>#</th><th>Model</th><th>Version</th><th>Requests</th><th>Errors</th><th>p95 ms</th></tr>{service_rows}</table><h2>Recent feature drift</h2><p>Newest {} events shown.</p><table><tr><th>#</th><th>Model</th><th>Version</th><th>Feature</th><th>Score</th><th>Threshold</th><th>Observed</th><th>Mean shift ( sd)</th><th>Scale ratio</th><th>Status</th></tr>{drift_rows}</table></body></html>",
         service_events.len(),
         drift_events.len(),
         latest.map_or(0, |event| event.requests),
@@ -765,10 +765,9 @@ mod tests {
         assert_eq!(plots[4].series.len(), 2);
         assert_eq!(plots[5].name, "Feature scale ratio");
         assert_eq!(plots[5].series.len(), 3);
-        assert!(plots[4]
-            .series
-            .iter()
-            .any(|series| { series.name.ends_with("1σ boundary") && series.points[0][1] == 1.5 }));
+        assert!(plots[4].series.iter().any(|series| {
+            series.name.ends_with("1 sd boundary") && series.points[0][1] == 1.5
+        }));
         assert!(plots[5].series.iter().any(|series| {
             series.name.ends_with("lower boundary") && series.points[0][1] == 0.25
         }));

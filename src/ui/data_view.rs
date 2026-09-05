@@ -235,7 +235,7 @@ impl crate::ForgeApp {
                                 ui.end_row();
                                 for correlation in quality.correlations.iter().take(20) {
                                     ui.label(format!(
-                                        "{} ↔ {}",
+                                        "{} <-> {}",
                                         correlation.left, correlation.right
                                     ));
                                     ui.label(format!("{:.4}", correlation.coefficient));

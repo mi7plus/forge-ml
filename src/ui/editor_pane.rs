@@ -37,7 +37,7 @@ impl crate::ForgeApp {
             ui.spacing_mut().item_spacing.x = 4.0;
             for (index, part) in parts.iter().enumerate() {
                 if index > 0 {
-                    ui.label(RichText::new("›").size(11.0).color(MUTED));
+                    ui.label(RichText::new("/").size(11.0).color(MUTED));
                 }
                 let last = index + 1 == parts.len();
                 ui.label(

@@ -694,7 +694,7 @@ fn native_burn_training_demo_inner(
     let training_rows = inputs.len() - validation_rows;
     let standardization = standardize(&mut inputs, &mut targets, training_rows)?;
     data_label.push_str(&format!(
-        " · x μ={:.4} σ={:.4}, y μ={:.4} σ={:.4}",
+        " · x mean={:.4} sd={:.4}, y mean={:.4} sd={:.4}",
         standardization.feature_mean,
         standardization.feature_scale,
         standardization.target_mean,

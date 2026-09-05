@@ -17,6 +17,7 @@ mod experiment;
 mod export;
 mod git;
 mod github;
+mod glyph_guard;
 mod integration_worker;
 mod jobs;
 mod jupyter;
@@ -2348,7 +2349,7 @@ impl ForgeApp {
                             "Predicted {predicted} of {rows} row(s) into dataset `{name}`."
                         );
                         message.push_str(&format!(
-                            " Feature drift over {} value(s): mean shift {:.3}σ, scale ratio {:.3}{}.",
+                            " Feature drift over {} value(s): mean shift {:.3} sd, scale ratio {:.3}{}.",
                             drift.observed,
                             drift.standardized_mean_shift,
                             drift.scale_ratio,
@@ -2372,7 +2373,7 @@ impl ForgeApp {
                         );
                         if let Some(diagnostics) = diagnostics {
                             message.push_str(&format!(
-                                " Evaluated {} row(s): MAE {:.6}, RMSE {:.6}, R² {}.",
+                                " Evaluated {} row(s): MAE {:.6}, RMSE {:.6}, R^2 {}.",
                                 diagnostics.evaluated,
                                 diagnostics.mae,
                                 diagnostics.rmse,

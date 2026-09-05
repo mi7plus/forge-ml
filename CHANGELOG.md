@@ -19,7 +19,10 @@ grouped under the **0.98.0** release below.
   Converted them to bundled Phosphor icons (Notebook move/collapse, Plots
   move-earlier/later, the Variables Inspect button) or plain ASCII (`->` for
   arrows in messages, "Up/Down" in the palette hint), so nothing depends on
-  font coverage. (Also fixed the LSP-ready splash check that keyed on the
+  font coverage. Greek `μ`/`σ` in stats labels became `mean`/`sd`, the Python
+  compat check and correlation/breadcrumb separators went ASCII, and a new
+  `glyph_guard` test scans `src` for glyphs outside the app fonts so the class
+  can't regress. (Also fixed the LSP-ready splash check that keyed on the
   removed `✓` marker.)
 
 ### Added

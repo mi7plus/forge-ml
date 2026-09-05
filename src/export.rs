@@ -1139,7 +1139,7 @@ pub fn native_regression_model_card(
     let report = html(
         "Native regression model card",
         &format!(
-            "<h1>Native regression model card</h1><p><strong>{}</strong> predicts <strong>{}</strong> from <strong>{}</strong>.</p><h2>Model</h2><table><tr><th>Run</th><td>{}</td></tr><tr><th>Artifact schema</th><td>{}</td></tr><tr><th>Backend</th><td>{}</td></tr><tr><th>Equation</th><td>{} = {:.8} × {} + {:.8}</td></tr><tr><th>Best score</th><td>{:.8}</td></tr><tr><th>Completed epochs</th><td>{}</td></tr></table><h2>Data provenance</h2><table><tr><th>Dataset</th><td>{}</td></tr><tr><th>Admitted rows</th><td>{}</td></tr><tr><th>Training rows</th><td>{}</td></tr><tr><th>Validation rows</th><td>{}</td></tr><tr><th>Data SHA-256</th><td><code>{}</code></td></tr></table><h2>Preprocessing and optimization</h2><table><tr><th>Feature mean / scale</th><td>{:.8} / {:.8}</td></tr><tr><th>Target mean / scale</th><td>{:.8} / {:.8}</td></tr><tr><th>Learning rate</th><td>{:.8}</td></tr><tr><th>Configured epochs</th><td>{}</td></tr><tr><th>Validation fraction</th><td>{:.4}</td></tr><tr><th>Early-stopping patience</th><td>{}</td></tr></table><h2>Inference drift policy</h2><table><tr><th>Mean-shift threshold</th><td>{:.4}σ</td></tr><tr><th>Scale-ratio range</th><td>{:.4}–{:.4}</td></tr></table><p>This card describes the fitted artifact and current IDE inference policy. It does not embed training records or dataset values.</p>",
+            "<h1>Native regression model card</h1><p><strong>{}</strong> predicts <strong>{}</strong> from <strong>{}</strong>.</p><h2>Model</h2><table><tr><th>Run</th><td>{}</td></tr><tr><th>Artifact schema</th><td>{}</td></tr><tr><th>Backend</th><td>{}</td></tr><tr><th>Equation</th><td>{} = {:.8} × {} + {:.8}</td></tr><tr><th>Best score</th><td>{:.8}</td></tr><tr><th>Completed epochs</th><td>{}</td></tr></table><h2>Data provenance</h2><table><tr><th>Dataset</th><td>{}</td></tr><tr><th>Admitted rows</th><td>{}</td></tr><tr><th>Training rows</th><td>{}</td></tr><tr><th>Validation rows</th><td>{}</td></tr><tr><th>Data SHA-256</th><td><code>{}</code></td></tr></table><h2>Preprocessing and optimization</h2><table><tr><th>Feature mean / scale</th><td>{:.8} / {:.8}</td></tr><tr><th>Target mean / scale</th><td>{:.8} / {:.8}</td></tr><tr><th>Learning rate</th><td>{:.8}</td></tr><tr><th>Configured epochs</th><td>{}</td></tr><tr><th>Validation fraction</th><td>{:.4}</td></tr><tr><th>Early-stopping patience</th><td>{}</td></tr></table><h2>Inference drift policy</h2><table><tr><th>Mean-shift threshold</th><td>{:.4} sd</td></tr><tr><th>Scale-ratio range</th><td>{:.4}–{:.4}</td></tr></table><p>This card describes the fitted artifact and current IDE inference policy. It does not embed training records or dataset values.</p>",
             value(&artifact.run_id),
             value(&artifact.target),
             value(&artifact.feature),
@@ -1274,7 +1274,7 @@ mod tests {
         assert!(report.contains("&lt;unsafe-run&gt;"));
         assert!(!report.contains("<unsafe-run>"));
         assert!(!report.contains("https://"));
-        assert!(report.contains("1.0000σ"));
+        assert!(report.contains("1.0000 sd"));
         let _ = fs::remove_file(path);
     }
 

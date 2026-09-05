@@ -14,4 +14,6 @@ git diff --check
 
 Update `ROADMAP.md` only after proportionate verification, and update user documentation for visible behavior. Protocol changes require compatibility tests. UI changes should remain keyboard reachable, include text or symbols rather than relying on color alone, and be checked in light, dark, high-contrast, and reduced-motion modes.
 
+For icons and symbols in the UI, use the bundled Phosphor icons (via the `ui::theme` icon-button helpers or `Icon::as_str()`), not raw Unicode arrows/triangles/Greek/dingbats — those aren't in the app's fonts and render as squares. The `glyph_guard` test enforces this over `src`.
+
 Never trigger package publication from tests or ordinary UI discovery. Publishing and update installation must remain explicit operations.

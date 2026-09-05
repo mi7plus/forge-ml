@@ -74,9 +74,9 @@ pub fn compatibility(runtime: &PythonRuntime) -> Vec<String> {
                 .lines()
                 .any(|line| line.to_ascii_lowercase().starts_with(package))
             {
-                format!("✓ {package}")
+                format!("{} {package}", egui_phosphor_icons::icons::CHECK.as_str())
             } else {
-                format!("— {package} not installed (user-managed)")
+                format!("- {package} not installed (user-managed)")
             },
         );
     }
@@ -151,7 +151,9 @@ mod tests {
             packages: "numpy==2.0".into(),
         };
         let notes = compatibility(&runtime);
-        assert!(notes.iter().any(|line| line == "✓ numpy"));
+        assert!(notes
+            .iter()
+            .any(|line| line.ends_with(" numpy") && !line.contains("not installed")));
         assert!(notes
             .iter()
             .any(|line| line.contains("scikit-learn not installed")));

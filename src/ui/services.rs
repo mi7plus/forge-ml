@@ -511,7 +511,7 @@ impl crate::ForgeApp {
                             ui.label(
                                 health
                                     .drift_mean_shift
-                                    .map_or_else(|| "-".into(), |value| format!("{value:.3}σ")),
+                                    .map_or_else(|| "-".into(), |value| format!("{value:.3} sd")),
                             );
                             ui.label(
                                 health
