@@ -104,7 +104,7 @@ jobs:
           manifest = {"schema": 1, "channel": channel, "version": tag.removeprefix("v"), "published_at": "${{ github.event.repository.updated_at }}", "artifacts": artifacts}
           pathlib.Path(f"update-{channel}.json").write_text(json.dumps(manifest, indent=2) + "\n")
           PY
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             release-artifacts/**/*
