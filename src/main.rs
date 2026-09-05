@@ -38,6 +38,7 @@ mod python_kernel;
 mod python_runtime;
 mod release;
 mod remote;
+mod result_ext;
 mod runtime;
 mod rust_kernel;
 mod service_monitor;

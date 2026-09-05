@@ -2,6 +2,7 @@
 //! the charts and structured-plot viewers, and the console pane. Methods on the
 //! shared [`crate::ForgeApp`].
 
+use crate::result_ext::ResultText;
 use crate::ui::theme::*;
 use crate::*;
 use eframe::egui;
@@ -571,7 +572,7 @@ impl crate::ForgeApp {
                                             std::fs::write(&path, svg).map_err(|e| e.to_string())
                                         })
                                         .map(|()| format!("Exported {}", path.display()))
-                                        .unwrap_or_else(|e| e),
+                                        .text(),
                                 );
                             }
                         }
@@ -586,7 +587,7 @@ impl crate::ForgeApp {
                                             std::fs::write(&path, png).map_err(|e| e.to_string())
                                         })
                                         .map(|()| format!("Exported {}", path.display()))
-                                        .unwrap_or_else(|e| e),
+                                        .text(),
                                 );
                             }
                         }
@@ -601,7 +602,7 @@ impl crate::ForgeApp {
                                             std::fs::write(&path, html).map_err(|e| e.to_string())
                                         })
                                         .map(|()| format!("Exported {}", path.display()))
-                                        .unwrap_or_else(|e| e),
+                                        .text(),
                                 );
                             }
                         }
@@ -616,7 +617,7 @@ impl crate::ForgeApp {
                                             std::fs::write(&path, pdf).map_err(|e| e.to_string())
                                         })
                                         .map(|()| format!("Exported {}", path.display()))
-                                        .unwrap_or_else(|e| e),
+                                        .text(),
                                 );
                             }
                         }
@@ -979,8 +980,7 @@ impl crate::ForgeApp {
                             }),
                         ) {
                             self.python_console_output =
-                                python_runtime::create_venv(runtime, &root.join(".venv"))
-                                    .unwrap_or_else(|e| e);
+                                python_runtime::create_venv(runtime, &root.join(".venv")).text();
                         }
                     }
                 });

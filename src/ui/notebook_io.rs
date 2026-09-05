@@ -2,6 +2,7 @@
 //! and project-bundle export, Jupyter discovery, and dataset imports. Methods
 //! on the shared [`crate::ForgeApp`].
 
+use crate::result_ext::ResultText;
 use crate::*;
 
 impl crate::ForgeApp {
@@ -115,7 +116,7 @@ impl crate::ForgeApp {
                     .collect::<Vec<_>>()
                     .join("\n")
             })
-            .unwrap_or_else(|e| e);
+            .text();
         self.inspector_tab = InspectorTab::Help;
         self.hover_text = format!("Jupyter kernels\n\n{}", self.jupyter_output);
     }

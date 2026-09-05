@@ -2,6 +2,7 @@
 //! the SQL database workbench, and the Millwright Studio pane. Methods on the
 //! shared [`crate::ForgeApp`].
 
+use crate::result_ext::ResultText;
 use crate::ui::theme::*;
 use crate::*;
 use eframe::egui;
@@ -65,7 +66,7 @@ impl crate::ForgeApp {
                             .save_object_profiles(&self.object_profiles)
                     })
                     .map(|()| "Saved object-storage profile without credentials.".into())
-                    .unwrap_or_else(|e| e);
+                    .text();
             }
         });
         let mut selected = None;
@@ -218,7 +219,7 @@ impl crate::ForgeApp {
                             item.model, item.version, item.format
                         )
                     })
-                    .unwrap_or_else(|e| e);
+                    .text();
             }
         });
         ui.horizontal_wrapped(|ui| {
@@ -238,7 +239,7 @@ impl crate::ForgeApp {
                             self.registry_model, self.registry_alias, self.registry_version
                         )
                     })
-                    .unwrap_or_else(|e| e);
+                    .text();
             }
             if ui.button("Generate Rust service").clicked() {
                 self.registry_output = model_registry::ModelRegistry::open(&root)
@@ -258,7 +259,7 @@ impl crate::ForgeApp {
                         )
                     })
                     .map(|path| format!("Generated {}", path.display()))
-                    .unwrap_or_else(|e| e);
+                    .text();
             }
         });
         if let Ok(registry) = model_registry::ModelRegistry::open(&root) {
@@ -592,7 +593,7 @@ impl crate::ForgeApp {
                     self.sql_output = store
                         .save_connections(&self.database_profiles)
                         .map(|_| "Connection profile saved without plaintext credentials.".into())
-                        .unwrap_or_else(|e| e);
+                        .text();
                 }
             }
         });

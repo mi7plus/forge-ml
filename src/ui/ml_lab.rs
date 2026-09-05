@@ -2,6 +2,7 @@
 //! classification, dataset preparation, hyperparameter sweeps, the inference
 //! playground, and ONNX import — all methods on the shared [`crate::ForgeApp`].
 
+use crate::result_ext::ResultText;
 use crate::ui::theme::*;
 use crate::*;
 use eframe::egui;
@@ -28,8 +29,7 @@ impl crate::ForgeApp {
                 self.sql_output = root
                     .as_ref()
                     .map(|root| {
-                        deep_learning::generate_burn_project(root, self.deep_backend)
-                            .unwrap_or_else(|e| e)
+                        deep_learning::generate_burn_project(root, self.deep_backend).text()
                     })
                     .unwrap_or_else(|| "Open a project first.".into());
             }
@@ -703,21 +703,19 @@ impl crate::ForgeApp {
             if ui.button("Generate Actions training").clicked() {
                 self.sql_output = root
                     .as_ref()
-                    .map(|root| remote::generate_actions_workflow(root).unwrap_or_else(|e| e))
+                    .map(|root| remote::generate_actions_workflow(root).text())
                     .unwrap_or_else(|| "Open a project first.".into());
             }
             if ui.button("Dispatch Actions training").clicked() {
                 self.sql_output = root
                     .as_ref()
-                    .map(|root| {
-                        github::dispatch_training(root, &self.remote_command).unwrap_or_else(|e| e)
-                    })
+                    .map(|root| github::dispatch_training(root, &self.remote_command).text())
                     .unwrap_or_else(|| "Open a project first.".into());
             }
             if ui.button("Retrieve artifacts").clicked() {
                 self.sql_output = root
                     .as_ref()
-                    .map(|root| github::download_artifacts(root).unwrap_or_else(|e| e))
+                    .map(|root| github::download_artifacts(root).text())
                     .unwrap_or_else(|| "Open a project first.".into());
             }
         });

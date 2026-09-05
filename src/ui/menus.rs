@@ -1,6 +1,7 @@
 //! Menu bar, top toolbar, and the modal windows (settings, welcome, rename,
 //! code actions). Methods on the shared [`crate::ForgeApp`].
 
+use crate::result_ext::ResultText;
 use crate::ui::theme::*;
 use crate::*;
 use eframe::egui;
@@ -259,7 +260,7 @@ impl crate::ForgeApp {
                     ui.close();
                 }
                 if ui.button("Install Evcxr Jupyter kernel").clicked() {
-                    self.jupyter_output = jupyter::install_evcxr().unwrap_or_else(|e| e);
+                    self.jupyter_output = jupyter::install_evcxr().text();
                     self.hover_text = self.jupyter_output.clone();
                     self.inspector_tab = InspectorTab::Help;
                     ui.close();
