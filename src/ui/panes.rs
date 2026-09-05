@@ -843,15 +843,13 @@ impl crate::ForgeApp {
         let mut select: Option<usize> = None;
         let mut open_dataset: Option<String> = None;
         // In-place editing works on each cell's raw byte range (marker + body),
-        // so a save round-trips exactly. Take the draft out of `self` for the
-        // duration so the editable TextEdit doesn't clash with the immutable
-        // reads of `cell_records`/`data` inside the list.
-        let content = self.active().content.clone();
-        let raw_ranges: Vec<String> = crate::notebook::cell_byte_ranges(&content)
-            .into_iter()
-            .map(|range| content.get(range).unwrap_or_default().to_owned())
-            .collect();
+        // so a save round-trips exactly. Take the in-progress draft out of `self`
+        // for the render pass so the editable TextEdit doesn't clash with the
+        // immutable reads of `cell_records`/`data` inside the list. The raw cell
+        // text is fetched lazily only when Edit is pressed (via `edit_request`),
+        // so we don't clone the whole buffer on every repaint.
         let mut edit = self.notebook_edit.take();
+        let mut edit_request: Option<usize> = None;
         let mut save: Option<(usize, String)> = None;
         let mut cancel_edit = false;
         let mut swap_first: Option<usize> = None;
@@ -923,18 +921,13 @@ impl crate::ForgeApp {
                             if ui.small_button("Run").clicked() {
                                 run_cell = Some(index);
                             }
-                            let editing_this = matches!(&edit, Some((i, _)) if *i == index);
-                            if !editing_this
-                                && edit.is_none()
+                            if edit.is_none()
                                 && ui
                                     .small_button("Edit")
                                     .on_hover_text("Edit this cell's source in place")
                                     .clicked()
                             {
-                                edit = Some((
-                                    index,
-                                    raw_ranges.get(index).cloned().unwrap_or_default(),
-                                ));
+                                edit_request = Some(index);
                             }
                             if ui
                                 .add_enabled(index > 0, egui::Button::new("↑").small())
@@ -1095,6 +1088,15 @@ impl crate::ForgeApp {
             self.notebook_edit = None;
         } else if cancel_edit {
             self.notebook_edit = None;
+        } else if let Some(index) = edit_request {
+            // Fetch the cell's raw text now (not every repaint).
+            let content = &self.active().content;
+            let draft = crate::notebook::cell_byte_ranges(content)
+                .get(index)
+                .and_then(|range| content.get(range.clone()))
+                .unwrap_or_default()
+                .to_owned();
+            self.notebook_edit = Some((index, draft));
         } else {
             self.notebook_edit = edit;
         }
@@ -1131,7 +1133,7 @@ impl crate::ForgeApp {
             self.inspector_tab = InspectorTab::Data;
         }
         if run_all {
-            self.enqueue_cells(0..self.cells().len());
+            self.enqueue_cells(0..cell_count);
         } else if let Some(index) = run_cell {
             self.enqueue_cells([index]);
         }

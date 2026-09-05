@@ -581,6 +581,9 @@ enum EditorHistoryCommand {
     Redo,
 }
 
+/// Memoized `(title, source)` cells keyed by a hash of the active document.
+type CellsCache = std::cell::RefCell<Option<(u64, Vec<(String, String)>)>>;
+
 #[derive(Default)]
 struct CellRecord {
     state: Option<CellState>,
@@ -775,6 +778,10 @@ struct ForgeApp {
     notebook_edit: Option<(usize, String)>,
     /// Cell indices collapsed to just their header in the Notebook pane.
     notebook_collapsed: std::collections::HashSet<usize>,
+    /// Memoized `cells()` result, keyed by a hash of the active document's
+    /// title+content, so the notebook parse runs once per change rather than on
+    /// every repaint (the cell rail, Notebook pane, and status all call it).
+    cells_cache: CellsCache,
     code_actions: Vec<lsp::CodeAction>,
     cursor_offset: usize,
     document_version: i32,
@@ -1414,6 +1421,7 @@ impl ForgeApp {
             go_to_line_input: String::new(),
             notebook_edit: None,
             notebook_collapsed: std::collections::HashSet::new(),
+            cells_cache: std::cell::RefCell::new(None),
             code_actions: Vec::new(),
             hover_text: String::new(),
             cursor_offset: 0,
@@ -1698,7 +1706,27 @@ impl ForgeApp {
         });
     }
 
+    /// The active document split into `(title, source)` cells. Memoized on a
+    /// hash of the document's title+content so the parse runs once per change
+    /// rather than on every repaint.
     fn cells(&self) -> Vec<(String, String)> {
+        let active = self.active();
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        use std::hash::{Hash, Hasher};
+        active.title.hash(&mut hasher);
+        active.content.hash(&mut hasher);
+        let key = hasher.finish();
+        if let Some((cached_key, cells)) = &*self.cells_cache.borrow() {
+            if *cached_key == key {
+                return cells.clone();
+            }
+        }
+        let cells = self.compute_cells();
+        *self.cells_cache.borrow_mut() = Some((key, cells.clone()));
+        cells
+    }
+
+    fn compute_cells(&self) -> Vec<(String, String)> {
         if !is_notebook_document(&self.active().content) {
             return if self.active().content.trim().is_empty() {
                 Vec::new()
