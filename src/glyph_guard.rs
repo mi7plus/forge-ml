@@ -13,19 +13,28 @@
 mod tests {
     use std::path::Path;
 
-    /// True for codepoint ranges the app's fonts do not cover, so a glyph there
-    /// renders as a square. Kept deliberately narrow to avoid false positives.
+    /// Deny-by-default: a glyph is unrenderable unless it is ASCII or on the
+    /// explicit safe allow-list — accented Latin (names), a few safe punctuation
+    /// marks, Phosphor's private-use glyphs, and emoji (NotoEmoji covers them).
+    /// This catches every class the app's fonts can't draw (arrows, Greek, box
+    /// drawing, math operators, Cyrillic, …), not just an enumerated few.
     fn unrenderable(ch: char) -> bool {
-        matches!(ch as u32,
-            0x0370..=0x03FF   // Greek (mu, sigma, ...)
-            | 0x2039 | 0x203A // single angle quotation marks
-            | 0x2190..=0x21FF // arrows
-            | 0x2500..=0x257F // box drawing
-            | 0x25A0..=0x25FF // geometric shapes (triangles, squares, circles)
-            | 0x2700..=0x27BF // dingbats (check/cross marks)
-            | 0x27F0..=0x27FF // supplemental arrows-A
-            | 0x2B00..=0x2BFF // misc symbols and arrows
-        )
+        let c = ch as u32;
+        let safe = c <= 0x7F
+            || (0x00A0..=0x024F).contains(&c) // Latin-1 + Latin Extended-A/B (accents)
+            || matches!(
+                c,
+                0x2018 | 0x2019 | 0x201C | 0x201D // curly quotes
+                | 0x2013 | 0x2014 // en/em dash
+                | 0x2026          // ellipsis
+                | 0x00B7          // middle dot
+                | 0x00D7          // multiplication sign
+                | 0x00B0          // degree
+            )
+            || (0xE000..=0xF8FF).contains(&c) // Phosphor private-use glyphs
+            || (0x2600..=0x26FF).contains(&c) // misc symbols (emoji)
+            || (0x1F000..=0x1FAFF).contains(&c); // emoji
+        !safe
     }
 
     /// Report `file:line U+XXXX <ch>` for every unrenderable glyph inside a
