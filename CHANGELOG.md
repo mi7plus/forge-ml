@@ -11,6 +11,18 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+### Added
+- **`forge reproduce <run-id>` (Forge Distribution, Phase 2).** Verify whether the
+  current checkout and environment can reproduce a recorded experiment run. It
+  reloads the run from the project's workspace store, recomputes the current
+  provenance (git commit, `Cargo.lock` hash, rustc/cargo versions, OS/arch,
+  dataset hashes) and reports each dimension as `ok`, `warn` (informational
+  drift such as a newer toolchain), or `DIFF` (a reproducibility-critical
+  divergence — a different commit, a changed `Cargo.lock`, a dirty tree, or a
+  changed dataset), with the exact fix. Exits non-zero on any `DIFF`, so
+  `clone && forge reproduce <id>` composes as a CI gate. It verifies
+  reproducibility rather than re-executing the run.
+
 ### Changed
 - **Forge Distribution, Phase 1 cleanup.** Curated CLI profiles now live in one
   place — a dependency-free `forge_cli::profiles` module (the single source of

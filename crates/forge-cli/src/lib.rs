@@ -32,6 +32,7 @@ pub fn run() -> ExitCode {
         "test" => passthrough_cargo("test", rest),
         "env" => cmd_env(rest),
         "doctor" => run_forge_ide(&["--env-doctor".to_owned()]),
+        "reproduce" => cmd_reproduce(rest),
         "ide" => cmd_ide(rest),
         "version" | "--version" | "-V" => {
             println!("forge {}", env!("CARGO_PKG_VERSION"));
@@ -108,6 +109,23 @@ fn cmd_env(args: &[String]) -> Result<(), String> {
     };
     forwarded.extend(rest.iter().cloned());
     run_forge_ide(&forwarded)
+}
+
+/// `forge reproduce <run-id> [dir]` — check the current environment against a
+/// recorded run's provenance. Delegates to forge_ide and mirrors its exit code
+/// (non-zero when the run is not reproducible here), so it composes in scripts
+/// and CI without the generic "exited with N" wrapper.
+fn cmd_reproduce(args: &[String]) -> Result<(), String> {
+    if args.is_empty() {
+        return Err("usage: forge reproduce <run-id> [dir]".into());
+    }
+    let mut forwarded = vec!["--reproduce".to_owned()];
+    forwarded.extend(args.iter().cloned());
+    let status = Command::new(forge_ide_path()?)
+        .args(&forwarded)
+        .status()
+        .map_err(|error| format!("launching forge_ide: {error}"))?;
+    std::process::exit(status.code().unwrap_or(1));
 }
 
 /// `forge ide [dir]` — open the Forge ML desktop app on a project.
@@ -237,6 +255,7 @@ fn print_help() {
          \x20 forge run|build|test [args]      cargo passthrough\n\
          \x20 forge env sync|doctor [dir]      write forge.lock / report the environment\n\
          \x20 forge doctor                     diagnose the current environment\n\
+         \x20 forge reproduce <id> [dir]       verify the environment against a recorded run\n\
          \x20 forge ide [dir]                  open the Forge ML desktop app\n\
          \x20 forge version                    print the version",
         env!("CARGO_PKG_VERSION"),

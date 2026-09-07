@@ -43,7 +43,7 @@ Nothing uses `deny_unknown_fields`, and an unknown top-level section or a higher
 
 ## `forge.lock` — the generated environment
 
-What `--env-sync` writes and a future `forge reproduce` replays. The offline
+What `--env-sync` writes and `forge reproduce` verifies against. The offline
 runtime bundle is one concrete materialization of it. Crate resolution is **not**
 duplicated: the lock references `Cargo.lock` by SHA-256, keeping Cargo the source
 of truth.
@@ -106,9 +106,20 @@ It claims only `toolchain` + `crates`, which is why a manifest `[gpu]`/`[native]
 ## CLI
 
 ```
-forge_ide --env-doctor [dir]   # manifest, providers, warnings, gaps
-forge_ide --env-sync   [dir]   # write dir/forge.lock
+forge_ide --env-doctor      [dir]   # manifest, providers, warnings, gaps
+forge_ide --env-sync        [dir]   # write dir/forge.lock
+forge_ide --reproduce <id>  [dir]   # verify the environment against a recorded run
 ```
+
+These are also the `forge env doctor` / `forge env sync` / `forge reproduce`
+subcommands of the thin CLI, which shell out to the app binary.
+
+`forge reproduce <id>` reloads a recorded experiment run from the project's
+workspace store, recomputes the current provenance (git commit, `Cargo.lock`
+hash, toolchain, dataset hashes), and reports each dimension as `ok`, `warn`
+(informational drift), or `DIFF` (a reproducibility-critical divergence). It
+exits non-zero on any `DIFF`, so `clone && forge reproduce <id>` works as a CI
+gate. It verifies reproducibility rather than re-executing the run.
 
 `--env-doctor` example (project with a `[gpu]` section, dev build without a bundle):
 

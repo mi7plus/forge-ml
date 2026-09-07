@@ -39,6 +39,7 @@ mod python_kernel;
 mod python_runtime;
 mod release;
 mod remote;
+mod reproduce;
 mod result_ext;
 mod runtime;
 mod rust_kernel;
@@ -206,6 +207,22 @@ fn main() -> eframe::Result<()> {
         match environment::sync_project(&root) {
             Ok(path) => println!("Wrote {}", path.display()),
             Err(error) => eprintln!("forge env sync failed: {error}"),
+        }
+        return Ok(());
+    }
+    // `--reproduce <ID> [dir]` verifies the current environment against a recorded
+    // run's provenance; exits non-zero on a reproducibility-critical divergence.
+    if let Some(pos) = cli.iter().position(|a| a == "--reproduce") {
+        let id = cli.get(pos + 1).filter(|value| !value.starts_with("--"));
+        let Some(id) = id else {
+            eprintln!("forge reproduce: usage: forge reproduce <run-id> [dir]");
+            return Ok(());
+        };
+        let root = env_cli_dir(&cli, pos + 1);
+        let report = reproduce::reproduce(&root, id);
+        print!("{}", report.text);
+        if !report.reproducible {
+            std::process::exit(1);
         }
         return Ok(());
     }
