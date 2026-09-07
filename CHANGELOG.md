@@ -11,6 +11,8 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+## [1.11.0] — 2026-09-07
+
 ### Added
 - **Onboarding scaffold + getting-started guide (Forge Distribution, Phase 3).**
   `forge new` now writes a runnable Forge starter `src/main.rs` (in place of
