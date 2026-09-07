@@ -60,18 +60,18 @@
   <div class="body">
     <section id="install">
       <h2>Install &amp; run</h2>
-      <p><strong>Download v1.8.0</strong> — native installers with the offline Rust runtime bundled in:</p>
+      <p><strong>Download v1.9.0</strong> — native installers with the offline Rust runtime bundled in:</p>
       <ul>
         <li><strong>Windows</strong> (10/11, x64):
-          <a href="https://github.com/mi7plus/forge-ml/releases/download/v1.8.0/forge_ide_1.8.0_x64-setup.exe">Installer&nbsp;(.exe)</a>
-          · portable <a href="https://github.com/mi7plus/forge-ml/releases/download/v1.8.0/forge_ide.exe">forge_ide.exe</a></li>
+          <a href="https://github.com/mi7plus/forge-ml/releases/download/v1.9.0/forge_ide_1.9.0_x64-setup.exe">Installer&nbsp;(.exe)</a>
+          · portable <a href="https://github.com/mi7plus/forge-ml/releases/download/v1.9.0/forge_ide.exe">forge_ide.exe</a></li>
         <li><strong>macOS</strong> (Apple Silicon):
-          <a href="https://github.com/mi7plus/forge-ml/releases/download/v1.8.0/Forge.ML_1.8.0_aarch64.dmg">Disk image&nbsp;(.dmg)</a></li>
+          <a href="https://github.com/mi7plus/forge-ml/releases/download/v1.9.0/Forge.ML_1.9.0_aarch64.dmg">Disk image&nbsp;(.dmg)</a></li>
         <li><strong>Linux</strong> (x86_64):
-          <a href="https://github.com/mi7plus/forge-ml/releases/download/v1.8.0/forge_ide_1.8.0_x86_64.AppImage">AppImage</a>
-          · <a href="https://github.com/mi7plus/forge-ml/releases/download/v1.8.0/forge_ide_1.8.0_amd64.deb">.deb</a></li>
+          <a href="https://github.com/mi7plus/forge-ml/releases/download/v1.9.0/forge_ide_1.9.0_x86_64.AppImage">AppImage</a>
+          · <a href="https://github.com/mi7plus/forge-ml/releases/download/v1.9.0/forge_ide_1.9.0_amd64.deb">.deb</a></li>
       </ul>
-      <p>Verify against <a href="https://github.com/mi7plus/forge-ml/releases/download/v1.8.0/SHA256SUMS">SHA256SUMS</a>,
+      <p>Verify against <a href="https://github.com/mi7plus/forge-ml/releases/download/v1.9.0/SHA256SUMS">SHA256SUMS</a>,
       or grab any build from <a href="https://github.com/mi7plus/forge-ml/releases/latest">all releases</a>.</p>
       <p>Prefer to build from source? Forge ML is a Cargo workspace. On Windows, use a Visual Studio Native
       Tools command prompt so Cargo can find the MSVC linker:</p>
@@ -302,6 +302,26 @@ println!(r#"forge_plot:{"name":"roc","kind":"line","series":[...]}"#); // struct
       <div class="note">Training runs on a background worker, streams backend-labeled progress into Millwright
       Studio, and can be cancelled without a false completion. WGPU needs a compatible local adapter;
       CUDA/ROCm are available for generated projects and remote jobs but rejected for embedded training.</div>
+
+      <h3 id="compute">Compute device (GPU or CPU)</h3>
+      <p>One app-wide choice — <strong>Automatic</strong>, <strong>GPU</strong>, or <strong>CPU</strong> —
+      set in <strong>Settings → Compute</strong> or the status-bar chip (bottom right) and applied everywhere
+      Forge can accelerate. It selects the embedded Burn training backend (CPU/Flex ↔ WebGPU); changing it
+      updates the Deep pane's backend, which stays overridable there for a single run. The choice is
+      remembered across sessions.</p>
+      <dl class="spec">
+        <dt>Automatic</dt>
+        <dd>Prefer the GPU where a compatible adapter is present and fall back to the CPU on its own.</dd>
+        <dt>GPU</dt>
+        <dd>Use WebGPU for embedded training; a machine without a usable adapter reports a clean device error you can recover from by switching to CPU.</dd>
+        <dt>CPU</dt>
+        <dd>Always use the portable Flex CPU backend. <strong>The default</strong>, so the offline installer runs on the CPU until you opt in.</dd>
+      </dl>
+      <div class="note"><strong>What the installer accelerates:</strong> the shipped builds run embedded Burn
+      training on the GPU via this switch. GPU-accelerated <strong>Millwright ONNX inference</strong> ships
+      only in the opt-in source build (<code>cargo build --features millwright-gpu</code>), where the same
+      device also drives ONNX loading — <em>Automatic</em> uses a GPU execution provider with silent CPU
+      fallback. Classical smartcore/linfa pipelines always run on the CPU.</div>
     </section>
 
     <section id="deploy">
