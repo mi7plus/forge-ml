@@ -12,6 +12,19 @@ grouped under the **0.98.0** release below.
 ## [Unreleased]
 
 ### Added
+- **Python provider + `forge python check` (Forge Distribution, Phase 6).** The
+  `[python]` manifest section is now live — as a **reference**, never a manager. A
+  new `PythonProvider` checks that an interpreter of the requested version is
+  resolvable (a project `.venv`, or PATH) and that the declared manager
+  (`uv`/`pixi`) is present, reports coverage or a gap, and records the reference
+  in `forge.lock` — but it never creates, resolves, or installs a Python
+  environment (a managed Python env would re-import the dependency problem Rust
+  lets you escape). `forge python check` reports the bridge status; a missing
+  interpreter or version mismatch is a gap only under `require = true`. With this,
+  **every reserved manifest section now has a provider** — `[gpu]`, `[native]`,
+  and `[python]` are all active; nothing remains "recognized but not yet active".
+  (The Forge Hub — a datasets/models registry — stays deferred until the core loop
+  is polished and Hugging Face is integrated first.)
 - **Native-library provider — check, provide, and pin (Forge Distribution,
   Phase 5).** The `[native]` manifest section is now live. `NativeLibProvider`
   **checks** a project's declared prerequisites (`blas`, `openssl`, `pkgs`)

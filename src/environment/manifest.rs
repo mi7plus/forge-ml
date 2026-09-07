@@ -3,13 +3,11 @@
 //! crate resolution. It is optional: a project without one gets the defaults
 //! (bundled runtime, current toolchain).
 //!
-//! The `[gpu]` (Phase 4) and `[native]` (Phase 5) sections are **active**: a
-//! `GpuProvider` and a detect-and-bridge `NativeLibProvider` read them and report
-//! coverage or a gap in `forge doctor`. The `[python]` section remains
-//! **reserved** — it parses and validates today but isn't acted on yet, so a full
-//! environment manager stays an additive change rather than a migration. Nothing
-//! here uses `deny_unknown_fields`, so a manifest written for a newer Forge still
-//! loads.
+//! Every reserved section is now **active**, each behind a provider that reports
+//! coverage or a gap in `forge doctor`: `[gpu]` (Phase 4), `[native]` (Phase 5,
+//! detect-and-bridge plus a pinned prebuilt channel), and `[python]` (Phase 6, a
+//! reference to a uv/pixi env — Forge never manages one). Nothing here uses
+//! `deny_unknown_fields`, so a manifest written for a newer Forge still loads.
 
 use serde::Deserialize;
 use std::path::Path;
@@ -32,7 +30,9 @@ pub struct Manifest {
     /// Active (Phase 4): GPU backend selection, read via [`Manifest::gpu_request`]
     /// and covered by the `GpuProvider`. Kept as a raw table for forward-compat.
     pub gpu: toml::Table,
-    /// Reserved: managed Python interop environment.
+    /// Active (Phase 6): a reference to a Python interop environment (version,
+    /// manager, bridge), read via [`Manifest::python_request`] and checked (not
+    /// created) by the `PythonProvider`. Kept as a raw table for forward-compat.
     pub python: toml::Table,
 }
 
@@ -84,10 +84,28 @@ pub struct NativeRequest {
     pub require: bool,
 }
 
-/// Reserved manifest sections that now have a provider and so are *not* flagged
-/// as "recognized but not yet active". `[gpu]` (Phase 4) and `[native]` (Phase 5,
-/// as a detect-and-bridge provider) have graduated here.
-const ACTIVE_RESERVED: &[&str] = &["gpu", "native"];
+/// A typed view of the `[python]` manifest section, read by the Python provider.
+/// Forge **references** a Python environment (uv/pixi); it never creates or
+/// resolves one — that would re-import the very problem Rust lets you avoid.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PythonRequest {
+    /// Whether a `[python]` section is present at all.
+    pub present: bool,
+    /// Requested interpreter version (major.minor, e.g. `3.13`).
+    pub version: Option<String>,
+    /// The environment manager that owns the env: `uv` | `pixi` | `system`.
+    pub manager: Option<String>,
+    /// Bridge surfaces the project uses (`arrow`, `onnx`, `numpy`, …) —
+    /// informational; Forge does not install them.
+    pub bridge: Vec<String>,
+    /// Fail (rather than warn) when the env is missing or the version mismatches.
+    pub require: bool,
+}
+
+/// Manifest sections that now have a provider and so are *not* flagged as
+/// "recognized but not yet active". `[gpu]` (Phase 4), `[native]` (Phase 5), and
+/// `[python]` (Phase 6) have all graduated — no reserved sections remain.
+const ACTIVE_RESERVED: &[&str] = &["gpu", "native", "python"];
 
 impl Manifest {
     pub const FILE_NAME: &'static str = "forge.toml";
@@ -136,6 +154,38 @@ impl Manifest {
                     .and_then(toml::Value::as_integer)
                     .map(|value| value.to_string())
             }),
+            require: table
+                .get("require")
+                .and_then(toml::Value::as_bool)
+                .unwrap_or(false),
+        }
+    }
+
+    /// The typed `[python]` request. Absent section ⇒ a default (not present).
+    pub fn python_request(&self) -> PythonRequest {
+        let table = &self.python;
+        let string = |key: &str| table.get(key).and_then(toml::Value::as_str).map(str::to_owned);
+        let bridge = table
+            .get("bridge")
+            .and_then(toml::Value::as_array)
+            .map(|array| {
+                array
+                    .iter()
+                    .filter_map(|value| value.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+        PythonRequest {
+            present: !table.is_empty(),
+            // `version` may be a string ("3.13") or a bare number (3.13).
+            version: string("version").or_else(|| {
+                table
+                    .get("version")
+                    .and_then(toml::Value::as_float)
+                    .map(|value| format!("{value}"))
+            }),
+            manager: string("manager"),
+            bridge,
             require: table
                 .get("require")
                 .and_then(toml::Value::as_bool)

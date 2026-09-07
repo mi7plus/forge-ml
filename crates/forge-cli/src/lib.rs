@@ -35,6 +35,7 @@ pub fn run() -> ExitCode {
         "doctor" => run_forge_ide(&["--env-doctor".to_owned()]),
         "gpu" => cmd_gpu(rest),
         "native" => cmd_native(rest),
+        "python" => cmd_python(rest),
         "reproduce" => cmd_reproduce(rest),
         "ide" => cmd_ide(rest),
         "version" | "--version" | "-V" => {
@@ -135,6 +136,21 @@ fn cmd_gpu(args: &[String]) -> Result<(), String> {
         Some("detect") => run_forge_ide(&["--gpu-detect".to_owned()]),
         Some(other) => Err(format!("unknown gpu subcommand `{other}` (detect)")),
         None => Err("usage: forge gpu detect".into()),
+    }
+}
+
+/// `forge python check [dir]` — report the referenced Python bridge environment
+/// (interpreter, version, manager). Forge references the env; it never manages
+/// it. Delegates to forge_ide.
+fn cmd_python(args: &[String]) -> Result<(), String> {
+    match args.split_first() {
+        Some((sub, rest)) if sub == "check" => {
+            let mut forwarded = vec!["--python-check".to_owned()];
+            forwarded.extend(rest.iter().cloned());
+            run_forge_ide(&forwarded)
+        }
+        Some((other, _)) => Err(format!("unknown python subcommand `{other}` (check)")),
+        None => Err("usage: forge python check [dir]".into()),
     }
 }
 
@@ -349,6 +365,7 @@ fn print_help() {
          \x20 forge doctor                     diagnose the current environment\n\
          \x20 forge gpu detect                 report detected GPU backends\n\
          \x20 forge native check|provide|pin  check / download+provide / pin native prerequisites\n\
+         \x20 forge python check [dir]        report the referenced Python bridge environment\n\
          \x20 forge reproduce <id> [dir]       verify the environment against a recorded run\n\
          \x20 forge ide [dir]                  open the Forge ML desktop app\n\
          \x20 forge version                    print the version",

@@ -140,8 +140,18 @@ pure Rust, so this stays a curated, pinned channel — **not** the general
 cross-platform resolver the roadmap warns against; every artifact is verified by
 hash before use, and nothing downloaded is executed.
 
-The toolchain providers claim `toolchain` + `crates`; the still-reserved
-`[python]` section shows up as a gap until a provider covers it.
+`PythonProvider` (`src/environment/python.rs`) covers the `[python]` section
+(Phase 6) as a **reference**, never a manager: it checks that an interpreter of
+the requested version is resolvable (a project `.venv`, or PATH) and that the
+declared manager (`uv`/`pixi`) is present, and reports coverage or a gap — but it
+never creates, resolves, or installs a Python environment. The roadmap is
+emphatic that a managed Python env re-imports the problem Rust lets you escape, so
+Forge references what `uv`/`pixi` own. `forge python check` reports the bridge
+status; a missing interpreter or version mismatch is a gap only under
+`require = true`.
+
+Every reserved manifest section now has a provider — nothing is left as
+"recognized but not yet active".
 
 `forge doctor` also runs read-only **host diagnostics** — the presence of rustc,
 cargo, rustup, a C compiler/linker, CUDA, and Python — so it can explain *why*
@@ -157,6 +167,7 @@ forge_ide --gpu-detect              # report detected GPU backends
 forge_ide --native-check    [dir]   # check [native] prerequisites (system + bridge guidance)
 forge_ide --native-provide  [dir]   # download+verify+extract pinned prebuilts; write .forge/native-env
 forge_ide --native-pin <url> --archive <zip|tar-gz> [--name n]   # print a verified catalog entry
+forge_ide --python-check    [dir]   # report the referenced Python bridge env (never manages it)
 ```
 
 These are also the `forge env doctor` / `forge env sync` / `forge reproduce`
@@ -201,9 +212,12 @@ Shipped:
 - `GpuProvider` — CUDA/ROCm/Metal/DirectML detection, fills `[gpu]` (Phase 4).
 - `NativeLibProvider` — checks `[native]` prerequisites and bridges to the system
   package manager; installs nothing (Phase 5).
+- `PythonProvider` — references a `uv`/`pixi` Python env for the bridge; does
+  **not** manage one (Phase 6).
 
-Planned:
-- `PythonProvider` — hand off to `uv`/`pixi`; do **not** build a Python env manager.
+All provider seams are now filled. Planned beyond them: **Forge Hub** — a
+datasets/models registry with checksums in `forge.lock` — deferred until the core
+loop is polished and Hugging Face is integrated first.
 
 The bridge not to burn: don't let the bundle path leak past
 `BundledRuntimeProvider`, and don't skip the manifest/lock and hardcode. Do those

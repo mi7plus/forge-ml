@@ -17,6 +17,7 @@ mod manifest;
 mod native;
 mod provider;
 mod provision;
+mod python;
 mod system;
 
 pub use bundled::BundledRuntimeProvider;
@@ -27,6 +28,7 @@ pub use native::{
     pin as native_pin, provide as native_provide, report as native_report, NativeLibProvider,
 };
 pub use provider::{Activation, EnvironmentProvider, Probe};
+pub use python::{report as python_report, PythonProvider};
 pub use system::SystemToolchainProvider;
 
 use std::path::{Path, PathBuf};
@@ -60,6 +62,7 @@ impl Resolver {
         resolver.register(Box::new(SystemToolchainProvider));
         resolver.register(Box::new(GpuProvider));
         resolver.register(Box::new(NativeLibProvider));
+        resolver.register(Box::new(PythonProvider));
         resolver
     }
 
@@ -263,12 +266,11 @@ cuda = "13"
         assert!(gpu.present);
         assert_eq!(gpu.backend.as_deref(), Some("cuda"));
         assert_eq!(gpu.cuda.as_deref(), Some("13"));
-        // A still-reserved section (python) is still flagged not-yet-active.
-        let python = Manifest::parse("[python]\nversion = \"3.13\"\n").unwrap();
-        assert!(python
-            .warnings()
-            .iter()
-            .any(|w| w.contains("[python]") && w.contains("not yet active")));
+        // Every reserved section now has a provider, so none is flagged
+        // "not yet active" — not gpu, native, or python.
+        let all = Manifest::parse("[gpu]\nx=1\n[native]\ny=1\n[python]\nversion=\"3.13\"\n").unwrap();
+        assert!(!all.warnings().iter().any(|w| w.contains("not yet active")));
+        assert_eq!(all.python_request().version.as_deref(), Some("3.13"));
     }
 
     #[test]
@@ -281,12 +283,14 @@ cuda = "13"
     }
 
     #[test]
-    fn gaps_reports_unsupported_reserved_sections() {
-        // `[native]`/`[python]` still have no provider, so they are gaps.
-        let manifest = Manifest::parse("[python]\nversion = \"3.13\"\n").unwrap();
+    fn required_but_unsatisfiable_section_is_a_gap() {
+        // Every reserved section now has a provider, so a gap is a *requirement*
+        // that can't be met. A pinned Python version that can never match is a
+        // gap on any machine (mismatch when an interpreter exists, missing when
+        // it doesn't).
+        let manifest = Manifest::parse("[python]\nversion = \"99.99\"\nrequire = true\n").unwrap();
         let gaps = Resolver::default_providers().gaps(&manifest);
-        assert_eq!(gaps.len(), 1);
-        assert_eq!(gaps[0].section, "python");
+        assert!(gaps.iter().any(|gap| gap.section == "python"));
     }
 
     #[test]

@@ -252,6 +252,19 @@ fn main() -> eframe::Result<()> {
         }
         return Ok(());
     }
+    // `--python-check [dir]` reports the referenced Python bridge env for a project.
+    if let Some(pos) = cli.iter().position(|a| a == "--python-check") {
+        let root = env_cli_dir(&cli, pos);
+        let manifest = environment::Manifest::load(&root)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        print!(
+            "{}",
+            environment::python_report(&manifest.python_request(), &root)
+        );
+        return Ok(());
+    }
     // `--reproduce <ID> [dir]` verifies the current environment against a recorded
     // run's provenance; exits non-zero on a reproducibility-critical divergence.
     if let Some(pos) = cli.iter().position(|a| a == "--reproduce") {
