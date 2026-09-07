@@ -10,14 +10,17 @@
 //! rewrite. See `docs/FORGE_ENV.md`.
 
 mod bundled;
+mod diagnostics;
 mod lock;
 mod manifest;
 mod provider;
+mod system;
 
 pub use bundled::BundledRuntimeProvider;
 pub use lock::{sha256_hex, Lock};
 pub use manifest::Manifest;
 pub use provider::{Activation, EnvironmentProvider, Probe};
+pub use system::SystemToolchainProvider;
 
 use std::path::{Path, PathBuf};
 
@@ -40,10 +43,14 @@ impl Resolver {
         }
     }
 
-    /// The resolver the app ships with: just the bundled offline runtime.
+    /// The resolver the app ships with: the bundled offline runtime, then the
+    /// system toolchain as a fallback for builds without a bundle. Registration
+    /// order is priority order — the bundle wins when present, and the system
+    /// provider reports itself missing in that case so the two never stack.
     pub fn default_providers() -> Self {
         let mut resolver = Resolver::new();
         resolver.register(Box::new(BundledRuntimeProvider));
+        resolver.register(Box::new(SystemToolchainProvider));
         resolver
     }
 
@@ -182,6 +189,9 @@ pub fn doctor(project_root: &Path) -> String {
     }
 
     out.push_str(&format!("runtime:    {}\n", crate::offline::status_line()));
+
+    // Host tooling presence (rustc/cargo/rustup, a C linker, CUDA, Python).
+    out.push_str(&diagnostics::format(&diagnostics::run()));
 
     // Report an existing forge.lock, if one has been synced.
     if let Ok(text) = std::fs::read_to_string(project_root.join("forge.lock")) {

@@ -89,7 +89,7 @@ pub trait EnvironmentProvider {
 `scratch`), so `Resolver` composes several providers and applies once. See
 `src/environment/provider.rs` and `mod.rs`.
 
-### Today's single provider
+### Today's providers
 
 `BundledRuntimeProvider` (`src/environment/bundled.rs`) is a thin adapter over
 `src/offline.rs`:
@@ -100,8 +100,19 @@ pub trait EnvironmentProvider {
 | `activate` | the offline env mutation (PATH, `CARGO_HOME` + vendored config, offline flags) |
 | `materialize` | records the bundle version + vendor path (hashed) in `forge.lock` |
 
-It claims only `toolchain` + `crates`, which is why a manifest `[gpu]`/`[native]`/
+`SystemToolchainProvider` (`src/environment/system.rs`) is the fallback for builds
+without a bundle (development, source builds): it probes the user's `rustc`/`cargo`
+on `PATH`, needs no activation (they are already there), and records the system
+`rustc` version in `forge.lock`. It reports itself *missing* whenever the bundle is
+present, so the two never stack and a shipped build never spawns `rustc` at
+startup.
+
+Both claim only `toolchain` + `crates`, which is why a manifest `[gpu]`/`[native]`/
 `[python]` section shows up as a gap until a provider covers it.
+
+`forge doctor` also runs read-only **host diagnostics** — the presence of rustc,
+cargo, rustup, a C compiler/linker, CUDA, and Python — so it can explain *why*
+something is unavailable. These run only for `doctor`, never at startup.
 
 ## CLI
 

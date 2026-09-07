@@ -12,6 +12,16 @@ grouped under the **0.98.0** release below.
 ## [Unreleased]
 
 ### Added
+- **`forge doctor` host diagnostics + a system-toolchain provider (Forge
+  Distribution, Phase 2).** `forge doctor` now reports the presence of rustc,
+  cargo, rustup, a C compiler/linker, CUDA, and Python — each `ok` / `MISS` /
+  `note` — so it can explain *why* something is unavailable (not just which
+  Forge providers are active). A new `SystemToolchainProvider` uses the user's
+  own `rustc`/`cargo` when no offline bundle is shipped (development and
+  from-source builds), and records the system toolchain in `forge.lock` — so a
+  no-bundle `forge env sync` now produces a meaningful lock instead of an empty
+  one. The bundle stays authoritative when present (the system provider reports
+  itself missing then, and a shipped build never spawns `rustc` at startup).
 - **`forge reproduce <run-id>` (Forge Distribution, Phase 2).** Verify whether the
   current checkout and environment can reproduce a recorded experiment run. It
   reloads the run from the project's workspace store, recomputes the current
