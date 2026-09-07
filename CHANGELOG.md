@@ -11,6 +11,8 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+## [1.9.0] — 2026-09-07
+
 ### Added
 - **App-wide compute device (Settings → Compute).** One **Automatic / GPU / CPU**
   choice, persisted across sessions, now drives every accelerable surface at once:
