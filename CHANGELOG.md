@@ -11,6 +11,8 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+## [1.12.0] — 2026-09-08
+
 ### Added
 - **Python provider + `forge python check` (Forge Distribution, Phase 6).** The
   `[python]` manifest section is now live — as a **reference**, never a manager. A
