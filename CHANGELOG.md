@@ -11,6 +11,8 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+## [1.10.0] — 2026-09-07
+
 ### Changed
 - **GPU acceleration is now built into every installer** — no longer an opt-in
   `millwright-gpu` Cargo feature. Millwright's `gpu-compute` (wgpu) and
