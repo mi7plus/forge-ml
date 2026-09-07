@@ -9,6 +9,13 @@
 //! ## Features
 //! - `classical` (default): [`millwright`] classical models (smartcore + linfa backends).
 //! - `deep-learning`: the [`burn`] tensor/autodiff framework.
+//! - `data`: the [`polars`] dataframe library (csv + parquet).
+//!
+//! These mirror the CLI's curated profiles (`forge new --profile …`). The
+//! profiles scaffold crates into a *user's* project and so can pull in crates
+//! Forge itself doesn't depend on (e.g. `plotters`, `statrs`); this umbrella only
+//! re-exports crates already in Forge's own tree, so its `data` feature is
+//! polars rather than the full data profile.
 //!
 //! ```no_run
 //! use forge_ml::prelude::*;
@@ -24,6 +31,9 @@ pub use millwright;
 #[cfg(feature = "deep-learning")]
 pub use burn;
 
+#[cfg(feature = "data")]
+pub use polars;
+
 /// The one glob-import that brings the curated stack into scope.
 pub mod prelude {
     pub use ndarray::prelude::*;
@@ -33,13 +43,21 @@ pub mod prelude {
 
     #[cfg(feature = "deep-learning")]
     pub use burn::tensor::{Device, Tensor};
+
+    // Specific items rather than a glob: polars' prelude overlaps names with
+    // ndarray/millwright, and glob-re-exporting all three would shadow items
+    // silently. The full prelude is a qualified import away: `forge_ml::polars`.
+    #[cfg(feature = "data")]
+    pub use polars::prelude::{DataFrame, PolarsError, PolarsResult, Series};
 }
 
 /// The crate versions this umbrella pins, for `forge doctor` / diagnostics.
 pub const STACK: &[(&str, &str)] = &[
     ("ndarray", "0.16.1"),
     #[cfg(feature = "classical")]
-    ("millwright", "2.2.1"),
+    ("millwright", "2.3.1"),
+    #[cfg(feature = "data")]
+    ("polars", "0.55.2"),
     #[cfg(feature = "deep-learning")]
     ("burn", "0.22.0-pre.3"),
 ];

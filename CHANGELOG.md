@@ -11,6 +11,16 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+### Changed
+- **Forge Distribution, Phase 1 cleanup.** Curated CLI profiles now live in one
+  place — a dependency-free `forge_cli::profiles` module (the single source of
+  truth for the `data` / `classical-ml` / `deep-learning` crate sets and their
+  per-crate feature defaults) — instead of being hardcoded across `forge new` and
+  `forge add`. `forge help` now lists the profiles and their summaries. The
+  `forge_ml` umbrella crate gains a `data` feature (re-exporting `polars`, csv +
+  parquet, matching the tree so it adds no new dependencies) and its `STACK`
+  version pin for Millwright was corrected to 2.3.1.
+
 ## [1.10.0] — 2026-09-07
 
 ### Changed

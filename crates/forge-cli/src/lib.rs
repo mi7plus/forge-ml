@@ -5,6 +5,9 @@
 //! resolves the offline runtime and the `forge.toml`/`forge.lock` environment.
 //! Deliberately dependency-free.
 
+pub mod profiles;
+
+use profiles::Profile;
 use std::path::PathBuf;
 use std::process::{Command, ExitCode};
 
@@ -53,20 +56,21 @@ pub fn run() -> ExitCode {
 /// `forge new NAME [--profile P]` — scaffold a Cargo project, write a forge.toml,
 /// and add the profile's curated crate set.
 fn cmd_new(args: &[String]) -> Result<(), String> {
-    let (name, profile) = parse_new_args(args)?;
-    if profile_crates(profile).is_none() {
-        return Err(format!(
-            "unknown profile `{profile}` (data | classical-ml | deep-learning)"
-        ));
-    }
+    let (name, profile_name) = parse_new_args(args)?;
+    let profile = Profile::find(profile_name).ok_or_else(|| {
+        format!(
+            "unknown profile `{profile_name}` ({})",
+            profiles::profile_names()
+        )
+    })?;
 
     status(cargo().args(["new", name]))?;
     let root = PathBuf::from(name);
-    std::fs::write(root.join("forge.toml"), forge_toml(name, profile))
+    std::fs::write(root.join("forge.toml"), forge_toml(name, profile.name))
         .map_err(|e| format!("writing forge.toml: {e}"))?;
 
     // Add the profile's crates with data-science feature defaults.
-    for krate in profile_crates(profile).unwrap() {
+    for krate in profile.crates {
         status(
             cargo()
                 .current_dir(&root)
@@ -74,7 +78,10 @@ fn cmd_new(args: &[String]) -> Result<(), String> {
                 .args(add_args(krate)),
         )?;
     }
-    println!("Created {name} (profile: {profile}). Try: cd {name} && forge ide");
+    println!(
+        "Created {name} (profile: {}). Try: cd {name} && forge ide",
+        profile.name
+    );
     Ok(())
 }
 
@@ -127,24 +134,11 @@ fn run_forge_ide(args: &[String]) -> Result<(), String> {
 
 // ── pure helpers (unit-tested) ───────────────────────────────────────────────
 
-/// The curated crate set for a profile, or `None` if the profile is unknown.
-fn profile_crates(profile: &str) -> Option<&'static [&'static str]> {
-    match profile {
-        "data" => Some(&["polars", "ndarray", "plotters", "statrs"]),
-        "classical-ml" => Some(&["polars", "ndarray", "linfa", "smartcore", "millwright"]),
-        "deep-learning" => Some(&["burn", "ndarray"]),
-        _ => None,
-    }
-}
-
-/// `cargo add` arguments for one crate, applying data-science feature defaults.
+/// `cargo add` arguments for one crate, applying the profile module's shared
+/// data-science feature defaults.
 fn add_args(krate: &str) -> Vec<String> {
     let mut args = vec![krate.to_owned()];
-    let features: &[&str] = match krate {
-        "polars" => &["lazy", "csv", "parquet"],
-        "burn" => &["train"],
-        _ => &[],
-    };
+    let features = profiles::default_features(krate);
     if !features.is_empty() {
         args.push("--features".to_owned());
         args.push(features.join(","));
@@ -168,7 +162,7 @@ fn forge_toml(name: &str, profile: &str) -> String {
 /// `--profile=X`. Defaults the profile to `classical-ml`.
 fn parse_new_args(args: &[String]) -> Result<(&str, &str), String> {
     let mut name = None;
-    let mut profile = "classical-ml";
+    let mut profile = profiles::DEFAULT_PROFILE;
     let mut i = 0;
     while i < args.len() {
         let arg = args[i].as_str();
@@ -188,7 +182,8 @@ fn parse_new_args(args: &[String]) -> Result<(&str, &str), String> {
             i += 1;
         }
     }
-    let name = name.ok_or("usage: forge new <name> [--profile data|classical-ml|deep-learning]")?;
+    let name = name
+        .ok_or_else(|| format!("usage: forge new <name> [--profile {}]", profiles::profile_names()))?;
     Ok((name, profile))
 }
 
@@ -237,15 +232,20 @@ fn print_help() {
     println!(
         "forge {} — a Rust ML workflow around Cargo\n\n\
          USAGE:\n\
-         \x20 forge new <name> [--profile P]   scaffold a project + forge.toml (P: data|classical-ml|deep-learning)\n\
+         \x20 forge new <name> [--profile P]   scaffold a project + forge.toml (P below; default {})\n\
          \x20 forge add <crate>...             cargo add with data-science feature defaults\n\
          \x20 forge run|build|test [args]      cargo passthrough\n\
          \x20 forge env sync|doctor [dir]      write forge.lock / report the environment\n\
          \x20 forge doctor                     diagnose the current environment\n\
          \x20 forge ide [dir]                  open the Forge ML desktop app\n\
          \x20 forge version                    print the version",
-        env!("CARGO_PKG_VERSION")
+        env!("CARGO_PKG_VERSION"),
+        profiles::DEFAULT_PROFILE
     );
+    println!("\nPROFILES:");
+    for profile in profiles::PROFILES {
+        println!("  {:<14} {}", profile.name, profile.summary);
+    }
 }
 
 #[cfg(test)]
@@ -254,12 +254,16 @@ mod tests {
 
     #[test]
     fn profiles_are_known_and_deep_learning_is_curated() {
-        assert!(profile_crates("data").is_some());
-        assert!(profile_crates("classical-ml")
+        assert!(Profile::find("data").is_some());
+        assert!(Profile::find("classical-ml")
             .unwrap()
+            .crates
             .contains(&"millwright"));
-        assert!(profile_crates("deep-learning").unwrap().contains(&"burn"));
-        assert!(profile_crates("bogus").is_none());
+        assert!(Profile::find("deep-learning")
+            .unwrap()
+            .crates
+            .contains(&"burn"));
+        assert!(Profile::find("bogus").is_none());
     }
 
     #[test]

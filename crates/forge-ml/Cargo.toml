@@ -11,6 +11,9 @@ publish = false
 default = ["classical"]
 classical = ["dep:millwright"]
 deep-learning = ["dep:burn"]
+# Data wrangling: dataframes via polars. Mirrors the CLI's `data`/`classical-ml`
+# profiles for the part that lives in Forge's own tree (see the note below).
+data = ["dep:polars"]
 
 [dependencies]
 # All pinned to the versions already resolved in the workspace, so the umbrella
@@ -24,4 +27,12 @@ burn = { version = "0.22.0-pre.3", optional = true, default-features = false, fe
     "std",
     "train",
     "flex",
+] }
+# `csv` + `parquet` only — the same features already active in the workspace via
+# millwright's `eda`, so enabling `data` pulls no new dependency tree. (The CLI's
+# `data` profile adds `lazy` too, but that is for a user's own project, not
+# Forge's tree.)
+polars = { version = "=0.55.2", optional = true, default-features = false, features = [
+    "csv",
+    "parquet",
 ] }

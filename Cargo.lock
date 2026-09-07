@@ -4182,6 +4182,7 @@ dependencies = [
  "burn",
  "millwright",
  "ndarray 0.16.1",
+ "polars",
 ]
 
 [[package]]
