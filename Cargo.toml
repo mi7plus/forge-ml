@@ -93,12 +93,14 @@ alacritty_terminal = "0.26.0"
 [features]
 default = []
 adbc = ["dep:adbc_core"]
-# Opt-in GPU-accelerated ONNX inference through Millwright's `gpu-inference`
-# (onnxruntime via `ort`). Off by default so the shipped self-contained,
-# offline installer stays CPU-only and needs no onnxruntime binaries; enable
-# with `cargo build --features millwright-gpu`. At runtime it uses
-# `Device::Auto`, which silently falls back to CPU when no GPU is present.
-millwright-gpu = ["millwright/gpu-inference"]
+# Opt-in Millwright GPU acceleration, off by default so the shipped
+# self-contained offline installer stays CPU-only (no onnxruntime binaries);
+# enable with `cargo build --features millwright-gpu`. Bundles two capabilities:
+#   - gpu-inference: ONNX inference via onnxruntime (`ort`), `Device::Auto` with
+#     a silent CPU fallback.
+#   - gpu-compute: wgpu-accelerated classic-ML primitives (GEMM, pairwise
+#     distances) exposed as `millwright::gpu`, also with a CPU fallback.
+millwright-gpu = ["millwright/gpu-inference", "millwright/gpu-compute"]
 
 [profile.dev]
 debug = 0

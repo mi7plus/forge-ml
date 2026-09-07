@@ -36,6 +36,18 @@ impl crate::ForgeApp {
             if ui.button("Test embedded Burn").clicked() {
                 self.sql_output = deep_learning::native_burn_self_test();
             }
+            #[cfg(feature = "millwright-gpu")]
+            if ui
+                .button("Test GPU compute")
+                .on_hover_text(
+                    "Verify Millwright's wgpu GPU compute with a small GEMM; falls back to CPU \
+                     when no GPU is present. Classic-ML pipeline training still runs on the \
+                     smartcore/linfa backends.",
+                )
+                .clicked()
+            {
+                self.gpu_compute_self_test();
+            }
             if self.burn_training_cancel.is_none()
                 && ui.button("Run native Burn training").clicked()
             {
@@ -1093,6 +1105,37 @@ impl crate::ForgeApp {
     }
 
     /// Load an ONNX model from disk for in-IDE inference (via Millwright/tract).
+    /// Verify Millwright's wgpu GPU compute path: a 2×2 GEMM (A · I = A) checked
+    /// against the known result. Reports GPU absence (falls back to CPU) or any
+    /// device error rather than panicking.
+    #[cfg(feature = "millwright-gpu")]
+    fn gpu_compute_self_test(&mut self) {
+        use millwright::gpu;
+        if !gpu::is_available() {
+            self.sql_output =
+                "No wgpu GPU compute device found; Millwright uses the CPU path instead.".into();
+            return;
+        }
+        // A (2×2) · I (2×2) must equal A.
+        let a = [1.0_f32, 2.0, 3.0, 4.0];
+        let identity = [1.0_f32, 0.0, 0.0, 1.0];
+        self.sql_output = match gpu::gemm(&a, 2, 2, &identity, 2) {
+            Ok(result) => {
+                if result.len() == a.len()
+                    && result
+                        .iter()
+                        .zip(a)
+                        .all(|(got, want)| (got - want).abs() < 1e-4)
+                {
+                    "GPU compute (wgpu) verified: a 2x2 GEMM matched the CPU result.".to_owned()
+                } else {
+                    format!("GPU compute returned an unexpected result: {result:?}")
+                }
+            }
+            Err(error) => format!("GPU compute failed: {error}"),
+        };
+    }
+
     fn load_onnx_model(&mut self) {
         let Some(path) = rfd::FileDialog::new()
             .add_filter("ONNX model", &["onnx"])
