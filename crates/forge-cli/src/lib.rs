@@ -6,6 +6,7 @@
 //! Deliberately dependency-free.
 
 pub mod profiles;
+pub mod scaffold;
 
 use profiles::Profile;
 use std::path::PathBuf;
@@ -67,7 +68,13 @@ fn cmd_new(args: &[String]) -> Result<(), String> {
 
     status(cargo().args(["new", name]))?;
     let root = PathBuf::from(name);
-    std::fs::write(root.join("forge.toml"), forge_toml(name, profile.name))
+    // cargo names the package after the last path component; match it for the
+    // project's own identity (forge.toml, README) when `name` is a path.
+    let display = root
+        .file_name()
+        .and_then(|component| component.to_str())
+        .unwrap_or(name);
+    std::fs::write(root.join("forge.toml"), forge_toml(display, profile.name))
         .map_err(|e| format!("writing forge.toml: {e}"))?;
 
     // Add the profile's crates with data-science feature defaults.
@@ -79,10 +86,18 @@ fn cmd_new(args: &[String]) -> Result<(), String> {
                 .args(add_args(krate)),
         )?;
     }
-    println!(
-        "Created {name} (profile: {}). Try: cd {name} && forge ide",
-        profile.name
-    );
+
+    // Replace cargo's stub main.rs with a Forge starter, and write a forge-only
+    // README, so `forge run` does something meaningful and the reader never has
+    // to reach for cargo.
+    std::fs::write(root.join("src").join("main.rs"), scaffold::starter_main(profile))
+        .map_err(|e| format!("writing src/main.rs: {e}"))?;
+    std::fs::write(root.join("README.md"), scaffold::project_readme(display, profile))
+        .map_err(|e| format!("writing README.md: {e}"))?;
+
+    println!("Created {name} (profile: {}).", profile.name);
+    println!("  cd {name} && forge run     # build and run the starter");
+    println!("  forge ide                  # open the studio to train and ship a model");
     Ok(())
 }
 

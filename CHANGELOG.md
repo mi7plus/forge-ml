@@ -12,6 +12,14 @@ grouped under the **0.98.0** release below.
 ## [Unreleased]
 
 ### Added
+- **Onboarding scaffold + getting-started guide (Forge Distribution, Phase 3).**
+  `forge new` now writes a runnable Forge starter `src/main.rs` (in place of
+  cargo's "Hello, world!") and a `README.md` written entirely in `forge`
+  commands, so a newcomer's first `forge run` shows a Forge-branded project and
+  the path forward is `forge ide`, never raw cargo. A new
+  [getting-started guide](docs/GETTING_STARTED.md) walks install → `forge new` →
+  `forge run` → `forge ide` → `forge reproduce` in ten minutes without touching
+  Cargo.
 - **`forge doctor` host diagnostics + a system-toolchain provider (Forge
   Distribution, Phase 2).** `forge doctor` now reports the presence of rustc,
   cargo, rustup, a C compiler/linker, CUDA, and Python — each `ok` / `MISS` /
@@ -32,6 +40,13 @@ grouped under the **0.98.0** release below.
   changed dataset), with the exact fix. Exits non-zero on any `DIFF`, so
   `clone && forge reproduce <id>` composes as a CI gate. It verifies
   reproducibility rather than re-executing the run.
+
+### Fixed
+- **The `classical-ml` profile now resolves.** It listed `smartcore` and `linfa`
+  alongside `millwright`, but Millwright bundles those backends at pinned
+  versions, so `forge new --profile classical-ml` failed with a smartcore version
+  conflict. The profile is now `polars, ndarray, millwright` (Millwright is the
+  classical-ML interface; its backends come with it).
 
 ### Changed
 - **Forge Distribution, Phase 1 cleanup.** Curated CLI profiles now live in one

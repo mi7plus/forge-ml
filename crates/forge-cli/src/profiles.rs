@@ -28,8 +28,11 @@ pub struct Profile {
 pub const PROFILES: &[Profile] = &[
     Profile {
         name: "classical-ml",
-        summary: "Classical machine learning: dataframes, arrays, and linfa/smartcore/Millwright models",
-        crates: &["polars", "ndarray", "linfa", "smartcore", "millwright"],
+        summary: "Classical machine learning with Millwright (smartcore + linfa backends built in)",
+        // Millwright is the classical-ML interface and bundles the smartcore and
+        // linfa backends at pinned versions, so the profile does not add those
+        // separately — doing so conflicts on smartcore's version.
+        crates: &["polars", "ndarray", "millwright"],
     },
     Profile {
         name: "data",
