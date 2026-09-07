@@ -76,6 +76,10 @@ impl Catalog {
     pub fn parse(text: &str) -> Result<Catalog, String> {
         toml::from_str(text).map_err(|error| error.to_string())
     }
+
+    pub fn find(&self, name: &str) -> Option<&Artifact> {
+        self.artifacts.iter().find(|artifact| artifact.name == name)
+    }
 }
 
 /// The current host target key, `<arch>-<os>`.

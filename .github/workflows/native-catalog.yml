@@ -1,0 +1,59 @@
+name: Native catalog
+
+# Refresh the starter native-prerequisite catalog (cmake / protoc / ninja):
+# fetch each pinned prebuilt, compute its SHA-256, and commit the result. Runs
+# when the generator or this workflow changes (so it self-populates on push),
+# weekly, and on demand. The catalog file itself is not a trigger path, so the
+# commit it makes does not re-run this workflow.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packaging/generate-native-catalog.sh'
+      - '.github/workflows/native-catalog.yml'
+  schedule:
+    - cron: '17 4 * * 1' # Mondays, 04:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: native-catalog
+  cancel-in-progress: true
+
+jobs:
+  pin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Regenerate the pinned catalog
+        run: bash packaging/generate-native-catalog.sh > packaging/native-catalog.toml
+
+      - name: Verify it is valid TOML
+        run: |
+          python3 - <<'PY'
+          import tomllib
+          with open("packaging/native-catalog.toml", "rb") as f:
+              data = tomllib.load(f)
+          artifacts = data.get("artifact", [])
+          assert artifacts, "catalog is empty after generation"
+          for a in artifacts:
+              assert a.get("name") and a.get("targets"), a
+              for target, entry in a["targets"].items():
+                  assert len(entry["sha256"]) == 64, (a["name"], target)
+          print(f"catalog OK: {len(artifacts)} artifacts")
+          PY
+
+      - name: Commit if changed
+        run: |
+          if git diff --quiet -- packaging/native-catalog.toml; then
+            echo "Catalog unchanged; nothing to commit."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add packaging/native-catalog.toml
+            git commit -m "chore(native-catalog): refresh pinned prebuilts [skip ci]"
+            git push
+          fi

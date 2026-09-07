@@ -124,16 +124,21 @@ does not itself provide, bridges to the system package manager with guidance
 `require = true`.
 
 Forge can also **provide** native prerequisites from a curated, hash-pinned
-channel (`src/environment/provision.rs`): a project lists prebuilts in a
-`forge-native.toml` catalog (populated safely with `forge native pin`, which
-fetches an artifact and records its SHA-256), and `forge native provide`
-downloads each, **verifies the hash**, extracts it into `.forge/native/`, and
-writes `.forge/native-env` — which `forge run`/`build`/`test` apply so the tool
-is on `PATH` (or the library exposed via `OPENSSL_DIR`/`PKG_CONFIG_PATH`).
-onnxruntime is statically linked and the ML stack is pure Rust, so this is a
-curated, pinned channel — **not** the general cross-platform resolver the roadmap
-warns against; every artifact is verified by hash before use, and nothing
-downloaded is executed.
+channel (`src/environment/provision.rs`): `forge native provide` downloads each
+needed artifact, **verifies its SHA-256**, extracts it into `.forge/native/`, and
+writes `.forge/native-env` — which `forge run`/`build`/`test` apply so the tool is
+on `PATH` (or the library exposed via `OPENSSL_DIR`/`PKG_CONFIG_PATH`).
+
+A **starter catalog ships embedded** (`packaging/native-catalog.toml`: cmake,
+protoc, ninja), so listing one of those in `[native].pkgs` and running
+`forge native provide` works with no manual pinning. That catalog is generated
+and kept current by the `native-catalog` CI workflow
+(`packaging/generate-native-catalog.sh` fetches each prebuilt and records its
+hash). A project can pin its own prebuilts into a `forge-native.toml` with
+`forge native pin <url>`. onnxruntime is statically linked and the ML stack is
+pure Rust, so this stays a curated, pinned channel — **not** the general
+cross-platform resolver the roadmap warns against; every artifact is verified by
+hash before use, and nothing downloaded is executed.
 
 The toolchain providers claim `toolchain` + `crates`; the still-reserved
 `[python]` section shows up as a gap until a provider covers it.

@@ -166,6 +166,13 @@ pub fn report(request: &NativeRequest) -> String {
     out
 }
 
+/// The starter catalog Forge ships (cmake / protoc / ninja …), pinned and
+/// refreshed by CI. Embedded so `forge native provide <tool>` works out of the
+/// box; empty until the generator has run at least once.
+pub fn default_catalog() -> Result<Catalog, String> {
+    Catalog::parse(include_str!("../../packaging/native-catalog.toml"))
+}
+
 /// Load the project's pinned catalog (`forge-native.toml`), or an empty catalog
 /// when there is none.
 pub fn load_catalog(root: &Path) -> Result<Catalog, String> {
@@ -176,19 +183,43 @@ pub fn load_catalog(root: &Path) -> Result<Catalog, String> {
     }
 }
 
+/// Whether a tool named `name` is already runnable on the system.
+fn on_system(name: &str) -> bool {
+    tool_version(name, &["--version"]).is_some()
+}
+
 /// `forge native provide` — download, verify, extract, and expose every catalog
 /// artifact that ships a prebuilt for this host. Writes the resulting `PATH`/env
 /// exposure to `<root>/.forge/native-env`, which `forge run`/`build`/`test`
 /// apply. Real network access; nothing downloaded is ever executed.
 pub fn provide(root: &Path) -> String {
-    let catalog = match load_catalog(root) {
+    let default = default_catalog().unwrap_or_default();
+    let project = match load_catalog(root) {
         Ok(catalog) => catalog,
         Err(error) => return format!("forge native provide: reading {CATALOG_FILE}: {error}\n"),
     };
-    if catalog.artifacts.is_empty() {
+
+    // What to provision: everything the project pinned itself, plus any tool the
+    // manifest's `[native].pkgs` needs that is missing on the system and shipped
+    // in the embedded catalog. (De-duplicated by name; the project catalog wins.)
+    let mut selected: Vec<&provision::Artifact> = project.artifacts.iter().collect();
+    let manifest = Manifest::load(root).ok().flatten().unwrap_or_default();
+    for pkg in &manifest.native_request().pkgs {
+        if selected.iter().any(|artifact| &artifact.name == pkg) {
+            continue;
+        }
+        if !on_system(pkg) {
+            if let Some(artifact) = default.find(pkg) {
+                selected.push(artifact);
+            }
+        }
+    }
+
+    if selected.is_empty() {
         return format!(
-            "No {CATALOG_FILE} in this project (or it is empty). Add pinned prebuilts with \
-             `forge native pin <https-url> --archive <zip|tar-gz> --name <n>`, then re-run.\n"
+            "Nothing to provide. Declare tools in `[native].pkgs` (provided from Forge's \
+             catalog when missing) or pin your own prebuilts in {CATALOG_FILE} with \
+             `forge native pin`.\n"
         );
     }
 
@@ -196,7 +227,7 @@ pub fn provide(root: &Path) -> String {
     let fetcher = HttpFetcher;
     let mut env_lines = Vec::new();
     let mut out = String::from("Providing native artifacts:\n");
-    for artifact in &catalog.artifacts {
+    for artifact in &selected {
         let Some(entry) = artifact.for_host() else {
             out.push_str(&format!(
                 "  [skip] {:<14} no prebuilt for {} in the catalog\n",
@@ -400,5 +431,12 @@ mod tests {
     fn blas_none_is_satisfied_and_accelerate_is_macos_only() {
         assert!(blas_status("none").satisfied);
         assert_eq!(blas_status("accelerate").satisfied, cfg!(target_os = "macos"));
+    }
+
+    #[test]
+    fn embedded_default_catalog_parses() {
+        // The committed packaging/native-catalog.toml must always be valid TOML,
+        // whether empty or populated by CI.
+        assert!(super::default_catalog().is_ok());
     }
 }

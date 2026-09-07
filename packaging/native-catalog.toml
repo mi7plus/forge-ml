@@ -1,0 +1,13 @@
+# Forge starter native-prerequisite catalog.
+#
+# GENERATED — do not edit by hand. `packaging/generate-native-catalog.sh` fetches
+# each prebuilt, computes its SHA-256, and rewrites this file; the
+# `native-catalog` GitHub workflow runs it and commits the result. Forge embeds
+# this file (see src/environment/native.rs::default_catalog) so `forge native
+# provide <tool>` works out of the box for the tools listed here.
+#
+# Until the generator has run at least once this catalog is empty, and
+# `forge native provide` provisions only what a project pins in its own
+# forge-native.toml. Every entry is verified by SHA-256 before use.
+
+# (populated by CI: cmake, protoc, ninja)

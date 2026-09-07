@@ -19,13 +19,19 @@ grouped under the **0.98.0** release below.
   package manager with `apt`/`brew`/`vcpkg` guidance (`forge native check`;
   `forge doctor` enforces `require = true`).
   - Forge can also **provide** prebuilts from a curated, **hash-pinned** channel:
-    a project lists artifacts in `forge-native.toml` (populated with
-    `forge native pin <url>`, which fetches and records the SHA-256), and
-    `forge native provide` downloads each, verifies the hash, extracts it into
-    `.forge/native/`, and writes `.forge/native-env` — which `forge run`/`build`/
-    `test` apply so the tool lands on `PATH` (or the library is exposed via
-    `OPENSSL_DIR`/`PKG_CONFIG_PATH`). Only `https://` URLs, every artifact is
-    verified before use, and nothing downloaded is executed.
+    `forge native provide` downloads each needed artifact, verifies the hash,
+    extracts it into `.forge/native/`, and writes `.forge/native-env` — which
+    `forge run`/`build`/`test` apply so the tool lands on `PATH` (or the library
+    is exposed via `OPENSSL_DIR`/`PKG_CONFIG_PATH`). Only `https://` URLs, every
+    artifact is verified before use, and nothing downloaded is executed.
+  - **A starter catalog ships in the box** (cmake / protoc / ninja): it is
+    embedded from `packaging/native-catalog.toml`, so `forge native provide`
+    works for those tools when a project lists them in `[native].pkgs` — no
+    manual pinning. The catalog is generated and kept fresh by the
+    `native-catalog` CI workflow (`packaging/generate-native-catalog.sh` fetches
+    each prebuilt, records its SHA-256, and commits the result). Projects can
+    still add their own pinned prebuilts in `forge-native.toml` via
+    `forge native pin`.
   - This is a curated, pinned channel — deliberately **not** the general
     cross-platform native-dependency resolver the roadmap warns against (Rust
     needs it far less than Python; Forge's own ML stack is pure Rust and
