@@ -3,12 +3,13 @@
 //! crate resolution. It is optional: a project without one gets the defaults
 //! (bundled runtime, current toolchain).
 //!
-//! The `[gpu]` section is **active** (Phase 4): a `GpuProvider` reads its
-//! `backend` / `require` and reports coverage or a gap in `forge doctor`. The
-//! `[native]` and `[python]` sections remain **reserved** — they parse and
-//! validate today but aren't acted on yet, so a full environment manager stays
-//! an additive change rather than a migration. Nothing here uses
-//! `deny_unknown_fields`, so a manifest written for a newer Forge still loads.
+//! The `[gpu]` (Phase 4) and `[native]` (Phase 5) sections are **active**: a
+//! `GpuProvider` and a detect-and-bridge `NativeLibProvider` read them and report
+//! coverage or a gap in `forge doctor`. The `[python]` section remains
+//! **reserved** — it parses and validates today but isn't acted on yet, so a full
+//! environment manager stays an additive change rather than a migration. Nothing
+//! here uses `deny_unknown_fields`, so a manifest written for a newer Forge still
+//! loads.
 
 use serde::Deserialize;
 use std::path::Path;
@@ -24,8 +25,9 @@ pub struct Manifest {
     pub schema: u32,
     pub environment: Environment,
     pub toolchain: Toolchain,
-    /// Reserved: native/system libraries (BLAS, LAPACK, OpenSSL, …). Kept as a
-    /// raw table so unknown keys never error and its mere presence is detectable.
+    /// Active (Phase 5): native/system libraries (BLAS, OpenSSL, tools), read via
+    /// [`Manifest::native_request`] and checked (not installed) by the
+    /// `NativeLibProvider`. Kept as a raw table for forward-compat.
     pub native: toml::Table,
     /// Active (Phase 4): GPU backend selection, read via [`Manifest::gpu_request`]
     /// and covered by the `GpuProvider`. Kept as a raw table for forward-compat.
@@ -64,9 +66,28 @@ pub struct GpuRequest {
     pub require: bool,
 }
 
+/// A typed view of the `[native]` manifest section, read by the native-lib
+/// provider. Forge does not resolve or install these; the provider *bridges* to
+/// the system's own package manager (pkg-config / vcpkg / apt / brew), checking
+/// presence and giving guidance.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NativeRequest {
+    /// Whether a `[native]` section is present at all.
+    pub present: bool,
+    /// Requested BLAS: `openblas` | `mkl` | `accelerate` | `system` | `none`.
+    pub blas: Option<String>,
+    /// OpenSSL sourcing: `vendored` (no system dep) | `system`.
+    pub openssl: Option<String>,
+    /// System tools/packages the build expects on PATH (e.g. `cmake`, `protobuf`).
+    pub pkgs: Vec<String>,
+    /// Fail (rather than warn) when a prerequisite is missing.
+    pub require: bool,
+}
+
 /// Reserved manifest sections that now have a provider and so are *not* flagged
-/// as "recognized but not yet active". `[gpu]` graduated here in Phase 4.
-const ACTIVE_RESERVED: &[&str] = &["gpu"];
+/// as "recognized but not yet active". `[gpu]` (Phase 4) and `[native]` (Phase 5,
+/// as a detect-and-bridge provider) have graduated here.
+const ACTIVE_RESERVED: &[&str] = &["gpu", "native"];
 
 impl Manifest {
     pub const FILE_NAME: &'static str = "forge.toml";
@@ -115,6 +136,32 @@ impl Manifest {
                     .and_then(toml::Value::as_integer)
                     .map(|value| value.to_string())
             }),
+            require: table
+                .get("require")
+                .and_then(toml::Value::as_bool)
+                .unwrap_or(false),
+        }
+    }
+
+    /// The typed `[native]` request. Absent section ⇒ a default (not present).
+    pub fn native_request(&self) -> NativeRequest {
+        let table = &self.native;
+        let string = |key: &str| table.get(key).and_then(toml::Value::as_str).map(str::to_owned);
+        let pkgs = table
+            .get("pkgs")
+            .and_then(toml::Value::as_array)
+            .map(|array| {
+                array
+                    .iter()
+                    .filter_map(|value| value.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+        NativeRequest {
+            present: !table.is_empty(),
+            blas: string("blas"),
+            openssl: string("openssl"),
+            pkgs,
             require: table
                 .get("require")
                 .and_then(toml::Value::as_bool)

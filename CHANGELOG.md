@@ -12,6 +12,19 @@ grouped under the **0.98.0** release below.
 ## [Unreleased]
 
 ### Added
+- **Native-library provider + `forge native check` (Forge Distribution, Phase 5).**
+  The `[native]` manifest section is now live — but as a deliberate
+  **detect-and-bridge**, not a resolver. A new `NativeLibProvider` checks whether
+  a project's declared native prerequisites (`blas`, `openssl`, `pkgs`) are
+  present (via pkg-config and PATH) and gives package-manager guidance
+  (`apt`/`brew`/`vcpkg`) when they are not — it **installs nothing**. A missing
+  prerequisite is a hard gap only when `require = true`. `forge native check`
+  (and `forge_ide --native-check`) reports the status; `forge doctor` enforces a
+  project's `[native]` requirement. Building a from-scratch cross-platform
+  native-dependency resolver is the trap the roadmap warns against (Rust needs it
+  far less than Python; Forge's own ML stack is pure Rust), so Forge bridges to
+  the system package manager instead. `[native]` graduates out of the "not yet
+  active" warning; only `[python]` remains reserved.
 - **GPU provider + `forge gpu detect` (Forge Distribution, Phase 4).** The
   environment system is now GPU-aware. A new `GpuProvider` detects the backends
   present on the machine (CUDA, ROCm, Metal, DirectML), **covers** the `[gpu]`

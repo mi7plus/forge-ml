@@ -116,8 +116,18 @@ already compiled into the app, so this provider detects and selects rather than
 managing toolkits (that stays deferred to Phase 5). With no `[gpu]` section it is
 a no-op, so it never probes the GPU at app startup.
 
-The toolchain providers claim `toolchain` + `crates`; a manifest `[native]` or
-`[python]` section still shows up as a gap until a provider covers it.
+`NativeLibProvider` (`src/environment/native.rs`) covers the `[native]` section
+(Phase 5) — as a deliberate **detect-and-bridge**, not a resolver. It checks
+whether a project's declared native prerequisites (`blas`, `openssl`, `pkgs`) are
+present on the machine (via pkg-config and PATH) and gives package-manager
+guidance (`apt` / `brew` / `vcpkg`) when they are not; it **installs nothing**. A
+missing prerequisite is a gap only when `require = true`. Building a from-scratch
+cross-platform native-dependency resolver is the trap the roadmap warns against —
+Rust needs it far less than Python, and Forge's own stack is pure Rust — so the
+provider bridges to the system package manager instead.
+
+The toolchain providers claim `toolchain` + `crates`; the still-reserved
+`[python]` section shows up as a gap until a provider covers it.
 
 `forge doctor` also runs read-only **host diagnostics** — the presence of rustc,
 cargo, rustup, a C compiler/linker, CUDA, and Python — so it can explain *why*
@@ -130,6 +140,7 @@ forge_ide --env-doctor      [dir]   # manifest, providers, warnings, gaps
 forge_ide --env-sync        [dir]   # write dir/forge.lock
 forge_ide --reproduce <id>  [dir]   # verify the environment against a recorded run
 forge_ide --gpu-detect              # report detected GPU backends
+forge_ide --native-check    [dir]   # check [native] prerequisites (bridges, never installs)
 ```
 
 These are also the `forge env doctor` / `forge env sync` / `forge reproduce`
@@ -166,13 +177,17 @@ Drop `require = true` (or the whole `[gpu]` section) and the gap disappears — 
 falls back to the CPU. `forge gpu detect` lists what is available regardless of the
 manifest.
 
-## What's additive later (no caller changes)
+## Providers, shipped and planned (no caller changes)
 
-- `SystemToolchainProvider` — use the user's `rustup` instead of the bundle.
-- `GpuProvider` — CUDA/ROCm/Metal detect + toolkit (fills `[gpu]`).
+Shipped:
+- `BundledRuntimeProvider` — the offline runtime bundle (Phase 0).
+- `SystemToolchainProvider` — the user's own `rustc`/`cargo` fallback (Phase 2).
+- `GpuProvider` — CUDA/ROCm/Metal/DirectML detection, fills `[gpu]` (Phase 4).
+- `NativeLibProvider` — checks `[native]` prerequisites and bridges to the system
+  package manager; installs nothing (Phase 5).
+
+Planned:
 - `PythonProvider` — hand off to `uv`/`pixi`; do **not** build a Python env manager.
-- `NativeLibProvider` — BLAS/OpenSSL/… resolution; the genuinely hard piece, deferred
-  until users demand it (the curated offline bundle already covers most needs).
 
 The bridge not to burn: don't let the bundle path leak past
 `BundledRuntimeProvider`, and don't skip the manifest/lock and hardcode. Do those

@@ -14,6 +14,7 @@ mod diagnostics;
 mod gpu;
 mod lock;
 mod manifest;
+mod native;
 mod provider;
 mod system;
 
@@ -21,6 +22,7 @@ pub use bundled::BundledRuntimeProvider;
 pub use gpu::{report as gpu_report, GpuProvider};
 pub use lock::{sha256_hex, Lock};
 pub use manifest::Manifest;
+pub use native::{report as native_report, NativeLibProvider};
 pub use provider::{Activation, EnvironmentProvider, Probe};
 pub use system::SystemToolchainProvider;
 
@@ -54,6 +56,7 @@ impl Resolver {
         resolver.register(Box::new(BundledRuntimeProvider));
         resolver.register(Box::new(SystemToolchainProvider));
         resolver.register(Box::new(GpuProvider));
+        resolver.register(Box::new(NativeLibProvider));
         resolver
     }
 

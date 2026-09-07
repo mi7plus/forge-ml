@@ -215,6 +215,17 @@ fn main() -> eframe::Result<()> {
         print!("{}", environment::gpu_report());
         return Ok(());
     }
+    // `--native-check [dir]` checks a project's [native] prerequisites against
+    // the system (it never installs anything).
+    if let Some(pos) = cli.iter().position(|a| a == "--native-check") {
+        let root = env_cli_dir(&cli, pos);
+        let manifest = environment::Manifest::load(&root)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        print!("{}", environment::native_report(&manifest.native_request()));
+        return Ok(());
+    }
     // `--reproduce <ID> [dir]` verifies the current environment against a recorded
     // run's provenance; exits non-zero on a reproducibility-critical divergence.
     if let Some(pos) = cli.iter().position(|a| a == "--reproduce") {

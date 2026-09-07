@@ -34,6 +34,7 @@ pub fn run() -> ExitCode {
         "env" => cmd_env(rest),
         "doctor" => run_forge_ide(&["--env-doctor".to_owned()]),
         "gpu" => cmd_gpu(rest),
+        "native" => cmd_native(rest),
         "reproduce" => cmd_reproduce(rest),
         "ide" => cmd_ide(rest),
         "version" | "--version" | "-V" => {
@@ -134,6 +135,21 @@ fn cmd_gpu(args: &[String]) -> Result<(), String> {
         Some("detect") => run_forge_ide(&["--gpu-detect".to_owned()]),
         Some(other) => Err(format!("unknown gpu subcommand `{other}` (detect)")),
         None => Err("usage: forge gpu detect".into()),
+    }
+}
+
+/// `forge native check [dir]` — check a project's `[native]` prerequisites
+/// against the system (Forge bridges to your package manager; it installs
+/// nothing). Delegates to forge_ide.
+fn cmd_native(args: &[String]) -> Result<(), String> {
+    match args.split_first() {
+        Some((sub, rest)) if sub == "check" => {
+            let mut forwarded = vec!["--native-check".to_owned()];
+            forwarded.extend(rest.iter().cloned());
+            run_forge_ide(&forwarded)
+        }
+        Some((other, _)) => Err(format!("unknown native subcommand `{other}` (check)")),
+        None => Err("usage: forge native check [dir]".into()),
     }
 }
 
@@ -282,6 +298,7 @@ fn print_help() {
          \x20 forge env sync|doctor [dir]      write forge.lock / report the environment\n\
          \x20 forge doctor                     diagnose the current environment\n\
          \x20 forge gpu detect                 report detected GPU backends\n\
+         \x20 forge native check [dir]         check [native] prerequisites (bridges to your package manager)\n\
          \x20 forge reproduce <id> [dir]       verify the environment against a recorded run\n\
          \x20 forge ide [dir]                  open the Forge ML desktop app\n\
          \x20 forge version                    print the version",
