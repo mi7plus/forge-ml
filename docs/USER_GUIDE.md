@@ -31,7 +31,7 @@ Settings offers light/dark themes, a 10–24 px editor font, high contrast, redu
 
 ## Compute device
 
-Settings → **Compute** offers one app-wide device — **Automatic**, **GPU**, or **CPU** — that applies everywhere Forge can accelerate. It selects the embedded Burn training backend (CPU/Flex or WebGPU) and, in the opt-in `millwright-gpu` build, the Millwright ONNX inference device (Automatic prefers a GPU and falls back to the CPU on its own). Changing it updates the Deep Learning pane's training backend to match, which stays overridable there for advanced use. The default is **CPU**, so the shipped offline installer runs on the CPU until you opt in; classical smartcore/linfa pipelines always run on the CPU. The choice is remembered across sessions.
+Settings → **Compute** offers one app-wide device — **Automatic**, **GPU**, or **CPU** — that applies everywhere Forge can accelerate. It selects the embedded Burn training backend (CPU/Flex or WebGPU) and, in the opt-in `millwright-gpu` build, the Millwright ONNX inference device (Automatic prefers a GPU and falls back to the CPU on its own). Changing it updates the Deep Learning pane's training backend to match, which stays overridable there for advanced use. The default is **CPU**, so the shipped offline installer runs on the CPU until you opt in; classical smartcore/linfa pipelines always run on the CPU. The choice is remembered across sessions. A chip at the bottom-right of the status bar shows the active device and switches it in one click without opening Settings.
 
 ## Data and experiments
 

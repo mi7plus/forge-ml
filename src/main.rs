@@ -1646,6 +1646,19 @@ impl ForgeApp {
 
     /// A compact bottom strip summarizing runtime, file, and language-server
     /// state so those signals live in one predictable place.
+    /// Apply an app-wide compute-device choice everywhere it takes effect: the
+    /// persisted preference and the Burn training backend (which stays
+    /// overridable in the Deep Learning pane). Shared by Settings → Compute and
+    /// the status-bar chip so the two never diverge. No-op if unchanged.
+    fn set_compute_device(&mut self, device: deep_learning::ComputeDevice) {
+        if self.compute_device == device {
+            return;
+        }
+        self.compute_device = device;
+        self.deep_backend = device.burn_backend();
+        self.status_announcement = format!("Compute device set to {}", device.label());
+    }
+
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         use egui_phosphor_icons::icons;
         ui.horizontal(|ui| {
@@ -1726,6 +1739,38 @@ impl ForgeApp {
                     self.last_lsp_hash = 0;
                     self.lsp_status = "Restarting rust-analyzer…".to_owned();
                 }
+
+                ui.separator();
+                let device_icon = match self.compute_device {
+                    deep_learning::ComputeDevice::Cpu => icons::CPU,
+                    _ => icons::GRAPHICS_CARD,
+                };
+                let chip = format!(
+                    "{}  {}",
+                    device_icon.as_str(),
+                    self.compute_device.short_label()
+                );
+                ui.menu_button(RichText::new(chip).size(11.0).color(MUTED), |ui| {
+                    ui.label(RichText::new("Compute device").strong().size(11.0));
+                    for device in [
+                        deep_learning::ComputeDevice::Auto,
+                        deep_learning::ComputeDevice::Gpu,
+                        deep_learning::ComputeDevice::Cpu,
+                    ] {
+                        if ui
+                            .selectable_label(self.compute_device == device, device.label())
+                            .clicked()
+                        {
+                            self.set_compute_device(device);
+                            ui.close();
+                        }
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "Compute device — applies to embedded training and ONNX inference. \
+                     Also in Settings → Compute.",
+                );
             });
         });
     }

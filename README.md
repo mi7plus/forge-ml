@@ -26,7 +26,7 @@ below are grouped by workflow; the [feature site](site/) and
   **View → Panes** menu to toggle visibility
 - Multiple editor tabs with independent unsaved-state protection, drag-to-reorder
   and middle-click-close, plus a bottom status bar (runtime state, active file,
-  background tasks, cursor position, language-server status)
+  background tasks, cursor position, language-server status, compute-device chip)
 - Session restore for project, open files, active file, window, layout, and
   appearance (theme, editor font size, caret blink); recent-project history with
   safe unsaved-change handling

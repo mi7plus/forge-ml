@@ -618,6 +618,15 @@ impl ComputeDevice {
         }
     }
 
+    /// A compact label for the status-bar chip.
+    pub fn short_label(self) -> &'static str {
+        match self {
+            Self::Auto => "Auto",
+            Self::Gpu => "GPU",
+            Self::Cpu => "CPU",
+        }
+    }
+
     /// The embedded Burn training backend this preference implies. The embedded
     /// runtime supports only CPU (Flex) and WebGPU, so `Auto` and `Gpu` both map
     /// to WebGPU; a machine without a usable GPU surfaces a clean init error the

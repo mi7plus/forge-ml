@@ -17,8 +17,9 @@ grouped under the **0.98.0** release below.
   it selects the embedded Burn training backend (CPU/Flex ↔ WebGPU) and, in the
   opt-in `millwright-gpu` build, the Millwright ONNX inference device. Changing it
   updates the training pane's backend to match (still overridable there), and the
-  ONNX playground shows the device it will use. **CPU by default**, so the shipped
-  offline installer stays CPU-only unless the user opts in. Classical
+  ONNX playground shows the device it will use. Switch it from **Settings →
+  Compute** or the **status-bar chip** (bottom right). **CPU by default**, so the
+  shipped offline installer stays CPU-only unless the user opts in. Classical
   smartcore/linfa pipelines remain CPU-only.
 - **Optional Millwright GPU acceleration (Millwright 2.3.1).** Bumped Millwright
   to 2.3.1 and wired both of its new GPU paths, behind one opt-in `millwright-gpu`

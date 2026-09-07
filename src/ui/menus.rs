@@ -987,7 +987,7 @@ impl crate::ForgeApp {
                     }
                 }
                 ui.heading("Compute");
-                let previous_device = self.compute_device;
+                let mut device = self.compute_device;
                 ui.horizontal(|ui| {
                     ui.label("Device").on_hover_text(
                         "One app-wide choice applied everywhere Forge can accelerate: the \
@@ -995,21 +995,17 @@ impl crate::ForgeApp {
                          build, Millwright ONNX inference. Classical smartcore/linfa pipelines \
                          stay on the CPU.",
                     );
-                    for device in [
+                    for option in [
                         crate::deep_learning::ComputeDevice::Auto,
                         crate::deep_learning::ComputeDevice::Gpu,
                         crate::deep_learning::ComputeDevice::Cpu,
                     ] {
-                        ui.selectable_value(&mut self.compute_device, device, device.label());
+                        ui.selectable_value(&mut device, option, option.label());
                     }
                 });
-                if self.compute_device != previous_device {
-                    // Push the choice across the board: the training pane's backend
-                    // follows it (and stays overridable there for advanced use).
-                    self.deep_backend = self.compute_device.burn_backend();
-                    self.status_announcement =
-                        format!("Compute device set to {}", self.compute_device.label());
-                }
+                // Push the choice across the board: the training pane's backend
+                // follows it (and stays overridable there for advanced use).
+                self.set_compute_device(device);
                 ui.label(
                     RichText::new(if cfg!(feature = "millwright-gpu") {
                         "Automatic prefers the GPU and falls back to the CPU on its own. GPU \
