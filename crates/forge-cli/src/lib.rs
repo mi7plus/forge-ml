@@ -138,18 +138,24 @@ fn cmd_gpu(args: &[String]) -> Result<(), String> {
     }
 }
 
-/// `forge native check [dir]` — check a project's `[native]` prerequisites
-/// against the system (Forge bridges to your package manager; it installs
-/// nothing). Delegates to forge_ide.
+/// `forge native <check|provide|pin>` — inspect, provide, or pin native
+/// prerequisites. `check` reports status; `provide` downloads+verifies+exposes
+/// the project's pinned prebuilts; `pin` prints a verified catalog entry. All
+/// delegate to forge_ide.
 fn cmd_native(args: &[String]) -> Result<(), String> {
+    let forward = |flag: &str, rest: &[String]| {
+        let mut forwarded = vec![flag.to_owned()];
+        forwarded.extend(rest.iter().cloned());
+        run_forge_ide(&forwarded)
+    };
     match args.split_first() {
-        Some((sub, rest)) if sub == "check" => {
-            let mut forwarded = vec!["--native-check".to_owned()];
-            forwarded.extend(rest.iter().cloned());
-            run_forge_ide(&forwarded)
-        }
-        Some((other, _)) => Err(format!("unknown native subcommand `{other}` (check)")),
-        None => Err("usage: forge native check [dir]".into()),
+        Some((sub, rest)) if sub == "check" => forward("--native-check", rest),
+        Some((sub, rest)) if sub == "provide" => forward("--native-provide", rest),
+        Some((sub, rest)) if sub == "pin" => forward("--native-pin", rest),
+        Some((other, _)) => Err(format!(
+            "unknown native subcommand `{other}` (check | provide | pin)"
+        )),
+        None => Err("usage: forge native <check|provide|pin> …".into()),
     }
 }
 
@@ -185,7 +191,51 @@ fn cmd_ide(args: &[String]) -> Result<(), String> {
 }
 
 fn passthrough_cargo(sub: &str, args: &[String]) -> Result<(), String> {
-    status(cargo().arg(sub).args(args))
+    let mut command = cargo();
+    command.arg(sub).args(args);
+    apply_native_env(&mut command);
+    status(&mut command)
+}
+
+/// Apply `.forge/native-env` (written by `forge native provide`) to a child
+/// command: prepend `path` entries to `PATH` and set `env` KEY=VALUE vars, so
+/// provisioned tools and libraries are visible to the build. Dependency-free
+/// line parser; a no-op when the file is absent.
+fn apply_native_env(command: &mut Command) {
+    let Ok(text) = std::fs::read_to_string(PathBuf::from(".forge").join("native-env")) else {
+        return;
+    };
+    let (prepend, vars) = parse_native_env(&text);
+    for (key, value) in vars {
+        command.env(key, value);
+    }
+    if !prepend.is_empty() {
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        let existing = std::env::var("PATH").unwrap_or_default();
+        let joined = if existing.is_empty() {
+            prepend.join(sep)
+        } else {
+            format!("{}{sep}{existing}", prepend.join(sep))
+        };
+        command.env("PATH", joined);
+    }
+}
+
+/// Parse a `.forge/native-env` file into `PATH` dirs to prepend and env vars to
+/// set. Lines are `path\t<dir>` or `env\t<KEY>=<VALUE>`; anything else is ignored.
+fn parse_native_env(text: &str) -> (Vec<String>, Vec<(String, String)>) {
+    let mut paths = Vec::new();
+    let mut vars = Vec::new();
+    for line in text.lines() {
+        if let Some(dir) = line.strip_prefix("path\t") {
+            paths.push(dir.to_owned());
+        } else if let Some(kv) = line.strip_prefix("env\t") {
+            if let Some((key, value)) = kv.split_once('=') {
+                vars.push((key.to_owned(), value.to_owned()));
+            }
+        }
+    }
+    (paths, vars)
 }
 
 fn run_forge_ide(args: &[String]) -> Result<(), String> {
@@ -298,7 +348,7 @@ fn print_help() {
          \x20 forge env sync|doctor [dir]      write forge.lock / report the environment\n\
          \x20 forge doctor                     diagnose the current environment\n\
          \x20 forge gpu detect                 report detected GPU backends\n\
-         \x20 forge native check [dir]         check [native] prerequisites (bridges to your package manager)\n\
+         \x20 forge native check|provide|pin  check / download+provide / pin native prerequisites\n\
          \x20 forge reproduce <id> [dir]       verify the environment against a recorded run\n\
          \x20 forge ide [dir]                  open the Forge ML desktop app\n\
          \x20 forge version                    print the version",
@@ -359,6 +409,14 @@ mod tests {
         assert!(toml.contains("name = \"house-prices\""));
         assert!(toml.contains("profile = \"classical-ml\""));
         assert!(toml.contains("schema = 1"));
+    }
+
+    #[test]
+    fn parse_native_env_reads_paths_and_vars() {
+        let text = "path\t/opt/tools/bin\nenv\tOPENSSL_DIR=/opt/openssl\njunk line\npath\tC:\\p";
+        let (paths, vars) = parse_native_env(text);
+        assert_eq!(paths, ["/opt/tools/bin", "C:\\p"]);
+        assert_eq!(vars, [("OPENSSL_DIR".to_owned(), "/opt/openssl".to_owned())]);
     }
 
     #[test]

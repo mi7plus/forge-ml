@@ -12,19 +12,26 @@ grouped under the **0.98.0** release below.
 ## [Unreleased]
 
 ### Added
-- **Native-library provider + `forge native check` (Forge Distribution, Phase 5).**
-  The `[native]` manifest section is now live — but as a deliberate
-  **detect-and-bridge**, not a resolver. A new `NativeLibProvider` checks whether
-  a project's declared native prerequisites (`blas`, `openssl`, `pkgs`) are
-  present (via pkg-config and PATH) and gives package-manager guidance
-  (`apt`/`brew`/`vcpkg`) when they are not — it **installs nothing**. A missing
-  prerequisite is a hard gap only when `require = true`. `forge native check`
-  (and `forge_ide --native-check`) reports the status; `forge doctor` enforces a
-  project's `[native]` requirement. Building a from-scratch cross-platform
-  native-dependency resolver is the trap the roadmap warns against (Rust needs it
-  far less than Python; Forge's own ML stack is pure Rust), so Forge bridges to
-  the system package manager instead. `[native]` graduates out of the "not yet
-  active" warning; only `[python]` remains reserved.
+- **Native-library provider — check, provide, and pin (Forge Distribution,
+  Phase 5).** The `[native]` manifest section is now live. `NativeLibProvider`
+  **checks** a project's declared prerequisites (`blas`, `openssl`, `pkgs`)
+  against the system and, for anything it doesn't provide, bridges to the system
+  package manager with `apt`/`brew`/`vcpkg` guidance (`forge native check`;
+  `forge doctor` enforces `require = true`).
+  - Forge can also **provide** prebuilts from a curated, **hash-pinned** channel:
+    a project lists artifacts in `forge-native.toml` (populated with
+    `forge native pin <url>`, which fetches and records the SHA-256), and
+    `forge native provide` downloads each, verifies the hash, extracts it into
+    `.forge/native/`, and writes `.forge/native-env` — which `forge run`/`build`/
+    `test` apply so the tool lands on `PATH` (or the library is exposed via
+    `OPENSSL_DIR`/`PKG_CONFIG_PATH`). Only `https://` URLs, every artifact is
+    verified before use, and nothing downloaded is executed.
+  - This is a curated, pinned channel — deliberately **not** the general
+    cross-platform native-dependency resolver the roadmap warns against (Rust
+    needs it far less than Python; Forge's own ML stack is pure Rust and
+    onnxruntime is statically linked).
+  - `[native]` graduates out of the "not yet active" warning; only `[python]`
+    remains reserved.
 - **GPU provider + `forge gpu detect` (Forge Distribution, Phase 4).** The
   environment system is now GPU-aware. A new `GpuProvider` detects the backends
   present on the machine (CUDA, ROCm, Metal, DirectML), **covers** the `[gpu]`

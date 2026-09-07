@@ -16,7 +16,13 @@ use super::diagnostics::tool_version;
 use super::lock::{sha256_hex, LockEntry};
 use super::manifest::{Manifest, NativeRequest};
 use super::provider::{Activation, Capabilities, EnvironmentProvider, Probe};
+use super::provision::{self, Catalog, Fetcher, HttpFetcher};
+use std::path::Path;
 use std::process::Command;
+
+/// The per-project curated catalog of pinned native prebuilts (`forge native
+/// pin` appends to it; `forge native provide` reads it).
+pub const CATALOG_FILE: &str = "forge-native.toml";
 
 /// The status of one declared native prerequisite.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -158,6 +164,108 @@ pub fn report(request: &NativeRequest) -> String {
          resolving native dependencies itself.\n",
     );
     out
+}
+
+/// Load the project's pinned catalog (`forge-native.toml`), or an empty catalog
+/// when there is none.
+pub fn load_catalog(root: &Path) -> Result<Catalog, String> {
+    match std::fs::read_to_string(root.join(CATALOG_FILE)) {
+        Ok(text) => Catalog::parse(&text),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Catalog::default()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+/// `forge native provide` — download, verify, extract, and expose every catalog
+/// artifact that ships a prebuilt for this host. Writes the resulting `PATH`/env
+/// exposure to `<root>/.forge/native-env`, which `forge run`/`build`/`test`
+/// apply. Real network access; nothing downloaded is ever executed.
+pub fn provide(root: &Path) -> String {
+    let catalog = match load_catalog(root) {
+        Ok(catalog) => catalog,
+        Err(error) => return format!("forge native provide: reading {CATALOG_FILE}: {error}\n"),
+    };
+    if catalog.artifacts.is_empty() {
+        return format!(
+            "No {CATALOG_FILE} in this project (or it is empty). Add pinned prebuilts with \
+             `forge native pin <https-url> --archive <zip|tar-gz> --name <n>`, then re-run.\n"
+        );
+    }
+
+    let cache = root.join(".forge").join("native");
+    let fetcher = HttpFetcher;
+    let mut env_lines = Vec::new();
+    let mut out = String::from("Providing native artifacts:\n");
+    for artifact in &catalog.artifacts {
+        let Some(entry) = artifact.for_host() else {
+            out.push_str(&format!(
+                "  [skip] {:<14} no prebuilt for {} in the catalog\n",
+                artifact.name,
+                provision::host_target()
+            ));
+            continue;
+        };
+        match provision::provision(&artifact.name, entry, &cache, &fetcher) {
+            Ok(exposure) => {
+                out.push_str(&format!("  [ok  ] {:<14} provided\n", artifact.name));
+                for dir in &exposure.path_dirs {
+                    env_lines.push(format!("path\t{}", dir.display()));
+                }
+                for (key, value) in &exposure.env {
+                    env_lines.push(format!("env\t{key}={value}"));
+                }
+            }
+            Err(error) => out.push_str(&format!("  [FAIL] {:<14} {error}\n", artifact.name)),
+        }
+    }
+
+    let forge_dir = root.join(".forge");
+    if let Err(error) = std::fs::create_dir_all(&forge_dir)
+        .and_then(|()| std::fs::write(forge_dir.join("native-env"), env_lines.join("\n") + "\n"))
+    {
+        out.push_str(&format!("  (could not write .forge/native-env: {error})\n"));
+    } else {
+        out.push_str(
+            "\nWrote .forge/native-env — `forge run`/`build`/`test` apply it automatically.\n",
+        );
+    }
+    out
+}
+
+/// `forge native pin` — fetch an artifact, hash it, and print a ready-to-paste
+/// catalog entry for the current host so pins are never fabricated by hand.
+pub fn pin(url: &str, archive: &str, name: Option<&str>) -> String {
+    if !matches!(archive, "zip" | "tar-gz") {
+        return format!("forge native pin: --archive must be `zip` or `tar-gz` (got `{archive}`)\n");
+    }
+    let bytes = match HttpFetcher.fetch(url) {
+        Ok(bytes) => bytes,
+        Err(error) => return format!("forge native pin: fetching {url}: {error}\n"),
+    };
+    let sha = crate::experiment::stable_digest(&bytes);
+    let name = name.map(str::to_owned).unwrap_or_else(|| guess_name(url));
+    format!(
+        "# Verified {} bytes. Paste into {CATALOG_FILE} (add other targets similarly):\n\
+         [[artifact]]\n\
+         name = \"{name}\"\n\
+         kind = \"tool\"          # tool | library\n\
+         [artifact.targets.{target}]\n\
+         url = \"{url}\"\n\
+         sha256 = \"{sha}\"\n\
+         archive = \"{archive}\"\n\
+         bin_dir = \"bin\"        # tools: dir to add to PATH; libraries: use `env` instead\n",
+        bytes.len(),
+        target = provision::host_target(),
+    )
+}
+
+fn guess_name(url: &str) -> String {
+    url.rsplit('/')
+        .next()
+        .and_then(|file| file.split(['-', '.', '_']).next())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("artifact")
+        .to_owned()
 }
 
 pub struct NativeLibProvider;

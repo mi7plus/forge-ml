@@ -117,14 +117,23 @@ managing toolkits (that stays deferred to Phase 5). With no `[gpu]` section it i
 a no-op, so it never probes the GPU at app startup.
 
 `NativeLibProvider` (`src/environment/native.rs`) covers the `[native]` section
-(Phase 5) — as a deliberate **detect-and-bridge**, not a resolver. It checks
-whether a project's declared native prerequisites (`blas`, `openssl`, `pkgs`) are
-present on the machine (via pkg-config and PATH) and gives package-manager
-guidance (`apt` / `brew` / `vcpkg`) when they are not; it **installs nothing**. A
-missing prerequisite is a gap only when `require = true`. Building a from-scratch
-cross-platform native-dependency resolver is the trap the roadmap warns against —
-Rust needs it far less than Python, and Forge's own stack is pure Rust — so the
-provider bridges to the system package manager instead.
+(Phase 5). It **checks** whether a project's declared prerequisites (`blas`,
+`openssl`, `pkgs`) are present (via pkg-config and PATH) and, for anything Forge
+does not itself provide, bridges to the system package manager with guidance
+(`apt` / `brew` / `vcpkg`). A missing prerequisite is a gap only when
+`require = true`.
+
+Forge can also **provide** native prerequisites from a curated, hash-pinned
+channel (`src/environment/provision.rs`): a project lists prebuilts in a
+`forge-native.toml` catalog (populated safely with `forge native pin`, which
+fetches an artifact and records its SHA-256), and `forge native provide`
+downloads each, **verifies the hash**, extracts it into `.forge/native/`, and
+writes `.forge/native-env` — which `forge run`/`build`/`test` apply so the tool
+is on `PATH` (or the library exposed via `OPENSSL_DIR`/`PKG_CONFIG_PATH`).
+onnxruntime is statically linked and the ML stack is pure Rust, so this is a
+curated, pinned channel — **not** the general cross-platform resolver the roadmap
+warns against; every artifact is verified by hash before use, and nothing
+downloaded is executed.
 
 The toolchain providers claim `toolchain` + `crates`; the still-reserved
 `[python]` section shows up as a gap until a provider covers it.
@@ -140,7 +149,9 @@ forge_ide --env-doctor      [dir]   # manifest, providers, warnings, gaps
 forge_ide --env-sync        [dir]   # write dir/forge.lock
 forge_ide --reproduce <id>  [dir]   # verify the environment against a recorded run
 forge_ide --gpu-detect              # report detected GPU backends
-forge_ide --native-check    [dir]   # check [native] prerequisites (bridges, never installs)
+forge_ide --native-check    [dir]   # check [native] prerequisites (system + bridge guidance)
+forge_ide --native-provide  [dir]   # download+verify+extract pinned prebuilts; write .forge/native-env
+forge_ide --native-pin <url> --archive <zip|tar-gz> [--name n]   # print a verified catalog entry
 ```
 
 These are also the `forge env doctor` / `forge env sync` / `forge reproduce`

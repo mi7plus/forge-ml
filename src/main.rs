@@ -226,6 +226,32 @@ fn main() -> eframe::Result<()> {
         print!("{}", environment::native_report(&manifest.native_request()));
         return Ok(());
     }
+    // `--native-provide [dir]` downloads+verifies+extracts the project's pinned
+    // native prebuilts and writes `.forge/native-env`.
+    if let Some(pos) = cli.iter().position(|a| a == "--native-provide") {
+        let root = env_cli_dir(&cli, pos);
+        print!("{}", environment::native_provide(&root));
+        return Ok(());
+    }
+    // `--native-pin <url> --archive <zip|tar-gz> [--name <n>]` fetches, hashes,
+    // and prints a ready-to-paste catalog entry.
+    if let Some(pos) = cli.iter().position(|a| a == "--native-pin") {
+        let url = cli.get(pos + 1).filter(|value| !value.starts_with("--"));
+        let flag = |name: &str| {
+            cli.iter()
+                .position(|a| a == name)
+                .and_then(|i| cli.get(i + 1))
+                .map(String::as_str)
+        };
+        match url {
+            Some(url) => print!(
+                "{}",
+                environment::native_pin(url, flag("--archive").unwrap_or("zip"), flag("--name"))
+            ),
+            None => eprintln!("forge native pin: usage: forge native pin <https-url> --archive <zip|tar-gz> [--name <n>]"),
+        }
+        return Ok(());
+    }
     // `--reproduce <ID> [dir]` verifies the current environment against a recorded
     // run's provenance; exits non-zero on a reproducibility-critical divergence.
     if let Some(pos) = cli.iter().position(|a| a == "--reproduce") {

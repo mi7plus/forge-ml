@@ -16,13 +16,16 @@ mod lock;
 mod manifest;
 mod native;
 mod provider;
+mod provision;
 mod system;
 
 pub use bundled::BundledRuntimeProvider;
 pub use gpu::{report as gpu_report, GpuProvider};
 pub use lock::{sha256_hex, Lock};
 pub use manifest::Manifest;
-pub use native::{report as native_report, NativeLibProvider};
+pub use native::{
+    pin as native_pin, provide as native_provide, report as native_report, NativeLibProvider,
+};
 pub use provider::{Activation, EnvironmentProvider, Probe};
 pub use system::SystemToolchainProvider;
 
