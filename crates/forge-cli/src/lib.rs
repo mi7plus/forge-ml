@@ -33,6 +33,7 @@ pub fn run() -> ExitCode {
         "test" => passthrough_cargo("test", rest),
         "env" => cmd_env(rest),
         "doctor" => run_forge_ide(&["--env-doctor".to_owned()]),
+        "gpu" => cmd_gpu(rest),
         "reproduce" => cmd_reproduce(rest),
         "ide" => cmd_ide(rest),
         "version" | "--version" | "-V" => {
@@ -124,6 +125,16 @@ fn cmd_env(args: &[String]) -> Result<(), String> {
     };
     forwarded.extend(rest.iter().cloned());
     run_forge_ide(&forwarded)
+}
+
+/// `forge gpu detect` — report the GPU backends detected on this machine.
+/// Delegates to forge_ide, which owns the detection.
+fn cmd_gpu(args: &[String]) -> Result<(), String> {
+    match args.first().map(String::as_str) {
+        Some("detect") => run_forge_ide(&["--gpu-detect".to_owned()]),
+        Some(other) => Err(format!("unknown gpu subcommand `{other}` (detect)")),
+        None => Err("usage: forge gpu detect".into()),
+    }
 }
 
 /// `forge reproduce <run-id> [dir]` — check the current environment against a
@@ -270,6 +281,7 @@ fn print_help() {
          \x20 forge run|build|test [args]      cargo passthrough\n\
          \x20 forge env sync|doctor [dir]      write forge.lock / report the environment\n\
          \x20 forge doctor                     diagnose the current environment\n\
+         \x20 forge gpu detect                 report detected GPU backends\n\
          \x20 forge reproduce <id> [dir]       verify the environment against a recorded run\n\
          \x20 forge ide [dir]                  open the Forge ML desktop app\n\
          \x20 forge version                    print the version",

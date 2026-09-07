@@ -210,6 +210,11 @@ fn main() -> eframe::Result<()> {
         }
         return Ok(());
     }
+    // `--gpu-detect` reports the GPU backends detected on this machine.
+    if cli.iter().any(|a| a == "--gpu-detect") {
+        print!("{}", environment::gpu_report());
+        return Ok(());
+    }
     // `--reproduce <ID> [dir]` verifies the current environment against a recorded
     // run's provenance; exits non-zero on a reproducibility-critical divergence.
     if let Some(pos) = cli.iter().position(|a| a == "--reproduce") {

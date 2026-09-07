@@ -107,8 +107,17 @@ on `PATH`, needs no activation (they are already there), and records the system
 present, so the two never stack and a shipped build never spawns `rustc` at
 startup.
 
-Both claim only `toolchain` + `crates`, which is why a manifest `[gpu]`/`[native]`/
-`[python]` section shows up as a gap until a provider covers it.
+`GpuProvider` (`src/environment/gpu.rs`) covers the `[gpu]` section (Phase 4). It
+detects the GPU backends on the machine (CUDA, ROCm, Metal, DirectML), honors
+`[gpu].backend` and `[gpu].require`, and records the selection in `forge.lock`. A
+requested backend that is absent is a **gap** only when `require = true`;
+otherwise Forge falls back to the CPU. It installs nothing — GPU acceleration is
+already compiled into the app, so this provider detects and selects rather than
+managing toolkits (that stays deferred to Phase 5). With no `[gpu]` section it is
+a no-op, so it never probes the GPU at app startup.
+
+The toolchain providers claim `toolchain` + `crates`; a manifest `[native]` or
+`[python]` section still shows up as a gap until a provider covers it.
 
 `forge doctor` also runs read-only **host diagnostics** — the presence of rustc,
 cargo, rustup, a C compiler/linker, CUDA, and Python — so it can explain *why*
@@ -120,6 +129,7 @@ something is unavailable. These run only for `doctor`, never at startup.
 forge_ide --env-doctor      [dir]   # manifest, providers, warnings, gaps
 forge_ide --env-sync        [dir]   # write dir/forge.lock
 forge_ide --reproduce <id>  [dir]   # verify the environment against a recorded run
+forge_ide --gpu-detect              # report detected GPU backends
 ```
 
 These are also the `forge env doctor` / `forge env sync` / `forge reproduce`
@@ -132,18 +142,29 @@ hash, toolchain, dataset hashes), and reports each dimension as `ok`, `warn`
 exits non-zero on any `DIFF`, so `clone && forge reproduce <id>` works as a CI
 gate. It verifies reproducibility rather than re-executing the run.
 
-`--env-doctor` example (project with a `[gpu]` section, dev build without a bundle):
+`--env-doctor` example (project pinning `[gpu] backend = "cuda"` with
+`require = true`, on a dev build without a bundle or CUDA):
 
 ```
-Forge environment · v1.1.0
+Forge environment · v1.11.0
 manifest:   …/forge.toml (schema 1)
 profile:    classical-ml
 toolchain:  rust 1.98.0
 providers:
   bundled-runtime    missing — no offline runtime bundle in this build (using the system toolchain)
-warning:    [gpu] is recognized but not yet active in this build; …
+  system-toolchain   available
+  gpu                incompatible — [gpu] requires `cuda` but it was not detected on this machine
+runtime:    System Rust toolchain (notebook `:dep` needs network)
+diagnostics:
+  [ok  ] rustc        rustc 1.98.0 (…)
+  …
+  [note] CUDA         no NVIDIA CUDA detected — GPU still works via DirectML / CoreML; Linux GPU ONNX needs CUDA
 gap:        no available provider supports [gpu] in this build
 ```
+
+Drop `require = true` (or the whole `[gpu]` section) and the gap disappears — Forge
+falls back to the CPU. `forge gpu detect` lists what is available regardless of the
+manifest.
 
 ## What's additive later (no caller changes)
 

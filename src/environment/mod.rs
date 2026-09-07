@@ -11,12 +11,14 @@
 
 mod bundled;
 mod diagnostics;
+mod gpu;
 mod lock;
 mod manifest;
 mod provider;
 mod system;
 
 pub use bundled::BundledRuntimeProvider;
+pub use gpu::{report as gpu_report, GpuProvider};
 pub use lock::{sha256_hex, Lock};
 pub use manifest::Manifest;
 pub use provider::{Activation, EnvironmentProvider, Probe};
@@ -51,6 +53,7 @@ impl Resolver {
         let mut resolver = Resolver::new();
         resolver.register(Box::new(BundledRuntimeProvider));
         resolver.register(Box::new(SystemToolchainProvider));
+        resolver.register(Box::new(GpuProvider));
         resolver
     }
 
@@ -247,10 +250,19 @@ cuda = "13"
         assert_eq!(manifest.toolchain.rust.as_deref(), Some("1.98.0"));
         assert_eq!(manifest.channel(), "stable");
         assert_eq!(manifest.reserved_in_use(), vec!["gpu"]);
-        assert!(manifest
+        // `[gpu]` now has a provider, so it is no longer flagged "not yet active".
+        assert!(!manifest.warnings().iter().any(|w| w.contains("[gpu]")));
+        // The typed `[gpu]` view parses backend + cuda version.
+        let gpu = manifest.gpu_request();
+        assert!(gpu.present);
+        assert_eq!(gpu.backend.as_deref(), Some("cuda"));
+        assert_eq!(gpu.cuda.as_deref(), Some("13"));
+        // A still-reserved section (python) is still flagged not-yet-active.
+        let python = Manifest::parse("[python]\nversion = \"3.13\"\n").unwrap();
+        assert!(python
             .warnings()
             .iter()
-            .any(|w| w.contains("[gpu]") && w.contains("not yet active")));
+            .any(|w| w.contains("[python]") && w.contains("not yet active")));
     }
 
     #[test]
@@ -264,11 +276,23 @@ cuda = "13"
 
     #[test]
     fn gaps_reports_unsupported_reserved_sections() {
-        // The default resolver (bundled runtime only) covers no GPU section.
-        let manifest = Manifest::parse(RESERVED).unwrap();
+        // `[native]`/`[python]` still have no provider, so they are gaps.
+        let manifest = Manifest::parse("[python]\nversion = \"3.13\"\n").unwrap();
         let gaps = Resolver::default_providers().gaps(&manifest);
         assert_eq!(gaps.len(), 1);
-        assert_eq!(gaps[0].section, "gpu");
+        assert_eq!(gaps[0].section, "python");
+    }
+
+    #[test]
+    fn gpu_is_covered_but_a_required_missing_backend_is_a_gap() {
+        // `[gpu]` with a fallback (no require) is covered on any machine.
+        let optional = Manifest::parse("[gpu]\nbackend = \"cuda\"\n").unwrap();
+        assert!(Resolver::default_providers().gaps(&optional).is_empty());
+        // A required backend that can never be detected is a gap everywhere.
+        let required =
+            Manifest::parse("[gpu]\nbackend = \"nonexistent-backend\"\nrequire = true\n").unwrap();
+        let gaps = Resolver::default_providers().gaps(&required);
+        assert!(gaps.iter().any(|gap| gap.section == "gpu"));
     }
 
     #[test]

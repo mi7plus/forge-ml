@@ -11,6 +11,19 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+### Added
+- **GPU provider + `forge gpu detect` (Forge Distribution, Phase 4).** The
+  environment system is now GPU-aware. A new `GpuProvider` detects the backends
+  present on the machine (CUDA, ROCm, Metal, DirectML), **covers** the `[gpu]`
+  manifest section — which is now typed (`backend`, `cuda`, `require`) and no
+  longer flagged "not yet active" — and records the selection in `forge.lock`. A
+  requested backend that is absent is a hard gap only when `require = true`;
+  otherwise Forge falls back to the CPU. `forge gpu detect` (and `forge_ide
+  --gpu-detect`) reports what's available regardless of the manifest, and
+  `forge doctor` now enforces a project's `[gpu]` requirement. It detects and
+  selects only — it installs no toolkits (that stays deferred). With no `[gpu]`
+  section the provider is a no-op and never probes the GPU at startup.
+
 ## [1.11.0] — 2026-09-07
 
 ### Added
