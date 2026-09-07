@@ -271,11 +271,15 @@ impl crate::ForgeApp {
                 self.load_onnx_model();
             }
             #[cfg(feature = "millwright-gpu")]
-            ui.checkbox(&mut self.onnx_use_gpu, "Use GPU")
-                .on_hover_text(
-                    "Load through onnxruntime's GPU execution provider (Device::Auto), \
-                     falling back to CPU when no GPU is present. Applies on the next load.",
-                );
+            ui.label(
+                RichText::new(format!("device: {}", self.compute_device.label()))
+                    .size(10.0)
+                    .color(MUTED),
+            )
+            .on_hover_text(
+                "ONNX inference uses the app-wide compute device. Change it in \
+                 Settings → Compute; it applies on the next load.",
+            );
             if !self.onnx_model_name.is_empty() {
                 ui.label(
                     RichText::new(format!("model: {}", self.onnx_model_name))
@@ -1144,23 +1148,19 @@ impl crate::ForgeApp {
         else {
             return;
         };
-        // Default build loads on CPU; the opt-in `millwright-gpu` build loads
-        // through onnxruntime with the selected device (`Device::Auto` uses a
-        // GPU provider and silently falls back to CPU).
+        // Default build loads on CPU; the opt-in `millwright-gpu` build honors
+        // the app-wide compute device (Settings → Compute): `Auto` prefers a GPU
+        // provider and silently falls back to CPU, `Gpu` requires one, `Cpu`
+        // stays on the CPU.
         #[cfg(not(feature = "millwright-gpu"))]
         let loaded = millwright::onnx::InferenceModel::load(&path);
         #[cfg(feature = "millwright-gpu")]
         let (loaded, device_label) = {
             use millwright::onnx::{Device, InferenceModel};
-            let device = if self.onnx_use_gpu {
-                Device::Auto
-            } else {
-                Device::Cpu
-            };
-            let label = if self.onnx_use_gpu {
-                " (GPU/auto)"
-            } else {
-                " (CPU)"
+            let (device, label) = match self.compute_device {
+                deep_learning::ComputeDevice::Auto => (Device::Auto, " (GPU/auto)"),
+                deep_learning::ComputeDevice::Gpu => (Device::Gpu, " (GPU)"),
+                deep_learning::ComputeDevice::Cpu => (Device::Cpu, " (CPU)"),
             };
             (InferenceModel::load_on(&path, device), label)
         };

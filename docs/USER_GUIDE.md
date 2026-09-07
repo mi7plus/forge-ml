@@ -29,6 +29,10 @@ The Git pane shows status, staged/unstaged diffs, and commit history, and stages
 
 Settings offers light/dark themes, a 10–24 px editor font, high contrast, reduced motion, and caret blinking. Reduced motion disables the custom blinking caret. Execution, diagnostics, Git state, and cells use text or symbols in addition to color.
 
+## Compute device
+
+Settings → **Compute** offers one app-wide device — **Automatic**, **GPU**, or **CPU** — that applies everywhere Forge can accelerate. It selects the embedded Burn training backend (CPU/Flex or WebGPU) and, in the opt-in `millwright-gpu` build, the Millwright ONNX inference device (Automatic prefers a GPU and falls back to the CPU on its own). Changing it updates the Deep Learning pane's training backend to match, which stays overridable there for advanced use. The default is **CPU**, so the shipped offline installer runs on the CPU until you opt in; classical smartcore/linfa pipelines always run on the CPU. The choice is remembered across sessions.
+
 ## Data and experiments
 
 Import CSV, TSV, JSON Lines, Parquet, or Arrow IPC from the Data pane or Tools menu. Parsing runs in the background, reports the active path and decoded row count, and opens a successful import in the adjustable lower-right viewer only after Arrow construction and quality preparation finish. Interactive imports are limited to 512 MiB on disk, one million rows, 10,000 columns, 512 MiB of decoded cell text, and 16 MiB per cell or JSON line. Parquet is decoded in bounded batches and JSON Lines is scanned without loading the whole source into one string. Forge stores every prepared dataset as ordered Arrow batches of at most 8,192 rows while retaining a row-oriented compatibility view for editing and filtering. Query or stream larger sources. Full-table CSV, TSV, JSON Lines, Parquet, and Arrow IPC exports stream those batches on the background worker; Forge writes a sibling temporary file, syncs it, and safely replaces an existing destination only after success. Runs can be compared, cloned, archived, and exported as ZIP bundles.

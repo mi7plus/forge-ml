@@ -902,6 +902,9 @@ struct ForgeApp {
     sql_output: String,
     sql_history: Vec<String>,
     deep_backend: DeepBackend,
+    /// App-wide preferred compute device (Settings → Compute). Drives the Burn
+    /// training backend and, in `millwright-gpu` builds, the ONNX device.
+    compute_device: deep_learning::ComputeDevice,
     burn_training_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
     burn_training_epochs: usize,
     burn_training_learning_rate: f64,
@@ -924,10 +927,6 @@ struct ForgeApp {
     prep_result: String,
     onnx_model: Option<millwright::onnx::InferenceModel>,
     onnx_model_name: String,
-    /// Use the GPU (`Device::Auto`, with silent CPU fallback) for ONNX
-    /// inference. Only present in the opt-in `millwright-gpu` build.
-    #[cfg(feature = "millwright-gpu")]
-    onnx_use_gpu: bool,
     onnx_input: String,
     onnx_result: String,
     native_burn_artifact: Option<deep_learning::NativeRegressionArtifact>,
@@ -1545,6 +1544,7 @@ impl ForgeApp {
             sql_output: String::new(),
             sql_history,
             deep_backend: session.native_training_backend,
+            compute_device: session.compute_device,
             burn_training_cancel: None,
             burn_training_epochs: native_training_config.epochs,
             burn_training_learning_rate: native_training_config.learning_rate,
@@ -1567,8 +1567,6 @@ impl ForgeApp {
             prep_result: String::new(),
             onnx_model: None,
             onnx_model_name: String::new(),
-            #[cfg(feature = "millwright-gpu")]
-            onnx_use_gpu: true,
             onnx_input: String::new(),
             onnx_result: String::new(),
             native_burn_artifact,
@@ -3652,6 +3650,7 @@ impl eframe::App for ForgeApp {
             drift_scale_ratio_lower: self.drift_scale_ratio_lower,
             drift_scale_ratio_upper: self.drift_scale_ratio_upper,
             native_training_backend: self.deep_backend,
+            compute_device: self.compute_device,
             native_training_epochs: self.burn_training_epochs,
             native_training_learning_rate: self.burn_training_learning_rate,
             native_training_validation_fraction: self.burn_training_validation_fraction,

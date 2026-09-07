@@ -12,14 +12,22 @@ grouped under the **0.98.0** release below.
 ## [Unreleased]
 
 ### Added
+- **App-wide compute device (Settings → Compute).** One **Automatic / GPU / CPU**
+  choice, persisted across sessions, now drives every accelerable surface at once:
+  it selects the embedded Burn training backend (CPU/Flex ↔ WebGPU) and, in the
+  opt-in `millwright-gpu` build, the Millwright ONNX inference device. Changing it
+  updates the training pane's backend to match (still overridable there), and the
+  ONNX playground shows the device it will use. **CPU by default**, so the shipped
+  offline installer stays CPU-only unless the user opts in. Classical
+  smartcore/linfa pipelines remain CPU-only.
 - **Optional Millwright GPU acceleration (Millwright 2.3.1).** Bumped Millwright
   to 2.3.1 and wired both of its new GPU paths, behind one opt-in `millwright-gpu`
   Cargo feature (`cargo build --features millwright-gpu`), off by default so the
   shipped self-contained offline installer stays CPU-only:
-  - **GPU ONNX inference.** The Deep Learning pane's inference playground gains a
-    **Use GPU** toggle that loads ONNX models through onnxruntime's GPU execution
-    provider (`Device::Auto`, silent CPU fallback). Adds `ort`/onnxruntime only
-    in the feature build.
+  - **GPU ONNX inference.** The Deep Learning pane's inference playground loads
+    ONNX models through onnxruntime's GPU execution provider following the app-wide
+    device (`Automatic` = GPU with silent CPU fallback). Adds `ort`/onnxruntime
+    only in the feature build.
   - **GPU compute.** A **Test GPU compute** button verifies Millwright's
     wgpu-accelerated primitives (a small GEMM), reporting GPU absence or errors
     and falling back to CPU. (Classic-ML pipeline training still runs on the

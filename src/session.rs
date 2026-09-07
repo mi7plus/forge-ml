@@ -140,6 +140,10 @@ pub struct SessionState {
     pub drift_scale_ratio_upper: f64,
     #[serde(default = "default_training_backend")]
     pub native_training_backend: crate::deep_learning::Backend,
+    /// App-wide preferred compute device (Settings → Compute). Selects the Burn
+    /// training backend and, in `millwright-gpu` builds, the ONNX device.
+    #[serde(default)]
+    pub compute_device: crate::deep_learning::ComputeDevice,
     #[serde(default = "default_training_epochs")]
     pub native_training_epochs: usize,
     #[serde(default = "default_training_learning_rate")]
@@ -257,6 +261,7 @@ impl Default for SessionState {
             drift_scale_ratio_lower: default_drift_scale_ratio_lower(),
             drift_scale_ratio_upper: default_drift_scale_ratio_upper(),
             native_training_backend: default_training_backend(),
+            compute_device: crate::deep_learning::ComputeDevice::default(),
             native_training_epochs: default_training_epochs(),
             native_training_learning_rate: default_training_learning_rate(),
             native_training_validation_fraction: default_training_validation_fraction(),

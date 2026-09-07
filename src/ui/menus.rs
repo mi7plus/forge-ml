@@ -986,6 +986,43 @@ impl crate::ForgeApp {
                         self.sync_lsp();
                     }
                 }
+                ui.heading("Compute");
+                let previous_device = self.compute_device;
+                ui.horizontal(|ui| {
+                    ui.label("Device").on_hover_text(
+                        "One app-wide choice applied everywhere Forge can accelerate: the \
+                         embedded Burn training backend and, in the opt-in millwright-gpu \
+                         build, Millwright ONNX inference. Classical smartcore/linfa pipelines \
+                         stay on the CPU.",
+                    );
+                    for device in [
+                        crate::deep_learning::ComputeDevice::Auto,
+                        crate::deep_learning::ComputeDevice::Gpu,
+                        crate::deep_learning::ComputeDevice::Cpu,
+                    ] {
+                        ui.selectable_value(&mut self.compute_device, device, device.label());
+                    }
+                });
+                if self.compute_device != previous_device {
+                    // Push the choice across the board: the training pane's backend
+                    // follows it (and stays overridable there for advanced use).
+                    self.deep_backend = self.compute_device.burn_backend();
+                    self.status_announcement =
+                        format!("Compute device set to {}", self.compute_device.label());
+                }
+                ui.label(
+                    RichText::new(if cfg!(feature = "millwright-gpu") {
+                        "Automatic prefers the GPU and falls back to the CPU on its own. GPU \
+                         requires a usable device. Applies to new training runs and the next \
+                         ONNX load."
+                    } else {
+                        "Drives embedded Burn training. GPU ONNX inference needs the opt-in \
+                         millwright-gpu build; this build runs ONNX on the CPU regardless."
+                    })
+                    .size(10.0)
+                    .color(MUTED),
+                );
+
                 ui.heading("Accessibility");
                 let contrast_changed = ui
                     .checkbox(&mut self.high_contrast, "High-contrast interface")

@@ -593,6 +593,43 @@ impl Backend {
     }
 }
 
+/// The app-wide preferred compute device, chosen once in Settings and applied
+/// across every accelerable surface: it selects the embedded Burn training
+/// backend and, in the opt-in `millwright-gpu` build, the Millwright ONNX
+/// inference device. `Cpu` is the default so the offline installer stays
+/// CPU-only unless the user opts in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ComputeDevice {
+    /// Prefer the GPU where present, fall back to the CPU automatically.
+    Auto,
+    /// Require the GPU.
+    Gpu,
+    /// Always use the CPU.
+    #[default]
+    Cpu,
+}
+
+impl ComputeDevice {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "Automatic (GPU when available)",
+            Self::Gpu => "GPU",
+            Self::Cpu => "CPU",
+        }
+    }
+
+    /// The embedded Burn training backend this preference implies. The embedded
+    /// runtime supports only CPU (Flex) and WebGPU, so `Auto` and `Gpu` both map
+    /// to WebGPU; a machine without a usable GPU surfaces a clean init error the
+    /// user can recover from by switching back to CPU.
+    pub fn burn_backend(self) -> Backend {
+        match self {
+            Self::Cpu => Backend::Cpu,
+            Self::Auto | Self::Gpu => Backend::Wgpu,
+        }
+    }
+}
+
 pub fn native_burn_self_test() -> String {
     use burn::tensor::{Device, Tensor};
     let input = Tensor::<1>::from_data([1.0_f32, 2.0, 3.0], &Device::flex());
