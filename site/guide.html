@@ -249,7 +249,7 @@ println!(r#"forge_plot:{"name":"roc","kind":"line","series":[...]}"#); // struct
       runs in the background and opens the result in the data viewer only after Arrow construction and
       quality profiling finish. Interactive imports are bounded (512&nbsp;MiB on disk, one million rows,
       10,000 columns); query or stream larger sources. <strong>Tools → Import via Millwright</strong> loads
-      CSV and Parquet through the embedded Millwright 2.2.1 crate.</p>
+      CSV and Parquet through the embedded Millwright 2.3.1 crate.</p>
       <p>Each dataset gets a cached quality profile — missingness, numeric coverage, uniqueness, range,
       mean, standard deviation, mixed-type and constant-column alerts, and bounded Pearson correlations.
       The grid is virtualized, so wide tables stay responsive while you filter, sort, pin or hide columns,

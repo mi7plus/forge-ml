@@ -327,7 +327,7 @@ pub fn generate_inference_service(
     let (service_sha256, service_size_bytes) = artifact_identity(&bundled_model)?;
     let onnx = version.format.eq_ignore_ascii_case("onnx");
     let cargo = if onnx {
-        format!("[package]\nname = \"{crate_name}-service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\naxum = \"0.8\"\ntokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\", \"net\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nsha2 = \"0.10\"\nmillwright = {{ version = \"2.2.1\", default-features = false, features = [\"serve\"] }}\n")
+        format!("[package]\nname = \"{crate_name}-service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\naxum = \"0.8\"\ntokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\", \"net\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nsha2 = \"0.10\"\nmillwright = {{ version = \"2.3.1\", default-features = false, features = [\"serve\"] }}\n")
     } else if native_regression {
         format!(
             r#"use axum::{{extract::{{DefaultBodyLimit, State}}, http::StatusCode, routing::{{get, post}}, Json, Router}};
@@ -398,7 +398,7 @@ async fn predict(State(model): State<Arc<NativeModel>>, Json(input): Json<Reques
     };
     let native_main = native_regression.then(|| cargo.clone());
     let cargo = if onnx {
-        format!("[package]\nname = \"{crate_name}-service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\naxum = \"0.8\"\ntokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\", \"net\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nsha2 = \"0.10\"\nmillwright = {{ version = \"2.2.1\", default-features = false, features = [\"serve\"] }}\n")
+        format!("[package]\nname = \"{crate_name}-service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\naxum = \"0.8\"\ntokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\", \"net\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nsha2 = \"0.10\"\nmillwright = {{ version = \"2.3.1\", default-features = false, features = [\"serve\"] }}\n")
     } else {
         format!("[package]\nname = \"{crate_name}-service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\naxum = \"0.8\"\ntokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\", \"net\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nserde_json = \"1\"\nsha2 = \"0.10\"\n")
     };
@@ -433,7 +433,7 @@ async fn health() -> &'static str {{ "ok" }}
 async fn ready() -> Result<&'static str, (axum::http::StatusCode, &'static str)> {{
     integrity_ok().then_some("ready").ok_or((axum::http::StatusCode::SERVICE_UNAVAILABLE, "model integrity check failed"))
 }}
-async fn metadata() -> Json<Metadata> {{ Json(Metadata {{ model: MODEL, version: VERSION, format: "onnx", artifact: MODEL_PATH, runtime: "millwright-2.2.1", sha256: SHA256, size_bytes: SIZE_BYTES }}) }}
+async fn metadata() -> Json<Metadata> {{ Json(Metadata {{ model: MODEL, version: VERSION, format: "onnx", artifact: MODEL_PATH, runtime: "millwright-2.3.1", sha256: SHA256, size_bytes: SIZE_BYTES }}) }}
 #[tokio::main] async fn main() -> Result<(), Box<dyn std::error::Error>> {{
     if std::env::args().any(|arg| arg == "--healthcheck") {{
         std::process::exit(if integrity_ok() {{ 0 }} else {{ 1 }});
@@ -517,7 +517,7 @@ async fn predict(Json(input): Json<Request>) -> Json<Response> {{
     fs::write(destination.join("Dockerfile"), "FROM rust:1-slim AS build\nWORKDIR /app\nCOPY . .\nRUN cargo build --release\nFROM debian:bookworm-slim\nWORKDIR /app\nCOPY --from=build /app/target/release/*-service /usr/local/bin/model-service\nCOPY --from=build /app/models ./models\nEXPOSE 3000\nHEALTHCHECK CMD [\"/usr/local/bin/model-service\", \"--healthcheck\"]\nCMD [\"model-service\"]\n").map_err(|e| e.to_string())?;
     fs::write(destination.join("compose.yaml"), "services:\n  model:\n    build: .\n    ports: [\"3000:3000\"]\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD\", \"/usr/local/bin/model-service\", \"--healthcheck\"]\n      interval: 10s\n      timeout: 3s\n      retries: 3\n").map_err(|e| e.to_string())?;
     let prediction_note = if onnx {
-        "`POST /predict` accepts `{\"rows\":[[...], ...]}` and performs bounded, timeout-protected inference through the published Millwright 2.2.1 ONNX runtime."
+        "`POST /predict` accepts `{\"rows\":[[...], ...]}` and performs bounded, timeout-protected inference through the published Millwright 2.3.1 ONNX runtime."
     } else if native_regression {
         "`POST /predict` accepts `{\"values\":[...]}` with at most 10,000 finite feature values and returns original-unit native regression predictions."
     } else {
@@ -675,7 +675,7 @@ mod tests {
         assert!(source.contains("Server::from_onnx(MODEL_PATH)"));
         assert!(source.contains("request_limits(10_000, 10_000, 8 * 1024 * 1024)"));
         let cargo = fs::read_to_string(service.join("Cargo.toml")).unwrap();
-        assert!(cargo.contains("millwright = { version = \"2.2.1\""));
+        assert!(cargo.contains("millwright = { version = \"2.3.1\""));
         assert!(service.join("deployment.yaml").is_file());
         let _ = fs::remove_dir_all(root);
     }

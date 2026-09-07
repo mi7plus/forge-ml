@@ -787,7 +787,7 @@ impl PipelineDesign {
 
     pub fn onnx_export_code(&self, artifact: &str) -> String {
         let mut code = self.rust_code();
-        code.push_str("\n// Millwright 2.2's native, published-crate portability boundary.\n");
+        code.push_str("\n// Millwright 2.3's native, published-crate portability boundary.\n");
         code.push_str("use millwright::onnx::{ExportOnnx, InferenceModel};\n");
         code.push_str(&format!(
             "let artifact = std::path::Path::new({artifact:?});\npipeline.export_onnx(artifact)?;\n"

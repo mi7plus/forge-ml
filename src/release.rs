@@ -18,7 +18,7 @@ pub fn version_report(root: &Path) -> String {
                 .map(str::to_owned)
         })
         .unwrap_or_else(|| "No Python wheel in this project".into());
-    format!("Forge/Rust: {cargo}\nPython: {python}\nMillwright crates.io: 2.2.1")
+    format!("Forge/Rust: {cargo}\nPython: {python}\nMillwright crates.io: 2.3.1")
 }
 
 pub fn checksums(root: &Path) -> Result<String, String> {

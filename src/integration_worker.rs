@@ -560,7 +560,7 @@ mod tests {
                     .source
                     .as_deref()
                     .unwrap()
-                    .contains("published Millwright 2.2.1"));
+                    .contains("published Millwright 2.3.1"));
                 assert_eq!(dataset.profile()[0].numeric_count, 1);
             }
             _ => panic!("unexpected integration result"),

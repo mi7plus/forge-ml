@@ -93,7 +93,7 @@ pinned toolchain from `rust-toolchain.toml`:
    notebook cell such as:
 
    ```rust
-   :dep millwright = { version = "2.2.1", features = ["smartcore-backend"] }
+   :dep millwright = { version = "2.3.1", features = ["smartcore-backend"] }
    use millwright::prelude::*;
    // …train something…
    ```

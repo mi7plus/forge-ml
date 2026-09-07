@@ -422,7 +422,7 @@ pub fn load_millwright_table(path: &Path) -> Result<(String, TableData, String),
     Ok((
         name,
         millwright_table_data(&table, IMPORT_LIMITS)?,
-        format!("published Millwright 2.2.1: {}", path.display()),
+        format!("published Millwright 2.3.1: {}", path.display()),
     ))
 }
 

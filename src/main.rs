@@ -298,7 +298,7 @@ fn notebook_selftest() {
     let start = Instant::now();
     let mut ready = false;
     let cell = "\
-:dep millwright = { version = \"2.2.1\", default-features = false, features = [\"smartcore-backend\"] }\n\
+:dep millwright = { version = \"2.3.1\", default-features = false, features = [\"smartcore-backend\"] }\n\
 use millwright::prelude::*;\n\
 let _ = Frame::from_rows(vec![vec![0.0]], vec![\"x\".into()]);\n\
 println!(\"Millwright ready.\");";

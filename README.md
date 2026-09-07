@@ -57,7 +57,7 @@ below are grouped by workflow; the [feature site](site/) and
   rclone object-storage profiles with bounded browsing
 
 ### Machine learning
-- Classical ML with **Millwright 2.2** compiled in (smartcore + linfa backends,
+- Classical ML with **Millwright 2.3** compiled in (smartcore + linfa backends,
   pure Rust): design a pipeline and train it in-process on the selected table —
   no toolchain, no network — with ONNX export/round-trip
 - Deep learning with **Burn 0.22** compiled in: one-click Flex/autodiff and

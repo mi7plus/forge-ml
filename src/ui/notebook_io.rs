@@ -167,7 +167,7 @@ impl crate::ForgeApp {
             Ok(()) => {
                 self.integration_pending += 1;
                 self.console = format!(
-                    "Importing {} through published Millwright 2.2.1 in the background…",
+                    "Importing {} through published Millwright 2.3.1 in the background…",
                     path.display()
                 );
             }
