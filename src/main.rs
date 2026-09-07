@@ -924,6 +924,10 @@ struct ForgeApp {
     prep_result: String,
     onnx_model: Option<millwright::onnx::InferenceModel>,
     onnx_model_name: String,
+    /// Use the GPU (`Device::Auto`, with silent CPU fallback) for ONNX
+    /// inference. Only present in the opt-in `millwright-gpu` build.
+    #[cfg(feature = "millwright-gpu")]
+    onnx_use_gpu: bool,
     onnx_input: String,
     onnx_result: String,
     native_burn_artifact: Option<deep_learning::NativeRegressionArtifact>,
@@ -1563,6 +1567,8 @@ impl ForgeApp {
             prep_result: String::new(),
             onnx_model: None,
             onnx_model_name: String::new(),
+            #[cfg(feature = "millwright-gpu")]
+            onnx_use_gpu: true,
             onnx_input: String::new(),
             onnx_result: String::new(),
             native_burn_artifact,

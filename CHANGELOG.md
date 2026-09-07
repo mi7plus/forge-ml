@@ -11,6 +11,16 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+### Added
+- **Optional GPU ONNX inference (Millwright 2.3.1).** Bumped Millwright to 2.3.1
+  and wired its new GPU path. In the Deep Learning pane's inference playground,
+  a **Use GPU** toggle loads ONNX models through onnxruntime's GPU execution
+  provider (`Device::Auto`, with a silent CPU fallback). It's gated behind an
+  opt-in `millwright-gpu` Cargo feature (`cargo build --features millwright-gpu`)
+  that pulls in `ort`/onnxruntime, so the shipped self-contained offline
+  installer stays CPU-only and needs no onnxruntime binaries. The default build
+  is unchanged; CI lints the GPU path via `--all-features`.
+
 ## [1.8.0] — 2026-09-06
 
 ### Added

@@ -258,6 +258,12 @@ impl crate::ForgeApp {
             if ui.button("Load ONNX model…").clicked() {
                 self.load_onnx_model();
             }
+            #[cfg(feature = "millwright-gpu")]
+            ui.checkbox(&mut self.onnx_use_gpu, "Use GPU")
+                .on_hover_text(
+                    "Load through onnxruntime's GPU execution provider (Device::Auto), \
+                     falling back to CPU when no GPU is present. Applies on the next load.",
+                );
             if !self.onnx_model_name.is_empty() {
                 ui.label(
                     RichText::new(format!("model: {}", self.onnx_model_name))
@@ -1095,12 +1101,36 @@ impl crate::ForgeApp {
         else {
             return;
         };
-        match millwright::onnx::InferenceModel::load(&path) {
+        // Default build loads on CPU; the opt-in `millwright-gpu` build loads
+        // through onnxruntime with the selected device (`Device::Auto` uses a
+        // GPU provider and silently falls back to CPU).
+        #[cfg(not(feature = "millwright-gpu"))]
+        let loaded = millwright::onnx::InferenceModel::load(&path);
+        #[cfg(feature = "millwright-gpu")]
+        let (loaded, device_label) = {
+            use millwright::onnx::{Device, InferenceModel};
+            let device = if self.onnx_use_gpu {
+                Device::Auto
+            } else {
+                Device::Cpu
+            };
+            let label = if self.onnx_use_gpu {
+                " (GPU/auto)"
+            } else {
+                " (CPU)"
+            };
+            (InferenceModel::load_on(&path, device), label)
+        };
+        #[cfg(not(feature = "millwright-gpu"))]
+        let device_label = "";
+        match loaded {
             Ok(model) => {
                 self.onnx_model = Some(model);
                 self.onnx_model_name = file_title(&path);
-                self.onnx_result =
-                    format!("Loaded `{}`. Ready for inference.", self.onnx_model_name);
+                self.onnx_result = format!(
+                    "Loaded `{}`{device_label}. Ready for inference.",
+                    self.onnx_model_name
+                );
             }
             Err(error) => {
                 self.onnx_model = None;

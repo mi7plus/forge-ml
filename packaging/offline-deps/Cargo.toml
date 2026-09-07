@@ -16,5 +16,5 @@ publish = false
 path = "lib.rs"
 
 [dependencies]
-millwright = { version = "2.2.1", default-features = false, features = ["eda", "onnx", "smartcore-backend", "linfa-backend"] }
+millwright = { version = "2.3.1", default-features = false, features = ["eda", "onnx", "smartcore-backend", "linfa-backend"] }
 burn = { version = "0.22.0-pre.3", default-features = false, features = ["std", "train", "flex", "wgpu", "metrics"] }

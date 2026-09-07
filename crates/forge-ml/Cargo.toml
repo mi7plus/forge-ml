@@ -16,7 +16,7 @@ deep-learning = ["dep:burn"]
 # All pinned to the versions already resolved in the workspace, so the umbrella
 # adds no new dependency trees.
 ndarray = "0.16.1"
-millwright = { version = "2.2.1", optional = true, default-features = false, features = [
+millwright = { version = "2.3.1", optional = true, default-features = false, features = [
     "smartcore-backend",
     "linfa-backend",
 ] }

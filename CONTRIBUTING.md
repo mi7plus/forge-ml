@@ -8,7 +8,7 @@ Before submitting a change, run:
 cargo fmt --all --check
 cargo test --workspace --all-targets
 cargo clippy --workspace --all-targets -- -D warnings
-cargo clippy --features millwright,adbc --all-targets -- -D warnings
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 git diff --check
 ```
 
