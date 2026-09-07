@@ -595,17 +595,17 @@ impl Backend {
 
 /// The app-wide preferred compute device, chosen once in Settings and applied
 /// across every accelerable surface: it selects the embedded Burn training
-/// backend and, in the opt-in `millwright-gpu` build, the Millwright ONNX
-/// inference device. `Cpu` is the default so the offline installer stays
-/// CPU-only unless the user opts in.
+/// backend and the Millwright ONNX inference device (both compiled in). `Auto`
+/// is the default now that GPU acceleration ships natively — it prefers the GPU
+/// and falls back to the CPU on its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ComputeDevice {
     /// Prefer the GPU where present, fall back to the CPU automatically.
+    #[default]
     Auto,
     /// Require the GPU.
     Gpu,
     /// Always use the CPU.
-    #[default]
     Cpu,
 }
 

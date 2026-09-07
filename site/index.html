@@ -175,11 +175,12 @@
       <a href="https://github.com/mi7plus/forge-ml/releases/download/v1.9.0/SHA256SUMS">SHA256SUMS</a>.
       Each artifact carries a GitHub build-provenance attestation. Prefer to build from source?
       See <a href="#start">Clone and run</a>.</p>
-    <p class="note"><strong>GPU:</strong> pick a compute device in <em>Settings → Compute</em> or the
-      status-bar chip — <em>Automatic</em>, <em>GPU</em>, or <em>CPU</em>. In these installers it drives
-      embedded Burn training onto WebGPU when a compatible adapter is present; the default is CPU, so the
-      offline runtime stays CPU-only until you opt in. GPU-accelerated Millwright ONNX inference is a
-      source build (<code>cargo build --features millwright-gpu</code>). See the
+    <p class="note"><strong>GPU is built in.</strong> Pick a compute device in <em>Settings → Compute</em> or
+      the status-bar chip — <em>Automatic</em> (the default), <em>GPU</em>, or <em>CPU</em>. It drives both
+      embedded Burn training (WebGPU) and Millwright ONNX inference, which is statically linked — no extra
+      runtime to install. ONNX GPU is <strong>DirectML</strong> on Windows and <strong>CoreML</strong> on
+      macOS (self-contained); on <strong>Linux</strong> it uses CUDA, so a matching NVIDIA CUDA/cuDNN runtime
+      is required for GPU inference, otherwise it falls back to the CPU. See the
       <a href="guide.html#compute">guide</a>.</p>
     <p class="note">The installers are not yet OS code-signed, so the first launch shows a publisher
       warning. <strong>Windows:</strong> if SmartScreen appears, choose <em>More info → Run anyway</em>.

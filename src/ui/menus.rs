@@ -991,9 +991,8 @@ impl crate::ForgeApp {
                 ui.horizontal(|ui| {
                     ui.label("Device").on_hover_text(
                         "One app-wide choice applied everywhere Forge can accelerate: the \
-                         embedded Burn training backend and, in the opt-in millwright-gpu \
-                         build, Millwright ONNX inference. Classical smartcore/linfa pipelines \
-                         stay on the CPU.",
+                         embedded Burn training backend and Millwright ONNX inference (both \
+                         compiled in). Classical smartcore/linfa pipelines stay on the CPU.",
                     );
                     for option in [
                         crate::deep_learning::ComputeDevice::Auto,
@@ -1007,14 +1006,12 @@ impl crate::ForgeApp {
                 // follows it (and stays overridable there for advanced use).
                 self.set_compute_device(device);
                 ui.label(
-                    RichText::new(if cfg!(feature = "millwright-gpu") {
+                    RichText::new(
                         "Automatic prefers the GPU and falls back to the CPU on its own. GPU \
                          requires a usable device. Applies to new training runs and the next \
-                         ONNX load."
-                    } else {
-                        "Drives embedded Burn training. GPU ONNX inference needs the opt-in \
-                         millwright-gpu build; this build runs ONNX on the CPU regardless."
-                    })
+                         ONNX load. On Linux, GPU ONNX inference needs a CUDA/cuDNN runtime; \
+                         without one it stays on the CPU.",
+                    )
                     .size(10.0)
                     .color(MUTED),
                 );

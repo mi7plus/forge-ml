@@ -11,6 +11,24 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+### Changed
+- **GPU acceleration is now built into every installer** — no longer an opt-in
+  `millwright-gpu` Cargo feature. Millwright's `gpu-compute` (wgpu) and
+  `gpu-inference` (onnxruntime) are compiled into the default build, so the
+  shipped Windows, macOS, and Linux packages accelerate on the GPU out of the
+  box. onnxruntime is **statically linked**, so no extra runtime ships:
+  - **Windows → DirectML**, **macOS → CoreML** — self-contained GPU ONNX
+    inference, no separate install.
+  - **Linux → CUDA** (`millwright/gpu-cuda`). GPU ONNX inference there needs a
+    matching NVIDIA CUDA/cuDNN runtime; without one, onnxruntime falls back to
+    the CPU and the app still runs. **This means the Linux build is no longer
+    fully self-contained for GPU inference** (CPU remains self-contained).
+  - Embedded Burn WebGPU training uses the OS graphics drivers on every platform.
+- **The default compute device is now Automatic** (prefer GPU, silent CPU
+  fallback), up from CPU — so the built-in GPU is used without the user having to
+  flip the switch. Change it any time in Settings → Compute or the status-bar
+  chip. Installer size grows to carry the statically-linked onnxruntime.
+
 ## [1.9.0] — 2026-09-07
 
 ### Added

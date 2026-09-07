@@ -83,24 +83,33 @@ adbc_core = { version = "0.24", optional = true }
 keyring = "4.1"
 sysinfo = "0.39"
 zip = { version = "4", default-features = false, features = ["deflate"] }
-millwright = { version = "2.3.1", default-features = false, features = ["eda", "onnx", "smartcore-backend", "linfa-backend"] }
+millwright = { version = "2.3.1", default-features = false, features = ["eda", "onnx", "smartcore-backend", "linfa-backend", "gpu-inference", "gpu-compute"] }
 burn = { version = "0.22.0-pre.3", default-features = false, features = ["std", "train", "flex", "wgpu", "metrics"] }
 egui_tiles = { version = "0.17.1", features = ["serde"] }
 arboard = "3.6"
 portable-pty = "0.9.0"
 alacritty_terminal = "0.26.0"
 
+# Millwright GPU acceleration is compiled in by default (it is not an opt-in
+# Cargo feature). The base `millwright` dependency above enables:
+#   - gpu-compute: wgpu-accelerated primitives (`millwright::gpu`), using the OS
+#     graphics drivers (Vulkan/Metal/DX12) with a CPU fallback.
+#   - gpu-inference: ONNX inference via onnxruntime (`ort`). onnxruntime is
+#     statically linked, so no extra runtime ships. millwright's per-target `ort`
+#     features add DirectML on Windows and CoreML on macOS — both self-contained.
+# On Linux, additionally compile onnxruntime's CUDA execution provider so ONNX
+# inference can use an NVIDIA GPU when the user has a matching CUDA/cuDNN runtime.
+# Without one, onnxruntime falls back to the CPU (the base runtime is static, so
+# the app still runs); the Linux CUDA path is the only GPU capability that
+# depends on a user-provided runtime.
+[target.'cfg(target_os = "linux")'.dependencies.millwright]
+version = "2.3.1"
+default-features = false
+features = ["gpu-cuda"]
+
 [features]
 default = []
 adbc = ["dep:adbc_core"]
-# Opt-in Millwright GPU acceleration, off by default so the shipped
-# self-contained offline installer stays CPU-only (no onnxruntime binaries);
-# enable with `cargo build --features millwright-gpu`. Bundles two capabilities:
-#   - gpu-inference: ONNX inference via onnxruntime (`ort`), `Device::Auto` with
-#     a silent CPU fallback.
-#   - gpu-compute: wgpu-accelerated classic-ML primitives (GEMM, pairwise
-#     distances) exposed as `millwright::gpu`, also with a CPU fallback.
-millwright-gpu = ["millwright/gpu-inference", "millwright/gpu-compute"]
 
 [profile.dev]
 debug = 0

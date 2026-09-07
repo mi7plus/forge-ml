@@ -903,7 +903,7 @@ struct ForgeApp {
     sql_history: Vec<String>,
     deep_backend: DeepBackend,
     /// App-wide preferred compute device (Settings → Compute). Drives the Burn
-    /// training backend and, in `millwright-gpu` builds, the ONNX device.
+    /// training backend and the Millwright ONNX inference device.
     compute_device: deep_learning::ComputeDevice,
     burn_training_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
     burn_training_epochs: usize,

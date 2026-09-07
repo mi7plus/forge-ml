@@ -36,7 +36,6 @@ impl crate::ForgeApp {
             if ui.button("Test embedded Burn").clicked() {
                 self.sql_output = deep_learning::native_burn_self_test();
             }
-            #[cfg(feature = "millwright-gpu")]
             if ui
                 .button("Test GPU compute")
                 .on_hover_text(
@@ -270,7 +269,6 @@ impl crate::ForgeApp {
             if ui.button("Load ONNX model…").clicked() {
                 self.load_onnx_model();
             }
-            #[cfg(feature = "millwright-gpu")]
             ui.label(
                 RichText::new(format!("device: {}", self.compute_device.label()))
                     .size(10.0)
@@ -1108,11 +1106,9 @@ impl crate::ForgeApp {
         }
     }
 
-    /// Load an ONNX model from disk for in-IDE inference (via Millwright/tract).
     /// Verify Millwright's wgpu GPU compute path: a 2×2 GEMM (A · I = A) checked
     /// against the known result. Reports GPU absence (falls back to CPU) or any
     /// device error rather than panicking.
-    #[cfg(feature = "millwright-gpu")]
     fn gpu_compute_self_test(&mut self) {
         use millwright::gpu;
         if !gpu::is_available() {
@@ -1148,13 +1144,10 @@ impl crate::ForgeApp {
         else {
             return;
         };
-        // Default build loads on CPU; the opt-in `millwright-gpu` build honors
-        // the app-wide compute device (Settings → Compute): `Auto` prefers a GPU
-        // provider and silently falls back to CPU, `Gpu` requires one, `Cpu`
-        // stays on the CPU.
-        #[cfg(not(feature = "millwright-gpu"))]
-        let loaded = millwright::onnx::InferenceModel::load(&path);
-        #[cfg(feature = "millwright-gpu")]
+        // GPU inference is compiled in: honor the app-wide compute device
+        // (Settings → Compute). `Auto` prefers a GPU execution provider and
+        // silently falls back to the CPU, `Gpu` requires one, `Cpu` stays on the
+        // CPU. onnxruntime is statically linked, so no runtime library ships.
         let (loaded, device_label) = {
             use millwright::onnx::{Device, InferenceModel};
             let (device, label) = match self.compute_device {
@@ -1164,8 +1157,6 @@ impl crate::ForgeApp {
             };
             (InferenceModel::load_on(&path, device), label)
         };
-        #[cfg(not(feature = "millwright-gpu"))]
-        let device_label = "";
         match loaded {
             Ok(model) => {
                 self.onnx_model = Some(model);

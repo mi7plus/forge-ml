@@ -306,22 +306,24 @@ println!(r#"forge_plot:{"name":"roc","kind":"line","series":[...]}"#); // struct
       <h3 id="compute">Compute device (GPU or CPU)</h3>
       <p>One app-wide choice — <strong>Automatic</strong>, <strong>GPU</strong>, or <strong>CPU</strong> —
       set in <strong>Settings → Compute</strong> or the status-bar chip (bottom right) and applied everywhere
-      Forge can accelerate. It selects the embedded Burn training backend (CPU/Flex ↔ WebGPU); changing it
-      updates the Deep pane's backend, which stays overridable there for a single run. The choice is
-      remembered across sessions.</p>
+      Forge can accelerate. <strong>GPU support is compiled into every installer</strong> (not an opt-in
+      build): the choice drives both the embedded Burn training backend (CPU/Flex ↔ WebGPU) and Millwright
+      ONNX inference. Changing it updates the Deep pane's backend, which stays overridable there for a single
+      run. The choice is remembered across sessions.</p>
       <dl class="spec">
         <dt>Automatic</dt>
-        <dd>Prefer the GPU where a compatible adapter is present and fall back to the CPU on its own.</dd>
+        <dd><strong>The default.</strong> Prefer the GPU where a compatible adapter is present and fall back to the CPU on its own.</dd>
         <dt>GPU</dt>
-        <dd>Use WebGPU for embedded training; a machine without a usable adapter reports a clean device error you can recover from by switching to CPU.</dd>
+        <dd>Use the GPU for training and inference; a machine without a usable device reports a clean error you can recover from by switching to CPU.</dd>
         <dt>CPU</dt>
-        <dd>Always use the portable Flex CPU backend. <strong>The default</strong>, so the offline installer runs on the CPU until you opt in.</dd>
+        <dd>Always use the portable Flex CPU backend and the onnxruntime CPU provider.</dd>
       </dl>
-      <div class="note"><strong>What the installer accelerates:</strong> the shipped builds run embedded Burn
-      training on the GPU via this switch. GPU-accelerated <strong>Millwright ONNX inference</strong> ships
-      only in the opt-in source build (<code>cargo build --features millwright-gpu</code>), where the same
-      device also drives ONNX loading — <em>Automatic</em> uses a GPU execution provider with silent CPU
-      fallback. Classical smartcore/linfa pipelines always run on the CPU.</div>
+      <div class="note"><strong>ONNX GPU inference</strong> uses onnxruntime, statically linked so no extra
+      runtime ships. Its GPU execution provider is <strong>DirectML</strong> on Windows and
+      <strong>CoreML</strong> on macOS — both self-contained. On <strong>Linux</strong> it uses CUDA and
+      therefore needs a matching NVIDIA <strong>CUDA/cuDNN</strong> runtime installed; without one,
+      onnxruntime falls back to the CPU (the app still runs). Embedded Burn WebGPU training uses the OS
+      graphics drivers on every platform. Classical smartcore/linfa pipelines always run on the CPU.</div>
     </section>
 
     <section id="deploy">

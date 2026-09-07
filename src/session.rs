@@ -40,7 +40,9 @@ fn default_drift_scale_ratio_upper() -> f64 {
 }
 
 fn default_training_backend() -> crate::deep_learning::Backend {
-    crate::deep_learning::Backend::Cpu
+    // Follow the default compute device so a fresh session is internally
+    // consistent (Automatic ⇒ the WebGPU training backend).
+    crate::deep_learning::ComputeDevice::default().burn_backend()
 }
 
 fn default_training_epochs() -> usize {
@@ -141,7 +143,7 @@ pub struct SessionState {
     #[serde(default = "default_training_backend")]
     pub native_training_backend: crate::deep_learning::Backend,
     /// App-wide preferred compute device (Settings → Compute). Selects the Burn
-    /// training backend and, in `millwright-gpu` builds, the ONNX device.
+    /// training backend and the Millwright ONNX inference device.
     #[serde(default)]
     pub compute_device: crate::deep_learning::ComputeDevice,
     #[serde(default = "default_training_epochs")]
