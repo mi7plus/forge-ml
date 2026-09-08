@@ -36,6 +36,7 @@ pub fn run() -> ExitCode {
         "gpu" => cmd_gpu(rest),
         "native" => cmd_native(rest),
         "python" => cmd_python(rest),
+        "manage" => cmd_manage(rest),
         "reproduce" => cmd_reproduce(rest),
         "ide" => cmd_ide(rest),
         "version" | "--version" | "-V" => {
@@ -192,6 +193,19 @@ fn cmd_reproduce(args: &[String]) -> Result<(), String> {
     std::process::exit(status.code().unwrap_or(1));
 }
 
+/// `forge manage [dir]` — open the Forge Manager GUI on a project (the
+/// Navigator-style environment/package manager). Launches detached.
+fn cmd_manage(args: &[String]) -> Result<(), String> {
+    let mut command = Command::new(sibling_binary("forge_manager"));
+    if let Some(dir) = args.first() {
+        command.arg(dir);
+    }
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("launching forge_manager: {error}"))
+}
+
 /// `forge ide [dir]` — open the Forge ML desktop app on a project.
 fn cmd_ide(args: &[String]) -> Result<(), String> {
     // Launch detached so the terminal returns; the GUI owns its lifetime.
@@ -317,24 +331,29 @@ fn cargo() -> Command {
     Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
 }
 
-/// Locate the `forge_ide` binary: next to this executable first (installed
-/// layout), then on `PATH`.
+/// Locate the `forge_ide` binary. See [`sibling_binary`].
 fn forge_ide_path() -> Result<PathBuf, String> {
+    Ok(sibling_binary("forge_ide"))
+}
+
+/// Locate a Forge binary by stem: next to this executable first (installed
+/// layout, where all Forge binaries live together), then on `PATH` (dev: `cargo`
+/// puts them in target/<profile>/). `.exe` is appended on Windows.
+fn sibling_binary(stem: &str) -> PathBuf {
     let exe_name = if cfg!(windows) {
-        "forge_ide.exe"
+        format!("{stem}.exe")
     } else {
-        "forge_ide"
+        stem.to_owned()
     };
     if let Ok(here) = std::env::current_exe() {
         if let Some(dir) = here.parent() {
-            let sibling = dir.join(exe_name);
+            let sibling = dir.join(&exe_name);
             if sibling.is_file() {
-                return Ok(sibling);
+                return sibling;
             }
         }
     }
-    // Fall back to PATH (dev: `cargo run` puts both in target/<profile>/).
-    Ok(PathBuf::from(exe_name))
+    PathBuf::from(exe_name)
 }
 
 fn status(command: &mut Command) -> Result<(), String> {
@@ -367,6 +386,7 @@ fn print_help() {
          \x20 forge native check|provide|pin  check / download+provide / pin native prerequisites\n\
          \x20 forge python check [dir]        report the referenced Python bridge environment\n\
          \x20 forge reproduce <id> [dir]       verify the environment against a recorded run\n\
+         \x20 forge manage [dir]               open the Forge Manager (environment/package GUI)\n\
          \x20 forge ide [dir]                  open the Forge ML desktop app\n\
          \x20 forge version                    print the version",
         env!("CARGO_PKG_VERSION"),

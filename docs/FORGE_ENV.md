@@ -168,7 +168,15 @@ forge_ide --native-check    [dir]   # check [native] prerequisites (system + bri
 forge_ide --native-provide  [dir]   # download+verify+extract pinned prebuilts; write .forge/native-env
 forge_ide --native-pin <url> --archive <zip|tar-gz> [--name n]   # print a verified catalog entry
 forge_ide --python-check    [dir]   # report the referenced Python bridge env (never manages it)
+forge_ide --env-status-json [dir]   # machine-readable status snapshot (consumed by the Manager GUI)
 ```
+
+**Forge Manager** (`crates/forge-manager`, launched by `forge manage [dir]`) is a
+standalone, Navigator-style GUI over this system. It shells out to `forge_ide
+--env-status-json` and renders the snapshot — providers, diagnostics, GPU, the
+native catalog (with one-click Install), and the Python bridge — issuing the same
+commands the CLI exposes. It never links the environment internals; the JSON is
+the contract.
 
 These are also the `forge env doctor` / `forge env sync` / `forge reproduce`
 subcommands of the thin CLI, which shell out to the app binary.

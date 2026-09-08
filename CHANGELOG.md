@@ -11,7 +11,18 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
-## [1.12.0] — 2026-09-08
+### Added
+- **Forge Manager — a standalone environment/package GUI (Navigator-style).** A
+  new `forge_manager` desktop app gives a visual surface over the whole
+  environment system: providers, host diagnostics, GPU backends, the native
+  prerequisite catalog (with one-click **Install** for providable tools), and the
+  Python bridge — plus the manifest's profile and any gaps. It is a thin, decoupled
+  front-end: `forge_ide --env-status-json` emits a machine-readable snapshot, and
+  the Manager renders it and issues the same commands the CLI already exposes
+  (e.g. `--native-provide`), exactly as Anaconda Navigator sits over conda — so it
+  never links the environment internals. Launch it with **`forge manage [dir]`**.
+  (Works in development builds now; bundling `forge_manager` into the signed
+  installers is a follow-up packaging step.)
 
 ### Added
 - **Python provider + `forge python check` (Forge Distribution, Phase 6).** The

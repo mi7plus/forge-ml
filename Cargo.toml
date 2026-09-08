@@ -52,6 +52,7 @@ members = [
     "crates/forge-storage",
     "crates/forge-cli",
     "crates/forge-ml",
+    "crates/forge-manager",
 ]
 resolver = "2"
 

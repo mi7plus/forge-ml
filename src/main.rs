@@ -210,6 +210,13 @@ fn main() -> eframe::Result<()> {
         }
         return Ok(());
     }
+    // `--env-status-json [dir]` emits a machine-readable snapshot for the Forge
+    // Manager GUI.
+    if let Some(pos) = cli.iter().position(|a| a == "--env-status-json") {
+        let root = env_cli_dir(&cli, pos);
+        println!("{}", environment::status_json(&root));
+        return Ok(());
+    }
     // `--gpu-detect` reports the GPU backends detected on this machine.
     if cli.iter().any(|a| a == "--gpu-detect") {
         print!("{}", environment::gpu_report());

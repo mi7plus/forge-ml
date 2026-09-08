@@ -18,6 +18,7 @@ mod native;
 mod provider;
 mod provision;
 mod python;
+mod status;
 mod system;
 
 pub use bundled::BundledRuntimeProvider;
@@ -29,6 +30,7 @@ pub use native::{
 };
 pub use provider::{Activation, EnvironmentProvider, Probe};
 pub use python::{report as python_report, PythonProvider};
+pub use status::status_json;
 pub use system::SystemToolchainProvider;
 
 use std::path::{Path, PathBuf};
