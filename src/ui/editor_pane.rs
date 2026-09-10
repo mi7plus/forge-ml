@@ -131,33 +131,45 @@ impl crate::ForgeApp {
                         |ui| self.editor_body(ui),
                     );
 
-                    // Linked scroll for Markdown: drive the preview to the same
-                    // fraction through the document as the editor (editor-led).
+                    // Linked scroll for Markdown: when the *editor* is scrolled,
+                    // drive the preview to the same fraction through the document.
+                    // Only while the editor moves — otherwise the preview scrolls
+                    // freely on its own.
                     let content_key = egui::Id::new("split_preview_content_h");
-                    let linked_offset = (kind == crate::ui::preview::PreviewKind::Markdown)
-                        .then(|| {
-                            let row_h = ui
-                                .ctx()
-                                .fonts_mut(|f| {
-                                    f.row_height(&egui::FontId::monospace(self.editor_font_size))
-                                })
-                                .max(10.0);
-                            let scroll_id = ui.make_persistent_id(egui::IdSalt::new(format!(
-                                "editor_{}_outer_scroll",
-                                self.active_tab
-                            )));
-                            let editor_offset = egui::scroll_area::State::load(ui.ctx(), scroll_id)
-                                .map(|state| state.offset.y)
-                                .unwrap_or(0.0);
+                    let last_editor_key = egui::Id::new("split_editor_last_offset");
+                    let mut linked_offset = None;
+                    if kind == crate::ui::preview::PreviewKind::Markdown {
+                        let row_h = ui
+                            .ctx()
+                            .fonts_mut(|f| {
+                                f.row_height(&egui::FontId::monospace(self.editor_font_size))
+                            })
+                            .max(10.0);
+                        let scroll_id = ui.make_persistent_id(egui::IdSalt::new(format!(
+                            "editor_{}_outer_scroll",
+                            self.active_tab
+                        )));
+                        let editor_offset = egui::scroll_area::State::load(ui.ctx(), scroll_id)
+                            .map(|state| state.offset.y)
+                            .unwrap_or(0.0);
+                        let last = ui
+                            .ctx()
+                            .data(|d| d.get_temp::<f32>(last_editor_key))
+                            .unwrap_or(editor_offset);
+                        ui.ctx()
+                            .data_mut(|d| d.insert_temp(last_editor_key, editor_offset));
+                        if (editor_offset - last).abs() > 0.5 {
                             let lines = source.lines().count().max(1) as f32;
-                            let fraction = (editor_offset / (lines * row_h - full.height()).max(1.0))
-                                .clamp(0.0, 1.0);
+                            let fraction = (editor_offset
+                                / (lines * row_h - full.height()).max(1.0))
+                            .clamp(0.0, 1.0);
                             let preview_h = ui
                                 .ctx()
                                 .data(|d| d.get_temp::<f32>(content_key))
                                 .unwrap_or(0.0);
-                            fraction * (preview_h - full.height()).max(0.0)
-                        });
+                            linked_offset = Some(fraction * (preview_h - full.height()).max(0.0));
+                        }
+                    }
 
                     ui.scope_builder(
                         egui::UiBuilder::new()
