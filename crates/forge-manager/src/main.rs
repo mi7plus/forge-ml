@@ -1,30 +1,36 @@
 //! Forge Manager — a standalone, Navigator-style desktop app to inspect and
-//! manage a Forge ML project's environment.
+//! manage a Forge ML project's environment: a left sidebar (Home / Environment /
+//! Packages / Diagnostics), app tiles to launch or get Forge ML, and a verified
+//! native-tool install list.
 //!
 //! It is a thin front-end: `forge_ide --env-status-json` emits a snapshot, the
 //! Manager renders it, and the buttons run the same commands the CLI exposes
 //! (`--native-provide`, launching the IDE, opening the releases page). The JSON
-//! is the whole contract, so the Manager never links the environment internals —
+//! is the whole contract — the Manager never links the environment internals,
 //! exactly how Anaconda Navigator sits over conda.
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 use eframe::egui;
-use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke};
+use egui::{
+    pos2, vec2, Align, Color32, CornerRadius, Frame, Layout, Margin, Rect, RichText, Stroke,
+    UiBuilder,
+};
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::process::Command;
 
 const RELEASES_URL: &str = "https://github.com/mi7plus/forge-ml/releases/latest";
 
-// ── Palette (dark, high contrast) ─────────────────────────────────────────────
-const BG: Color32 = Color32::from_rgb(0x15, 0x17, 0x1C); // window
-const HEADER: Color32 = Color32::from_rgb(0x1B, 0x1E, 0x25);
+// ── Palette (dark, high contrast; neutrals biased toward the blue accent) ─────
+const BG: Color32 = Color32::from_rgb(0x15, 0x17, 0x1C);
+const SIDEBAR: Color32 = Color32::from_rgb(0x19, 0x1C, 0x22);
 const CARD: Color32 = Color32::from_rgb(0x21, 0x25, 0x2E);
 const CARD_HI: Color32 = Color32::from_rgb(0x2A, 0x2F, 0x3A);
-const BORDER: Color32 = Color32::from_rgb(0x33, 0x38, 0x44);
+const BORDER: Color32 = Color32::from_rgb(0x31, 0x37, 0x42);
 const TEXT: Color32 = Color32::from_rgb(0xE7, 0xEA, 0xEF);
 const MUTED: Color32 = Color32::from_rgb(0x98, 0xA0, 0xAD);
+const FAINT: Color32 = Color32::from_rgb(0x6B, 0x72, 0x80);
 const ACCENT: Color32 = Color32::from_rgb(0x4F, 0x9D, 0xF0);
 const OK: Color32 = Color32::from_rgb(0x5F, 0xB3, 0x7A);
 const WARN: Color32 = Color32::from_rgb(0xE0, 0xA4, 0x4B);
@@ -99,7 +105,11 @@ struct PythonStatus {
 // ── Running forge_ide / external commands ─────────────────────────────────────
 
 fn forge_ide_path() -> PathBuf {
-    let exe = if cfg!(windows) { "forge_ide.exe" } else { "forge_ide" };
+    let exe = if cfg!(windows) {
+        "forge_ide.exe"
+    } else {
+        "forge_ide"
+    };
     if let Ok(here) = std::env::current_exe() {
         if let Some(sibling) = here.parent().map(|dir| dir.join(exe)) {
             if sibling.is_file() {
@@ -156,6 +166,16 @@ enum Page {
     Packages,
     Diagnostics,
 }
+impl Page {
+    fn label(self) -> &'static str {
+        match self {
+            Page::Home => "Home",
+            Page::Environment => "Environment",
+            Page::Packages => "Packages",
+            Page::Diagnostics => "Diagnostics",
+        }
+    }
+}
 
 enum Action {
     None,
@@ -180,7 +200,11 @@ impl ManagerApp {
         let project = std::env::args()
             .nth(1)
             .filter(|arg| !arg.starts_with('-'))
-            .or_else(|| std::env::current_dir().ok().map(|p| p.display().to_string()))
+            .or_else(|| {
+                std::env::current_dir()
+                    .ok()
+                    .map(|p| p.display().to_string())
+            })
             .unwrap_or_else(|| ".".to_owned());
         let status = fetch_status(&project);
         ManagerApp {
@@ -214,124 +238,189 @@ fn theme() -> egui::Visuals {
     v.override_text_color = Some(TEXT);
     v.panel_fill = BG;
     v.window_fill = CARD;
-    v.faint_bg_color = HEADER;
+    v.faint_bg_color = SIDEBAR;
     v.extreme_bg_color = Color32::from_rgb(0x0F, 0x11, 0x15);
     v.hyperlink_color = ACCENT;
+    v.selection.bg_fill = Color32::from_rgb(0x27, 0x3B, 0x55);
+    v.selection.stroke = Stroke::new(1.0, ACCENT);
+    for w in [
+        &mut v.widgets.inactive,
+        &mut v.widgets.hovered,
+        &mut v.widgets.active,
+        &mut v.widgets.noninteractive,
+    ] {
+        w.fg_stroke = Stroke::new(1.0, TEXT);
+        w.corner_radius = CornerRadius::same(7);
+    }
     v.widgets.noninteractive.bg_fill = BG;
-    v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, TEXT);
     v.widgets.inactive.weak_bg_fill = CARD_HI;
     v.widgets.inactive.bg_fill = CARD_HI;
-    v.widgets.inactive.fg_stroke = Stroke::new(1.0, TEXT);
     v.widgets.hovered.weak_bg_fill = BORDER;
     v.widgets.hovered.bg_fill = BORDER;
-    v.widgets.hovered.fg_stroke = Stroke::new(1.0, TEXT);
     v.widgets.active.weak_bg_fill = ACCENT;
     v.widgets.active.bg_fill = ACCENT;
-    v.selection.bg_fill = Color32::from_rgb(0x2A, 0x4A, 0x70);
     v
 }
 
 impl eframe::App for ManagerApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let full = ui.max_rect();
+        let sidebar_w = 206.0;
+        let sidebar_rect = Rect::from_min_max(full.min, pos2(full.min.x + sidebar_w, full.max.y));
+        let main_rect = Rect::from_min_max(pos2(full.min.x + sidebar_w, full.min.y), full.max);
+
+        // Grounds + divider.
+        ui.painter().rect_filled(full, CornerRadius::same(0), BG);
         ui.painter()
-            .rect_filled(ui.max_rect(), CornerRadius::same(0), BG);
+            .rect_filled(sidebar_rect, CornerRadius::same(0), SIDEBAR);
+        ui.painter().vline(
+            full.min.x + sidebar_w,
+            full.y_range(),
+            Stroke::new(1.0, BORDER),
+        );
 
         let mut action = Action::None;
 
-        // Header.
-        Frame::NONE
-            .fill(HEADER)
-            .inner_margin(Margin::symmetric(16, 10))
-            .show(ui, |ui| {
+        // ── Sidebar ──────────────────────────────────────────────────────────
+        ui.scope_builder(
+            UiBuilder::new()
+                .max_rect(sidebar_rect.shrink2(vec2(12.0, 16.0)))
+                .layout(Layout::top_down(Align::Min)),
+            |ui| {
+                ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Forge Manager").size(19.0).strong().color(TEXT));
-                    if let Ok(status) = &self.status {
-                        ui.label(
-                            RichText::new(format!(
-                                "Forge ML {} · {}",
-                                status.forge_version, status.target
-                            ))
-                            .color(MUTED),
-                        );
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Refresh").clicked() {
-                            action = Action::Refresh;
-                        }
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.project)
-                                .desired_width(360.0)
-                                .hint_text("project folder"),
-                        );
-                        ui.label(RichText::new("Project").color(MUTED));
+                    ui.label(RichText::new("FORGE").size(15.0).strong().color(TEXT));
+                    ui.label(RichText::new("ML").size(15.0).strong().color(ACCENT));
+                });
+                ui.add_space(14.0);
+                for page in [
+                    Page::Home,
+                    Page::Environment,
+                    Page::Packages,
+                    Page::Diagnostics,
+                ] {
+                    let selected = self.page == page;
+                    let text = RichText::new(page.label()).size(14.0).color(if selected {
+                        TEXT
+                    } else {
+                        MUTED
                     });
-                });
-            });
-
-        // Tabs.
-        Frame::NONE
-            .fill(BG)
-            .inner_margin(Margin::symmetric(12, 6))
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    for (page, label) in [
-                        (Page::Home, "Home"),
-                        (Page::Environment, "Environment"),
-                        (Page::Packages, "Packages"),
-                        (Page::Diagnostics, "Diagnostics"),
-                    ] {
-                        let selected = self.page == page;
-                        let text = RichText::new(label)
-                            .size(14.0)
-                            .color(if selected { ACCENT } else { MUTED });
-                        if ui.selectable_label(selected, text).clicked() {
-                            self.page = page;
-                        }
+                    let fill = if selected {
+                        Color32::from_rgb(0x22, 0x2E, 0x40)
+                    } else {
+                        SIDEBAR
+                    };
+                    let button = egui::Button::new(text)
+                        .fill(fill)
+                        .stroke(Stroke::new(0.0, SIDEBAR))
+                        .min_size(vec2(ui.available_width(), 34.0));
+                    if ui.add(button).clicked() {
+                        self.page = page;
                     }
-                });
-            });
-        ui.separator();
+                    ui.add_space(2.0);
+                }
+                // Footer pinned to the bottom.
+                let foot = if let Ok(s) = &self.status {
+                    format!("Forge ML {} · {}", s.forge_version, s.target)
+                } else {
+                    "Forge ML".to_owned()
+                };
+                ui.add_space((ui.available_height() - 20.0).max(8.0));
+                ui.label(RichText::new(foot).size(11.0).monospace().color(FAINT));
+            },
+        );
 
-        // Content.
-        Frame::NONE
-            .inner_margin(Margin::same(16))
-            .show(ui, |ui| {
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        let requested = match &self.status {
-                            Err(error) => {
+        // ── Main: topbar + content ───────────────────────────────────────────
+        let topbar_h = 54.0;
+        let topbar_rect = Rect::from_min_max(
+            main_rect.min,
+            pos2(main_rect.max.x, main_rect.min.y + topbar_h),
+        );
+        let content_rect = Rect::from_min_max(
+            pos2(main_rect.min.x, main_rect.min.y + topbar_h),
+            main_rect.max,
+        );
+        ui.painter().hline(
+            main_rect.x_range(),
+            main_rect.min.y + topbar_h,
+            Stroke::new(1.0, BORDER),
+        );
+
+        // Topbar: project field + Refresh (owns the &mut project borrow).
+        ui.scope_builder(
+            UiBuilder::new()
+                .max_rect(topbar_rect.shrink2(vec2(16.0, 11.0)))
+                .layout(Layout::left_to_right(Align::Center)),
+            |ui| {
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if ui.button("Refresh").clicked() {
+                        action = Action::Refresh;
+                    }
+                    ui.add_space(8.0);
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.project)
+                            .desired_width(ui.available_width())
+                            .hint_text("project folder"),
+                    );
+                });
+            },
+        );
+
+        // Content (borrows status/log/project as shared; topbar borrow has ended).
+        ui.scope_builder(
+            UiBuilder::new()
+                .max_rect(content_rect)
+                .layout(Layout::top_down(Align::Min)),
+            |ui| {
+                Frame::NONE.inner_margin(Margin::same(16)).show(ui, |ui| {
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            let requested = match &self.status {
+                                Err(error) => {
+                                    card(ui, |ui| {
+                                        ui.colored_label(BAD, "Could not read the environment.");
+                                        ui.label(
+                                            RichText::new(error)
+                                                .color(MUTED)
+                                                .monospace()
+                                                .size(11.0),
+                                        );
+                                        ui.label(
+                                            RichText::new(
+                                                "Is forge_ide beside this app, or on PATH?",
+                                            )
+                                            .color(MUTED),
+                                        );
+                                    });
+                                    Action::None
+                                }
+                                Ok(status) => match self.page {
+                                    Page::Home => home(ui, status, &self.project),
+                                    Page::Environment => environment(ui, status),
+                                    Page::Packages => packages(ui, status, self.busy),
+                                    Page::Diagnostics => diagnostics(ui, status),
+                                },
+                            };
+                            if matches!(action, Action::None) {
+                                action = requested;
+                            }
+                            if !self.log.is_empty() {
                                 card(ui, |ui| {
-                                    ui.colored_label(BAD, "Could not read the environment.");
-                                    ui.label(RichText::new(error).color(MUTED).monospace().size(11.0));
+                                    ui.label(RichText::new("Last action").strong().color(TEXT));
+                                    ui.add_space(4.0);
                                     ui.label(
-                                        RichText::new(
-                                            "Is forge_ide next to this app, or on PATH?",
-                                        )
-                                        .color(MUTED),
+                                        RichText::new(&self.log)
+                                            .monospace()
+                                            .size(11.0)
+                                            .color(MUTED),
                                     );
                                 });
-                                Action::None
                             }
-                            Ok(status) => match self.page {
-                                Page::Home => home(ui, status, &self.project),
-                                Page::Environment => environment(ui, status),
-                                Page::Packages => packages(ui, status, self.busy),
-                                Page::Diagnostics => diagnostics(ui, status),
-                            },
-                        };
-                        if let Action::None = action {
-                            action = requested;
-                        }
-                        if !self.log.is_empty() {
-                            card(ui, |ui| {
-                                ui.label(RichText::new("Last action").strong().color(TEXT));
-                                ui.add_space(4.0);
-                                ui.label(RichText::new(&self.log).monospace().size(11.0).color(MUTED));
-                            });
-                        }
-                    });
-            });
+                        });
+                });
+            },
+        );
 
         match action {
             Action::Refresh => self.refresh(),
@@ -349,22 +438,28 @@ impl eframe::App for ManagerApp {
 fn home(ui: &mut egui::Ui, status: &EnvStatus, project: &str) -> Action {
     let mut action = Action::None;
 
-    card(ui, |ui| {
+    section_title(ui, "Applications");
+    tile(ui, |ui| {
         ui.horizontal(|ui| {
             ui.label(RichText::new("Forge ML").size(18.0).strong().color(TEXT));
-            ui.label(RichText::new(format!("v{}", status.forge_version)).color(MUTED));
+            ui.label(
+                RichText::new(format!("v{} · installed", status.forge_version))
+                    .monospace()
+                    .size(12.0)
+                    .color(MUTED),
+            );
         });
-        ui.add_space(2.0);
+        ui.add_space(6.0);
         ui.label(
             RichText::new(
-                "The batteries-included Rust ML studio. Open a project in the IDE, or get \
-                 the latest signed installer.",
+                "The batteries-included Rust ML studio — notebooks, in-process training, ONNX, \
+                 and GPU acceleration by default.",
             )
             .color(MUTED),
         );
-        ui.add_space(10.0);
+        ui.add_space(12.0);
         ui.horizontal(|ui| {
-            if primary_button(ui, "Launch IDE").clicked() {
+            if primary(ui, "Launch IDE").clicked() {
                 action = Action::LaunchIde;
             }
             if ui.button("Get the latest release  ↗").clicked() {
@@ -375,21 +470,22 @@ fn home(ui: &mut egui::Ui, status: &EnvStatus, project: &str) -> Action {
 
     card(ui, |ui| {
         ui.label(RichText::new("This project").strong().color(TEXT));
-        ui.add_space(4.0);
+        ui.add_space(8.0);
         kv(ui, "Folder", if project.is_empty() { "." } else { project });
         kv(
             ui,
             "Manifest",
-            if status.manifest_present { "forge.toml" } else { "none (defaults)" },
+            if status.manifest_present {
+                "forge.toml"
+            } else {
+                "none (defaults)"
+            },
         );
         if let Some(profile) = &status.profile {
             kv(ui, "Profile", profile);
         }
-        if !status.gaps.is_empty() {
-            ui.add_space(6.0);
-            for gap in &status.gaps {
-                ui.colored_label(BAD, format!("• {gap}"));
-            }
+        for gap in &status.gaps {
+            ui.colored_label(BAD, format!("• {gap}"));
         }
     });
 
@@ -398,27 +494,30 @@ fn home(ui: &mut egui::Ui, status: &EnvStatus, project: &str) -> Action {
 
 fn environment(ui: &mut egui::Ui, status: &EnvStatus) -> Action {
     card(ui, |ui| {
-        ui.label(RichText::new("Providers").strong().color(TEXT));
-        ui.add_space(6.0);
+        card_title(ui, "Providers");
         for provider in &status.providers {
-            status_row(ui, color_of(&provider.status), &provider.id, &provider.status);
+            status_row(
+                ui,
+                color_of(&provider.status),
+                &provider.id,
+                &provider.status,
+            );
         }
     });
-
     card(ui, |ui| {
-        ui.label(RichText::new("GPU").strong().color(TEXT));
-        ui.add_space(6.0);
+        card_title(ui, "GPU");
         if status.gpu.is_empty() {
-            ui.colored_label(MUTED, "No GPU backend detected — training/inference use the CPU.");
+            ui.colored_label(
+                MUTED,
+                "No GPU backend detected — training/inference use the CPU.",
+            );
         }
         for backend in &status.gpu {
             status_row(ui, OK, &backend.name, &backend.detail);
         }
     });
-
     card(ui, |ui| {
-        ui.label(RichText::new("Python bridge").strong().color(TEXT));
-        ui.add_space(6.0);
+        card_title(ui, "Python bridge");
         let py = &status.python;
         if !py.present {
             ui.colored_label(MUTED, "No [python] section — Forge's core is Rust.");
@@ -443,7 +542,6 @@ fn environment(ui: &mut egui::Ui, status: &EnvStatus) -> Action {
             }
         }
     });
-
     Action::None
 }
 
@@ -452,22 +550,22 @@ fn packages(ui: &mut egui::Ui, status: &EnvStatus, busy: bool) -> Action {
 
     card(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Native tools").strong().color(TEXT));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if busy {
+            card_title(ui, "Native tools — pinned & SHA-256 verified");
+            if busy {
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.label(RichText::new("installing…").color(WARN));
-                }
-            });
+                });
+            }
         });
         ui.label(
             RichText::new(
-                "Pinned, SHA-256-verified prebuilts. Install one and it's put on PATH for \
-                 forge run / build / test.",
+                "Install one and it's placed on PATH for forge run / build / test. Nothing is \
+                 trusted unverified.",
             )
             .color(MUTED)
             .size(12.0),
         );
-        ui.add_space(8.0);
+        ui.add_space(10.0);
 
         if status.native.catalog.is_empty() {
             ui.colored_label(MUTED, "The catalog is empty.");
@@ -480,32 +578,35 @@ fn packages(ui: &mut egui::Ui, status: &EnvStatus, busy: bool) -> Action {
                 .any(|p| p.satisfied && p.name.starts_with(&tool.name));
             Frame::NONE
                 .fill(CARD_HI)
-                .inner_margin(Margin::symmetric(12, 8))
-                .corner_radius(CornerRadius::same(6))
+                .inner_margin(Margin::symmetric(12, 9))
+                .corner_radius(CornerRadius::same(7))
+                .stroke(Stroke::new(1.0, BORDER))
                 .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new(&tool.name).strong().color(TEXT));
-                        ui.label(RichText::new(format!("v{}", tool.detail)).color(MUTED));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(RichText::new(&tool.name).strong().size(14.0).color(TEXT));
+                        ui.label(
+                            RichText::new(format!("v{}", tool.detail))
+                                .monospace()
+                                .size(11.5)
+                                .color(MUTED),
+                        );
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             if installed {
                                 ui.colored_label(OK, "on system ✓");
-                            } else if ui
-                                .add_enabled(!busy, primary_widget("Install"))
-                                .clicked()
-                            {
+                            } else if ui.add_enabled(!busy, primary_widget("Install")).clicked() {
                                 action = Action::Install(tool.name.clone());
                             }
                         });
                     });
                 });
-            ui.add_space(6.0);
+            ui.add_space(8.0);
         }
     });
 
     if !status.native.prereqs.is_empty() {
         card(ui, |ui| {
-            ui.label(RichText::new("Declared prerequisites ([native])").strong().color(TEXT));
-            ui.add_space(6.0);
+            card_title(ui, "Declared prerequisites — [native]");
             for prereq in &status.native.prereqs {
                 let color = if prereq.satisfied {
                     OK
@@ -516,8 +617,11 @@ fn packages(ui: &mut egui::Ui, status: &EnvStatus, busy: bool) -> Action {
                 };
                 status_row(ui, color, &prereq.name, &prereq.detail);
             }
-            ui.add_space(6.0);
-            if ui.add_enabled(!busy, primary_widget("Provide all needed")).clicked() {
+            ui.add_space(10.0);
+            if ui
+                .add_enabled(!busy, primary_widget("Provide all needed"))
+                .clicked()
+            {
                 action = Action::InstallAll;
             }
         });
@@ -528,8 +632,7 @@ fn packages(ui: &mut egui::Ui, status: &EnvStatus, busy: bool) -> Action {
 
 fn diagnostics(ui: &mut egui::Ui, status: &EnvStatus) -> Action {
     card(ui, |ui| {
-        ui.label(RichText::new("Host tooling").strong().color(TEXT));
-        ui.add_space(6.0);
+        card_title(ui, "Host tooling");
         for check in &status.diagnostics {
             status_row(ui, color_of(&check.status), &check.name, &check.detail);
         }
@@ -542,29 +645,55 @@ fn diagnostics(ui: &mut egui::Ui, status: &EnvStatus) -> Action {
 fn card(ui: &mut egui::Ui, contents: impl FnOnce(&mut egui::Ui)) {
     Frame::NONE
         .fill(CARD)
-        .inner_margin(Margin::same(14))
+        .inner_margin(Margin::same(15))
         .corner_radius(CornerRadius::same(10))
         .stroke(Stroke::new(1.0, BORDER))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             contents(ui);
         });
-    ui.add_space(12.0);
+    ui.add_space(14.0);
+}
+
+fn tile(ui: &mut egui::Ui, contents: impl FnOnce(&mut egui::Ui)) {
+    card(ui, contents);
+}
+
+fn card_title(ui: &mut egui::Ui, title: &str) {
+    ui.label(
+        RichText::new(title.to_uppercase())
+            .size(11.5)
+            .strong()
+            .color(MUTED),
+    );
+    ui.add_space(8.0);
+}
+
+fn section_title(ui: &mut egui::Ui, title: &str) {
+    ui.label(
+        RichText::new(title.to_uppercase())
+            .size(11.5)
+            .strong()
+            .color(MUTED),
+    );
+    ui.add_space(8.0);
 }
 
 fn status_row(ui: &mut egui::Ui, color: Color32, label: &str, detail: &str) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new("●").color(color));
+        ui.label(RichText::new("●").size(11.0).color(color));
         ui.label(RichText::new(label).strong().color(TEXT));
         ui.label(RichText::new(detail).color(MUTED));
     });
+    ui.add_space(2.0);
 }
 
 fn kv(ui: &mut egui::Ui, key: &str, value: &str) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new(format!("{key}:")).color(MUTED));
-        ui.label(RichText::new(value).color(TEXT));
+        ui.label(RichText::new(key).color(MUTED));
+        ui.label(RichText::new(value).monospace().size(12.5).color(TEXT));
     });
+    ui.add_space(2.0);
 }
 
 fn color_of(status: &str) -> Color32 {
@@ -580,7 +709,7 @@ fn primary_widget(label: &'static str) -> egui::Button<'static> {
     egui::Button::new(RichText::new(label).color(Color32::WHITE).strong()).fill(ACCENT)
 }
 
-fn primary_button(ui: &mut egui::Ui, label: &'static str) -> egui::Response {
+fn primary(ui: &mut egui::Ui, label: &'static str) -> egui::Response {
     ui.add(primary_widget(label))
 }
 
@@ -588,8 +717,8 @@ fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Forge Manager")
-            .with_inner_size([880.0, 760.0])
-            .with_min_inner_size([620.0, 520.0]),
+            .with_inner_size([900.0, 760.0])
+            .with_min_inner_size([680.0, 520.0]),
         ..Default::default()
     };
     eframe::run_native(
