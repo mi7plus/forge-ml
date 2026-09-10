@@ -81,6 +81,35 @@ impl crate::ForgeApp {
         self.editor_breadcrumb(ui);
         self.external_change_banner(ui);
         self.apply_pending_editor_history(ui);
+
+        // Markdown / HTML files get an Edit ⇄ Preview toggle; in preview mode the
+        // rendered view replaces the editor for this pane.
+        let preview_kind = self
+            .active()
+            .path
+            .as_ref()
+            .and_then(|path| crate::ui::preview::kind_for(path));
+        match preview_kind {
+            Some(kind) => {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut self.preview, false, "Edit");
+                    ui.selectable_value(&mut self.preview, true, "Preview");
+                });
+                if self.preview {
+                    ui.add_space(4.0);
+                    let source = self.active().content.clone();
+                    let path = self.active().path.clone();
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            crate::ui::preview::render(ui, kind, &source, path.as_deref());
+                        });
+                    return;
+                }
+            }
+            None => self.preview = false,
+        }
+
         if self.find_visible {
             let mut next = false;
             let mut replace = false;

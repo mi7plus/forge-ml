@@ -910,6 +910,8 @@ struct ForgeApp {
     pending_delete: Option<PathBuf>,
     pending_unsaved_action: Option<PendingUnsavedAction>,
     find_visible: bool,
+    /// Show the rendered preview (instead of the editor) for Markdown/HTML files.
+    preview: bool,
     find_query: String,
     replace_query: String,
     pending_editor_selection: Option<(usize, usize)>,
@@ -1553,6 +1555,7 @@ impl ForgeApp {
             pending_delete: None,
             pending_unsaved_action: None,
             find_visible: false,
+            preview: false,
             find_query: String::new(),
             replace_query: String::new(),
             pending_editor_selection: None,
