@@ -82,23 +82,24 @@ impl crate::ForgeApp {
         self.external_change_banner(ui);
         self.apply_pending_editor_history(ui);
 
-        // Markdown / HTML files get an Edit ⇄ Preview toggle; in preview mode the
-        // rendered view replaces the editor for this pane.
+        // Markdown / HTML files get Edit / Split / Preview modes.
         let preview_kind = self
             .active()
             .path
             .as_ref()
             .and_then(|path| crate::ui::preview::kind_for(path));
-        match preview_kind {
-            Some(kind) => {
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut self.preview, false, "Edit");
-                    ui.selectable_value(&mut self.preview, true, "Preview");
-                });
-                if self.preview {
+        if let Some(kind) = preview_kind {
+            use crate::ui::preview::PreviewMode;
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut self.preview_mode, PreviewMode::Edit, "Edit");
+                ui.selectable_value(&mut self.preview_mode, PreviewMode::Split, "Split");
+                ui.selectable_value(&mut self.preview_mode, PreviewMode::Preview, "Preview");
+            });
+            let source = self.active().content.clone();
+            let path = self.active().path.clone();
+            match self.preview_mode {
+                PreviewMode::Preview => {
                     ui.add_space(4.0);
-                    let source = self.active().content.clone();
-                    let path = self.active().path.clone();
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
@@ -106,10 +107,56 @@ impl crate::ForgeApp {
                         });
                     return;
                 }
+                PreviewMode::Split => {
+                    ui.add_space(4.0);
+                    let full = ui.available_rect_before_wrap();
+                    let gap = 12.0;
+                    let half = ((full.width() - gap) / 2.0).max(160.0);
+                    let mid = full.min.x + half + gap / 2.0;
+                    let left = egui::Rect::from_min_max(
+                        full.min,
+                        egui::pos2(full.min.x + half, full.max.y),
+                    );
+                    let right = egui::Rect::from_min_max(
+                        egui::pos2(mid + gap / 2.0, full.min.y),
+                        full.max,
+                    );
+                    let divider = ui.visuals().widgets.noninteractive.bg_stroke.color;
+                    ui.painter()
+                        .vline(mid, full.y_range(), egui::Stroke::new(1.0, divider));
+                    ui.scope_builder(
+                        egui::UiBuilder::new()
+                            .max_rect(left)
+                            .layout(egui::Layout::top_down(egui::Align::Min)),
+                        |ui| self.editor_body(ui),
+                    );
+                    ui.scope_builder(
+                        egui::UiBuilder::new()
+                            .max_rect(right)
+                            .layout(egui::Layout::top_down(egui::Align::Min)),
+                        |ui| {
+                            egui::ScrollArea::vertical()
+                                .id_salt("preview_split")
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| {
+                                    crate::ui::preview::render(ui, kind, &source, path.as_deref());
+                                });
+                        },
+                    );
+                    return;
+                }
+                PreviewMode::Edit => {}
             }
-            None => self.preview = false,
+        } else {
+            self.preview_mode = crate::ui::preview::PreviewMode::Edit;
         }
+        self.editor_body(ui);
+    }
 
+    /// The editor body — find bar, code editor, LSP diagnostics/popups, and the
+    /// status strip. Extracted so it renders on its own (Edit) or beside the
+    /// preview (Split).
+    fn editor_body(&mut self, ui: &mut egui::Ui) {
         if self.find_visible {
             let mut next = false;
             let mut replace = false;

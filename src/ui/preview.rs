@@ -21,6 +21,15 @@ pub enum PreviewKind {
     Html,
 }
 
+/// How a previewable file is shown in the editor pane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PreviewMode {
+    #[default]
+    Edit,
+    Split,
+    Preview,
+}
+
 /// Whether `path` is previewable, and how.
 pub fn kind_for(path: &Path) -> Option<PreviewKind> {
     match path
