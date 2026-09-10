@@ -192,25 +192,42 @@ fn on_system(name: &str) -> bool {
 /// artifact that ships a prebuilt for this host. Writes the resulting `PATH`/env
 /// exposure to `<root>/.forge/native-env`, which `forge run`/`build`/`test`
 /// apply. Real network access; nothing downloaded is ever executed.
-pub fn provide(root: &Path) -> String {
+pub fn provide(root: &Path, only: &[String]) -> String {
     let default = default_catalog().unwrap_or_default();
     let project = match load_catalog(root) {
         Ok(catalog) => catalog,
         Err(error) => return format!("forge native provide: reading {CATALOG_FILE}: {error}\n"),
     };
+    let lookup = |name: &str| project.find(name).or_else(|| default.find(name));
 
-    // What to provision: everything the project pinned itself, plus any tool the
-    // manifest's `[native].pkgs` needs that is missing on the system and shipped
-    // in the embedded catalog. (De-duplicated by name; the project catalog wins.)
-    let mut selected: Vec<&provision::Artifact> = project.artifacts.iter().collect();
-    let manifest = Manifest::load(root).ok().flatten().unwrap_or_default();
-    for pkg in &manifest.native_request().pkgs {
-        if selected.iter().any(|artifact| &artifact.name == pkg) {
-            continue;
+    // What to provision. With explicit names (the Manager's per-tool Install),
+    // provision exactly those from either catalog. Otherwise: everything the
+    // project pinned itself, plus any tool the manifest's `[native].pkgs` needs
+    // that is missing on the system and shipped in the embedded catalog.
+    let mut selected: Vec<&provision::Artifact> = Vec::new();
+    if only.is_empty() {
+        selected.extend(project.artifacts.iter());
+        let manifest = Manifest::load(root).ok().flatten().unwrap_or_default();
+        for pkg in &manifest.native_request().pkgs {
+            if selected.iter().any(|artifact| &artifact.name == pkg) {
+                continue;
+            }
+            if !on_system(pkg) {
+                if let Some(artifact) = default.find(pkg) {
+                    selected.push(artifact);
+                }
+            }
         }
-        if !on_system(pkg) {
-            if let Some(artifact) = default.find(pkg) {
-                selected.push(artifact);
+    } else {
+        for name in only {
+            match lookup(name) {
+                Some(artifact) if !selected.iter().any(|a| a.name == artifact.name) => {
+                    selected.push(artifact)
+                }
+                Some(_) => {}
+                None => {
+                    return format!("forge native provide: `{name}` is not in the catalog.\n")
+                }
             }
         }
     }

@@ -237,7 +237,19 @@ fn main() -> eframe::Result<()> {
     // native prebuilts and writes `.forge/native-env`.
     if let Some(pos) = cli.iter().position(|a| a == "--native-provide") {
         let root = env_cli_dir(&cli, pos);
-        print!("{}", environment::native_provide(&root));
+        let tools: Vec<String> = cli
+            .iter()
+            .position(|a| a == "--tools")
+            .and_then(|i| cli.get(i + 1))
+            .map(|value| {
+                value
+                    .split(',')
+                    .map(|tool| tool.trim().to_owned())
+                    .filter(|tool| !tool.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
+        print!("{}", environment::native_provide(&root, &tools));
         return Ok(());
     }
     // `--native-pin <url> --archive <zip|tar-gz> [--name <n>]` fetches, hashes,

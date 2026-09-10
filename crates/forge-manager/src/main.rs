@@ -1,18 +1,36 @@
-//! Forge Manager — a standalone, Navigator-style GUI over a Forge ML project's
-//! environment. It shells out to `forge_ide` (the same environment CLI the
-//! `forge` command uses) and renders the JSON status it emits, with one-click
-//! actions for the operations that already exist (`native provide`, …). It never
-//! links the environment internals — the JSON is the contract — so it stays a
-//! thin, independent front-end, exactly as Anaconda Navigator sits over conda.
+//! Forge Manager — a standalone, Navigator-style desktop app to inspect and
+//! manage a Forge ML project's environment.
+//!
+//! It is a thin front-end: `forge_ide --env-status-json` emits a snapshot, the
+//! Manager renders it, and the buttons run the same commands the CLI exposes
+//! (`--native-provide`, launching the IDE, opening the releases page). The JSON
+//! is the whole contract, so the Manager never links the environment internals —
+//! exactly how Anaconda Navigator sits over conda.
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 use eframe::egui;
+use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke};
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::process::Command;
 
-// ── The JSON contract (mirror of forge_ide's environment::status::EnvStatus) ──
+const RELEASES_URL: &str = "https://github.com/mi7plus/forge-ml/releases/latest";
+
+// ── Palette (dark, high contrast) ─────────────────────────────────────────────
+const BG: Color32 = Color32::from_rgb(0x15, 0x17, 0x1C); // window
+const HEADER: Color32 = Color32::from_rgb(0x1B, 0x1E, 0x25);
+const CARD: Color32 = Color32::from_rgb(0x21, 0x25, 0x2E);
+const CARD_HI: Color32 = Color32::from_rgb(0x2A, 0x2F, 0x3A);
+const BORDER: Color32 = Color32::from_rgb(0x33, 0x38, 0x44);
+const TEXT: Color32 = Color32::from_rgb(0xE7, 0xEA, 0xEF);
+const MUTED: Color32 = Color32::from_rgb(0x98, 0xA0, 0xAD);
+const ACCENT: Color32 = Color32::from_rgb(0x4F, 0x9D, 0xF0);
+const OK: Color32 = Color32::from_rgb(0x5F, 0xB3, 0x7A);
+const WARN: Color32 = Color32::from_rgb(0xE0, 0xA4, 0x4B);
+const BAD: Color32 = Color32::from_rgb(0xE0, 0x6C, 0x6C);
+
+// ── The JSON contract (mirror of environment::status::EnvStatus) ──────────────
 
 #[derive(Default, Deserialize)]
 struct EnvStatus {
@@ -37,7 +55,6 @@ struct EnvStatus {
     #[serde(default)]
     gaps: Vec<String>,
 }
-
 #[derive(Deserialize)]
 struct IdStatus {
     id: String,
@@ -79,37 +96,29 @@ struct PythonStatus {
     bridge: Vec<String>,
 }
 
-// ── Running forge_ide ─────────────────────────────────────────────────────────
+// ── Running forge_ide / external commands ─────────────────────────────────────
 
-/// Locate the `forge_ide` binary: next to this executable (installed layout),
-/// else on `PATH` (dev: cargo puts both in target/<profile>/).
 fn forge_ide_path() -> PathBuf {
-    let exe_name = if cfg!(windows) {
-        "forge_ide.exe"
-    } else {
-        "forge_ide"
-    };
+    let exe = if cfg!(windows) { "forge_ide.exe" } else { "forge_ide" };
     if let Ok(here) = std::env::current_exe() {
-        if let Some(sibling) = here.parent().map(|dir| dir.join(exe_name)) {
+        if let Some(sibling) = here.parent().map(|dir| dir.join(exe)) {
             if sibling.is_file() {
                 return sibling;
             }
         }
     }
-    PathBuf::from(exe_name)
+    PathBuf::from(exe)
 }
 
-fn run_ide(args: &[&str]) -> Result<String, String> {
-    let output = Command::new(forge_ide_path())
-        .args(args)
-        .output()
-        .map_err(|error| format!("launching forge_ide: {error}"))?;
-    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-    let err = String::from_utf8_lossy(&output.stderr);
-    if !err.trim().is_empty() {
-        text.push_str(&err);
+fn run_ide(args: &[&str]) -> String {
+    match Command::new(forge_ide_path()).args(args).output() {
+        Ok(output) => {
+            let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+            text.push_str(&String::from_utf8_lossy(&output.stderr));
+            text
+        }
+        Err(error) => format!("launching forge_ide: {error}"),
     }
-    Ok(text)
 }
 
 fn fetch_status(project: &str) -> Result<EnvStatus, String> {
@@ -125,16 +134,49 @@ fn fetch_status(project: &str) -> Result<EnvStatus, String> {
     })
 }
 
-// ── The app ───────────────────────────────────────────────────────────────────
+fn launch_ide(project: &str) {
+    let _ = Command::new(forge_ide_path()).arg(project).spawn();
+}
+
+fn open_url(url: &str) {
+    #[cfg(windows)]
+    let _ = Command::new("cmd").args(["/C", "start", "", url]).spawn();
+    #[cfg(target_os = "macos")]
+    let _ = Command::new("open").arg(url).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let _ = Command::new("xdg-open").arg(url).spawn();
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+
+#[derive(PartialEq, Clone, Copy)]
+enum Page {
+    Home,
+    Environment,
+    Packages,
+    Diagnostics,
+}
+
+enum Action {
+    None,
+    Refresh,
+    InstallAll,
+    Install(String),
+    LaunchIde,
+    OpenReleases,
+}
 
 struct ManagerApp {
     project: String,
     status: Result<EnvStatus, String>,
+    page: Page,
     log: String,
+    busy: bool,
 }
 
 impl ManagerApp {
-    fn new() -> Self {
+    fn new(ctx: &egui::Context) -> Self {
+        ctx.set_visuals(theme());
         let project = std::env::args()
             .nth(1)
             .filter(|arg| !arg.starts_with('-'))
@@ -144,7 +186,9 @@ impl ManagerApp {
         ManagerApp {
             project,
             status,
+            page: Page::Home,
             log: String::new(),
+            busy: false,
         }
     }
 
@@ -152,206 +196,405 @@ impl ManagerApp {
         self.status = fetch_status(&self.project);
     }
 
-    fn provide_native(&mut self) {
-        self.log = run_ide(&["--native-provide", &self.project]).unwrap_or_else(|error| error);
+    fn install(&mut self, tool: Option<&str>) {
+        self.busy = true;
+        let mut args = vec!["--native-provide", &self.project];
+        if let Some(tool) = tool {
+            args.push("--tools");
+            args.push(tool);
+        }
+        self.log = run_ide(&args);
+        self.busy = false;
         self.refresh();
     }
 }
 
-const OK: egui::Color32 = egui::Color32::from_rgb(90, 180, 110);
-const WARN: egui::Color32 = egui::Color32::from_rgb(210, 160, 70);
-const BAD: egui::Color32 = egui::Color32::from_rgb(210, 100, 100);
-
-fn status_color(status: &str) -> egui::Color32 {
-    match status {
-        "ok" | "available" => OK,
-        "note" => WARN,
-        s if s.starts_with("missing") => BAD,
-        s if s.starts_with("incompatible") => BAD,
-        _ => WARN,
-    }
-}
-
-/// A deferred action requested from the (immutably-borrowing) render pass.
-enum Action {
-    None,
-    Refresh,
-    ProvideNative,
+fn theme() -> egui::Visuals {
+    let mut v = egui::Visuals::dark();
+    v.override_text_color = Some(TEXT);
+    v.panel_fill = BG;
+    v.window_fill = CARD;
+    v.faint_bg_color = HEADER;
+    v.extreme_bg_color = Color32::from_rgb(0x0F, 0x11, 0x15);
+    v.hyperlink_color = ACCENT;
+    v.widgets.noninteractive.bg_fill = BG;
+    v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, TEXT);
+    v.widgets.inactive.weak_bg_fill = CARD_HI;
+    v.widgets.inactive.bg_fill = CARD_HI;
+    v.widgets.inactive.fg_stroke = Stroke::new(1.0, TEXT);
+    v.widgets.hovered.weak_bg_fill = BORDER;
+    v.widgets.hovered.bg_fill = BORDER;
+    v.widgets.hovered.fg_stroke = Stroke::new(1.0, TEXT);
+    v.widgets.active.weak_bg_fill = ACCENT;
+    v.widgets.active.bg_fill = ACCENT;
+    v.selection.bg_fill = Color32::from_rgb(0x2A, 0x4A, 0x70);
+    v
 }
 
 impl eframe::App for ManagerApp {
-    // This eframe hands the app a `Ui` directly (no manual panels).
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        ui.painter()
+            .rect_filled(ui.max_rect(), CornerRadius::same(0), BG);
+
         let mut action = Action::None;
 
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            ui.heading("Forge Manager");
-            if let Ok(status) = &self.status {
-                ui.label(
-                    egui::RichText::new(format!("v{} · {}", status.forge_version, status.target))
-                        .weak(),
-                );
-            }
-        });
-        ui.horizontal(|ui| {
-            ui.label("Project:");
-            ui.add(egui::TextEdit::singleline(&mut self.project).desired_width(420.0));
-            if ui.button("Refresh").clicked() {
-                action = Action::Refresh;
-            }
-        });
+        // Header.
+        Frame::NONE
+            .fill(HEADER)
+            .inner_margin(Margin::symmetric(16, 10))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Forge Manager").size(19.0).strong().color(TEXT));
+                    if let Ok(status) = &self.status {
+                        ui.label(
+                            RichText::new(format!(
+                                "Forge ML {} · {}",
+                                status.forge_version, status.target
+                            ))
+                            .color(MUTED),
+                        );
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("Refresh").clicked() {
+                            action = Action::Refresh;
+                        }
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.project)
+                                .desired_width(360.0)
+                                .hint_text("project folder"),
+                        );
+                        ui.label(RichText::new("Project").color(MUTED));
+                    });
+                });
+            });
+
+        // Tabs.
+        Frame::NONE
+            .fill(BG)
+            .inner_margin(Margin::symmetric(12, 6))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    for (page, label) in [
+                        (Page::Home, "Home"),
+                        (Page::Environment, "Environment"),
+                        (Page::Packages, "Packages"),
+                        (Page::Diagnostics, "Diagnostics"),
+                    ] {
+                        let selected = self.page == page;
+                        let text = RichText::new(label)
+                            .size(14.0)
+                            .color(if selected { ACCENT } else { MUTED });
+                        if ui.selectable_label(selected, text).clicked() {
+                            self.page = page;
+                        }
+                    }
+                });
+            });
         ui.separator();
 
-        egui::ScrollArea::vertical().show(ui, |ui| match &self.status {
-            Err(error) => {
-                ui.colored_label(BAD, error);
-            }
-            Ok(status) => {
-                let requested = render(ui, status, &self.log);
-                if let Action::None = action {
-                    action = requested;
-                }
-            }
-        });
+        // Content.
+        Frame::NONE
+            .inner_margin(Margin::same(16))
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        let requested = match &self.status {
+                            Err(error) => {
+                                card(ui, |ui| {
+                                    ui.colored_label(BAD, "Could not read the environment.");
+                                    ui.label(RichText::new(error).color(MUTED).monospace().size(11.0));
+                                    ui.label(
+                                        RichText::new(
+                                            "Is forge_ide next to this app, or on PATH?",
+                                        )
+                                        .color(MUTED),
+                                    );
+                                });
+                                Action::None
+                            }
+                            Ok(status) => match self.page {
+                                Page::Home => home(ui, status, &self.project),
+                                Page::Environment => environment(ui, status),
+                                Page::Packages => packages(ui, status, self.busy),
+                                Page::Diagnostics => diagnostics(ui, status),
+                            },
+                        };
+                        if let Action::None = action {
+                            action = requested;
+                        }
+                        if !self.log.is_empty() {
+                            card(ui, |ui| {
+                                ui.label(RichText::new("Last action").strong().color(TEXT));
+                                ui.add_space(4.0);
+                                ui.label(RichText::new(&self.log).monospace().size(11.0).color(MUTED));
+                            });
+                        }
+                    });
+            });
 
         match action {
             Action::Refresh => self.refresh(),
-            Action::ProvideNative => self.provide_native(),
+            Action::InstallAll => self.install(None),
+            Action::Install(tool) => self.install(Some(&tool)),
+            Action::LaunchIde => launch_ide(&self.project),
+            Action::OpenReleases => open_url(RELEASES_URL),
             Action::None => {}
         }
     }
 }
 
-fn render(ui: &mut egui::Ui, status: &EnvStatus, log: &str) -> Action {
+// ── Pages ─────────────────────────────────────────────────────────────────────
+
+fn home(ui: &mut egui::Ui, status: &EnvStatus, project: &str) -> Action {
     let mut action = Action::None;
 
-    section(ui, "Environment", |ui| {
-        row(ui, "manifest", if status.manifest_present { "forge.toml" } else { "none (defaults)" }, OK);
+    card(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Forge ML").size(18.0).strong().color(TEXT));
+            ui.label(RichText::new(format!("v{}", status.forge_version)).color(MUTED));
+        });
+        ui.add_space(2.0);
+        ui.label(
+            RichText::new(
+                "The batteries-included Rust ML studio. Open a project in the IDE, or get \
+                 the latest signed installer.",
+            )
+            .color(MUTED),
+        );
+        ui.add_space(10.0);
+        ui.horizontal(|ui| {
+            if primary_button(ui, "Launch IDE").clicked() {
+                action = Action::LaunchIde;
+            }
+            if ui.button("Get the latest release  ↗").clicked() {
+                action = Action::OpenReleases;
+            }
+        });
+    });
+
+    card(ui, |ui| {
+        ui.label(RichText::new("This project").strong().color(TEXT));
+        ui.add_space(4.0);
+        kv(ui, "Folder", if project.is_empty() { "." } else { project });
+        kv(
+            ui,
+            "Manifest",
+            if status.manifest_present { "forge.toml" } else { "none (defaults)" },
+        );
         if let Some(profile) = &status.profile {
-            row(ui, "profile", profile, OK);
+            kv(ui, "Profile", profile);
+        }
+        if !status.gaps.is_empty() {
+            ui.add_space(6.0);
+            for gap in &status.gaps {
+                ui.colored_label(BAD, format!("• {gap}"));
+            }
         }
     });
 
-    section(ui, "Providers", |ui| {
+    action
+}
+
+fn environment(ui: &mut egui::Ui, status: &EnvStatus) -> Action {
+    card(ui, |ui| {
+        ui.label(RichText::new("Providers").strong().color(TEXT));
+        ui.add_space(6.0);
         for provider in &status.providers {
-            row(ui, &provider.id, &provider.status, status_color(&provider.status));
+            status_row(ui, color_of(&provider.status), &provider.id, &provider.status);
         }
     });
 
-    section(ui, "Diagnostics", |ui| {
-        for check in &status.diagnostics {
-            row(ui, &check.name, &check.detail, status_color(&check.status));
-        }
-    });
-
-    section(ui, "GPU backends", |ui| {
+    card(ui, |ui| {
+        ui.label(RichText::new("GPU").strong().color(TEXT));
+        ui.add_space(6.0);
         if status.gpu.is_empty() {
-            ui.label("none detected — training/inference use the CPU");
+            ui.colored_label(MUTED, "No GPU backend detected — training/inference use the CPU.");
         }
         for backend in &status.gpu {
-            row(ui, &backend.name, &backend.detail, OK);
+            status_row(ui, OK, &backend.name, &backend.detail);
         }
     });
 
-    section(ui, "Native prerequisites", |ui| {
-        if status.native.prereqs.is_empty() {
-            ui.label("no [native] section — nothing required");
+    card(ui, |ui| {
+        ui.label(RichText::new("Python bridge").strong().color(TEXT));
+        ui.add_space(6.0);
+        let py = &status.python;
+        if !py.present {
+            ui.colored_label(MUTED, "No [python] section — Forge's core is Rust.");
+        } else {
+            match &py.interpreter {
+                Some(v) => status_row(
+                    ui,
+                    OK,
+                    "interpreter",
+                    &format!("{v} ({})", py.source.as_deref().unwrap_or("?")),
+                ),
+                None => status_row(ui, BAD, "interpreter", "none found"),
+            }
+            if let Some(want) = &py.version_requested {
+                status_row(ui, WARN, "version", &format!("requested {want}"));
+            }
+            if let Some(manager) = &py.manager {
+                status_row(ui, OK, "manager", manager);
+            }
+            if !py.bridge.is_empty() {
+                status_row(ui, MUTED, "bridge", &py.bridge.join(", "));
+            }
         }
-        for prereq in &status.native.prereqs {
-            ui.horizontal(|ui| {
-                let color = if prereq.satisfied { OK } else if prereq.providable { WARN } else { BAD };
-                ui.colored_label(color, if prereq.satisfied { "ok" } else { "missing" });
-                ui.strong(&prereq.name);
-                ui.label(egui::RichText::new(&prereq.detail).weak());
-                if prereq.providable && ui.button("Install").clicked() {
-                    action = Action::ProvideNative;
+    });
+
+    Action::None
+}
+
+fn packages(ui: &mut egui::Ui, status: &EnvStatus, busy: bool) -> Action {
+    let mut action = Action::None;
+
+    card(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Native tools").strong().color(TEXT));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if busy {
+                    ui.label(RichText::new("installing…").color(WARN));
                 }
             });
-        }
-        ui.add_space(4.0);
-        ui.label(egui::RichText::new("Catalog (installable prebuilts):").weak());
-        ui.horizontal_wrapped(|ui| {
-            if status.native.catalog.is_empty() {
-                ui.label("— (catalog empty)");
-            }
-            for tool in &status.native.catalog {
-                ui.label(format!("{} {}", tool.name, tool.detail));
-            }
         });
-        if !status.native.catalog.is_empty() && ui.button("Provide all needed").clicked() {
-            action = Action::ProvideNative;
+        ui.label(
+            RichText::new(
+                "Pinned, SHA-256-verified prebuilts. Install one and it's put on PATH for \
+                 forge run / build / test.",
+            )
+            .color(MUTED)
+            .size(12.0),
+        );
+        ui.add_space(8.0);
+
+        if status.native.catalog.is_empty() {
+            ui.colored_label(MUTED, "The catalog is empty.");
+        }
+        for tool in &status.native.catalog {
+            let installed = status
+                .native
+                .prereqs
+                .iter()
+                .any(|p| p.satisfied && p.name.starts_with(&tool.name));
+            Frame::NONE
+                .fill(CARD_HI)
+                .inner_margin(Margin::symmetric(12, 8))
+                .corner_radius(CornerRadius::same(6))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(&tool.name).strong().color(TEXT));
+                        ui.label(RichText::new(format!("v{}", tool.detail)).color(MUTED));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if installed {
+                                ui.colored_label(OK, "on system ✓");
+                            } else if ui
+                                .add_enabled(!busy, primary_widget("Install"))
+                                .clicked()
+                            {
+                                action = Action::Install(tool.name.clone());
+                            }
+                        });
+                    });
+                });
+            ui.add_space(6.0);
         }
     });
 
-    section(ui, "Python bridge", |ui| {
-        if !status.python.present {
-            ui.label("no [python] section — Forge's core is Rust");
-        } else {
-            match &status.python.interpreter {
-                Some(version) => row(
-                    ui,
-                    "interpreter",
-                    &format!("{version} ({})", status.python.source.as_deref().unwrap_or("?")),
-                    OK,
-                ),
-                None => row(ui, "interpreter", "none found", BAD),
+    if !status.native.prereqs.is_empty() {
+        card(ui, |ui| {
+            ui.label(RichText::new("Declared prerequisites ([native])").strong().color(TEXT));
+            ui.add_space(6.0);
+            for prereq in &status.native.prereqs {
+                let color = if prereq.satisfied {
+                    OK
+                } else if prereq.providable {
+                    WARN
+                } else {
+                    BAD
+                };
+                status_row(ui, color, &prereq.name, &prereq.detail);
             }
-            if let Some(want) = &status.python.version_requested {
-                row(ui, "version", &format!("requested {want}"), WARN);
+            ui.add_space(6.0);
+            if ui.add_enabled(!busy, primary_widget("Provide all needed")).clicked() {
+                action = Action::InstallAll;
             }
-            if let Some(manager) = &status.python.manager {
-                row(ui, "manager", manager, OK);
-            }
-            if !status.python.bridge.is_empty() {
-                row(ui, "bridge", &status.python.bridge.join(", "), WARN);
-            }
-        }
-    });
-
-    if !status.gaps.is_empty() {
-        section(ui, "Gaps", |ui| {
-            for gap in &status.gaps {
-                ui.colored_label(BAD, gap);
-            }
-        });
-    }
-
-    if !log.is_empty() {
-        section(ui, "Last action", |ui| {
-            ui.label(egui::RichText::new(log).monospace().size(11.0));
         });
     }
 
     action
 }
 
-fn section(ui: &mut egui::Ui, title: &str, contents: impl FnOnce(&mut egui::Ui)) {
-    ui.add_space(8.0);
-    ui.heading(title);
-    ui.separator();
-    contents(ui);
+fn diagnostics(ui: &mut egui::Ui, status: &EnvStatus) -> Action {
+    card(ui, |ui| {
+        ui.label(RichText::new("Host tooling").strong().color(TEXT));
+        ui.add_space(6.0);
+        for check in &status.diagnostics {
+            status_row(ui, color_of(&check.status), &check.name, &check.detail);
+        }
+    });
+    Action::None
 }
 
-fn row(ui: &mut egui::Ui, label: &str, detail: &str, color: egui::Color32) {
+// ── Widgets ───────────────────────────────────────────────────────────────────
+
+fn card(ui: &mut egui::Ui, contents: impl FnOnce(&mut egui::Ui)) {
+    Frame::NONE
+        .fill(CARD)
+        .inner_margin(Margin::same(14))
+        .corner_radius(CornerRadius::same(10))
+        .stroke(Stroke::new(1.0, BORDER))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            contents(ui);
+        });
+    ui.add_space(12.0);
+}
+
+fn status_row(ui: &mut egui::Ui, color: Color32, label: &str, detail: &str) {
     ui.horizontal(|ui| {
-        ui.colored_label(color, "●");
-        ui.add(egui::Label::new(egui::RichText::new(label).strong()).truncate());
-        ui.label(egui::RichText::new(detail).weak());
+        ui.label(RichText::new("●").color(color));
+        ui.label(RichText::new(label).strong().color(TEXT));
+        ui.label(RichText::new(detail).color(MUTED));
     });
+}
+
+fn kv(ui: &mut egui::Ui, key: &str, value: &str) {
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(format!("{key}:")).color(MUTED));
+        ui.label(RichText::new(value).color(TEXT));
+    });
+}
+
+fn color_of(status: &str) -> Color32 {
+    match status {
+        "ok" | "available" => OK,
+        "note" => WARN,
+        s if s.starts_with("missing") || s.starts_with("incompatible") => BAD,
+        _ => WARN,
+    }
+}
+
+fn primary_widget(label: &'static str) -> egui::Button<'static> {
+    egui::Button::new(RichText::new(label).color(Color32::WHITE).strong()).fill(ACCENT)
+}
+
+fn primary_button(ui: &mut egui::Ui, label: &'static str) -> egui::Response {
+    ui.add(primary_widget(label))
 }
 
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Forge Manager")
-            .with_inner_size([760.0, 720.0])
-            .with_min_inner_size([520.0, 480.0]),
+            .with_inner_size([880.0, 760.0])
+            .with_min_inner_size([620.0, 520.0]),
         ..Default::default()
     };
     eframe::run_native(
         "Forge Manager",
         options,
-        Box::new(|_cc| Ok(Box::new(ManagerApp::new()))),
+        Box::new(|cc| Ok(Box::new(ManagerApp::new(&cc.egui_ctx)))),
     )
 }
