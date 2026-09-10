@@ -262,20 +262,392 @@ fn html(ui: &mut egui::Ui, source: &str, path: Option<&Path>) {
             }
         }
         ui.label(
-            RichText::new(if on_disk.is_some() {
-                "HTML renders in your browser."
-            } else {
-                "Save the file first to preview it in your browser."
-            })
-            .color(MUTED),
+            RichText::new("In-app structural preview — open in your browser for full CSS/JS.")
+                .color(MUTED)
+                .size(12.0),
         );
     });
-    ui.add_space(6.0);
-    ui.separator();
-    ui.add_space(4.0);
-    ui.label(RichText::new("SOURCE").size(11.0).strong().color(MUTED));
-    ui.add_space(4.0);
-    code_block(ui, source);
+    ui.add_space(8.0);
+    render_blocks(ui, &parse_html(source));
+}
+
+/// A minimal structural HTML renderer: it lays out the common document tags with
+/// egui widgets. It is not a browser — it ignores CSS and scripts and only
+/// approximates layout — but it renders headings, paragraphs, lists, links,
+/// inline/preformatted code, block quotes, rules, images (as placeholders), and
+/// simple tables inline in the IDE.
+
+#[derive(Clone, Copy, Default)]
+struct Style {
+    bold: bool,
+    italic: bool,
+    code: bool,
+}
+
+enum Run {
+    Text(String, Style),
+    Link(String, String),
+}
+
+enum Block {
+    Heading(u8, String),
+    Para(Vec<Run>),
+    Item { ordered: Option<usize>, depth: usize, runs: Vec<Run> },
+    Pre(String),
+    Quote(Vec<Run>),
+    Rule,
+    Row { header: bool, cells: Vec<Vec<Run>> },
+    Image(String),
+}
+
+fn render_blocks(ui: &mut egui::Ui, blocks: &[Block]) {
+    for block in blocks {
+        match block {
+            Block::Heading(level, text) => {
+                let size = match level {
+                    1 => 26.0,
+                    2 => 21.0,
+                    3 => 17.5,
+                    _ => 15.0,
+                };
+                ui.add_space(if *level <= 2 { 8.0 } else { 4.0 });
+                ui.label(RichText::new(text).size(size).strong().color(TEXT));
+                ui.add_space(2.0);
+            }
+            Block::Para(runs) => {
+                render_runs(ui, runs, TEXT);
+                ui.add_space(4.0);
+            }
+            Block::Item { ordered, depth, runs } => {
+                ui.horizontal_top(|ui| {
+                    ui.add_space(8.0 + 16.0 * *depth as f32);
+                    match ordered {
+                        Some(n) => ui.label(RichText::new(format!("{n}.")).color(accent())),
+                        None => ui.label(RichText::new(icons::DOT.as_str()).color(accent())),
+                    };
+                    render_runs(ui, runs, TEXT);
+                });
+            }
+            Block::Pre(code) => code_block(ui, code),
+            Block::Quote(runs) => {
+                ui.horizontal_top(|ui| {
+                    ui.add_space(4.0);
+                    ui.label(RichText::new("|").size(16.0).strong().color(accent()));
+                    render_runs(ui, runs, MUTED);
+                });
+            }
+            Block::Rule => {
+                ui.add_space(4.0);
+                ui.separator();
+            }
+            Block::Image(alt) => {
+                ui.label(RichText::new(format!("[image: {alt}]")).italics().color(MUTED));
+            }
+            Block::Row { header, cells } => {
+                ui.horizontal_top(|ui| {
+                    for cell in cells {
+                        ui.add_space(2.0);
+                        let base = if *header { TEXT } else { MUTED };
+                        egui::Frame::NONE
+                            .inner_margin(egui::Margin::symmetric(6, 2))
+                            .show(ui, |ui| render_runs(ui, cell, base));
+                    }
+                });
+            }
+        }
+    }
+}
+
+fn render_runs(ui: &mut egui::Ui, runs: &[Run], base: Color32) {
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        ui.spacing_mut().item_spacing.y = 2.0;
+        for run in runs {
+            match run {
+                Run::Text(text, style) => {
+                    for word in text.split_whitespace() {
+                        let mut rich = RichText::new(word).color(base);
+                        if style.bold {
+                            rich = rich.strong();
+                        }
+                        if style.italic {
+                            rich = rich.italics();
+                        }
+                        if style.code {
+                            rich = rich.monospace().color(accent()).background_color(CODE_BG);
+                        }
+                        ui.label(rich);
+                    }
+                }
+                Run::Link(text, href) => {
+                    if ui.link(RichText::new(text).color(accent())).clicked() {
+                        open(href);
+                    }
+                }
+            }
+        }
+    });
+}
+
+/// Parse a document's worth of HTML into renderable blocks. Best-effort and
+/// forgiving: unknown tags are ignored (their text still shows), scripts and
+/// styles are dropped, and malformed markup degrades to text.
+fn parse_html(source: &str) -> Vec<Block> {
+    let mut w = Walker::default();
+    let mut rest = source;
+    while !rest.is_empty() {
+        if let Some(open) = rest.find('<') {
+            if open > 0 {
+                w.text(&decode_entities(&rest[..open]));
+            }
+            rest = &rest[open..];
+            let Some(close) = rest.find('>') else {
+                w.text(&decode_entities(rest));
+                break;
+            };
+            let inner = &rest[1..close];
+            rest = &rest[close + 1..];
+            if inner.starts_with("!--") || inner.starts_with('!') {
+                continue; // comment / doctype
+            }
+            if let Some(name) = inner.strip_prefix('/') {
+                w.close(name.trim().trim_end_matches('/').to_ascii_lowercase().as_str());
+            } else {
+                let inner = inner.trim();
+                let (name, attrs) = match inner.find(|c: char| c.is_whitespace()) {
+                    Some(sp) => (&inner[..sp], inner[sp..].trim().trim_end_matches('/')),
+                    None => (inner.trim_end_matches('/'), ""),
+                };
+                w.open(&name.to_ascii_lowercase(), attrs);
+            }
+        } else {
+            w.text(&decode_entities(rest));
+            break;
+        }
+    }
+    w.finish()
+}
+
+#[derive(Default)]
+struct Walker {
+    blocks: Vec<Block>,
+    runs: Vec<Run>,
+    style: Style,
+    link: Option<String>,
+    heading: Option<u8>,
+    in_quote: bool,
+    list: Vec<Option<usize>>,
+    pre: Option<String>,
+    skip: bool, // inside <script>/<style>
+    cell: Option<Vec<Run>>,
+    row: Option<(bool, Vec<Vec<Run>>)>,
+}
+
+impl Walker {
+    fn text(&mut self, text: &str) {
+        if self.skip {
+            return;
+        }
+        if let Some(buf) = &mut self.pre {
+            buf.push_str(text);
+            return;
+        }
+        if text.trim().is_empty() && self.runs.is_empty() && self.cell.is_none() {
+            return;
+        }
+        let run = Run::Text(text.to_owned(), self.style);
+        match &mut self.cell {
+            Some(cell) => cell.push(run),
+            None => {
+                if let Some(href) = &self.link {
+                    self.runs
+                        .push(Run::Link(text.trim().to_owned(), href.clone()));
+                } else {
+                    self.runs.push(run);
+                }
+            }
+        }
+    }
+
+    fn open(&mut self, name: &str, attrs: &str) {
+        match name {
+            "script" | "style" => self.skip = true,
+            "br" => self.flush(),
+            "hr" => {
+                self.flush();
+                self.blocks.push(Block::Rule);
+            }
+            "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+                self.flush();
+                self.heading = Some(name.as_bytes()[1] - b'0');
+            }
+            "p" | "div" | "section" | "article" | "header" | "footer" | "main" => self.flush(),
+            "ul" | "ol" => self.list.push((name == "ol").then_some(1)),
+            "li" => self.flush(),
+            "blockquote" => {
+                self.flush();
+                self.in_quote = true;
+            }
+            "pre" => {
+                self.flush();
+                self.pre = Some(String::new());
+            }
+            "strong" | "b" => self.style.bold = true,
+            "em" | "i" => self.style.italic = true,
+            "code" if self.pre.is_none() => self.style.code = true,
+            "a" => self.link = attr(attrs, "href"),
+            "img" => {
+                let alt = attr(attrs, "alt").or_else(|| attr(attrs, "src")).unwrap_or_default();
+                self.blocks.push(Block::Image(alt));
+            }
+            "table" => self.flush(),
+            "tr" => self.row = Some((false, Vec::new())),
+            "td" | "th" => {
+                if name == "th" {
+                    if let Some(row) = &mut self.row {
+                        row.0 = true;
+                    }
+                }
+                self.cell = Some(Vec::new());
+            }
+            _ => {}
+        }
+    }
+
+    fn close(&mut self, name: &str) {
+        match name {
+            "script" | "style" => self.skip = false,
+            "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => self.flush(),
+            "p" | "div" | "section" | "article" | "header" | "footer" | "main" => self.flush(),
+            "li" => self.flush(),
+            "ul" | "ol" => {
+                self.list.pop();
+            }
+            "blockquote" => {
+                self.flush();
+                self.in_quote = false;
+            }
+            "pre" => {
+                if let Some(code) = self.pre.take() {
+                    self.blocks.push(Block::Pre(code.trim_matches('\n').to_owned()));
+                }
+            }
+            "strong" | "b" => self.style.bold = false,
+            "em" | "i" => self.style.italic = false,
+            "code" => self.style.code = false,
+            "a" => self.link = None,
+            "td" | "th" => {
+                if let (Some(cell), Some(row)) = (self.cell.take(), &mut self.row) {
+                    row.1.push(cell);
+                }
+            }
+            "tr" => {
+                if let Some((header, cells)) = self.row.take() {
+                    if !cells.is_empty() {
+                        self.blocks.push(Block::Row { header, cells });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Emit the accumulated inline runs as the appropriate block, and clear.
+    fn flush(&mut self) {
+        if self.runs.is_empty() {
+            return;
+        }
+        let runs = std::mem::take(&mut self.runs);
+        let block = if let Some(level) = self.heading.take() {
+            Block::Heading(level, runs_to_text(&runs))
+        } else if self.in_quote {
+            Block::Quote(runs)
+        } else if !self.list.is_empty() {
+            let depth = self.list.len().saturating_sub(1);
+            let ordered = self.list.last_mut().and_then(|counter| {
+                counter.as_mut().map(|n| {
+                    let current = *n;
+                    *n += 1;
+                    current
+                })
+            });
+            Block::Item { ordered, depth, runs }
+        } else {
+            Block::Para(runs)
+        };
+        self.blocks.push(block);
+    }
+
+    fn finish(mut self) -> Vec<Block> {
+        self.flush();
+        self.blocks
+    }
+}
+
+fn runs_to_text(runs: &[Run]) -> String {
+    let mut out = String::new();
+    for run in runs {
+        match run {
+            Run::Text(text, _) => out.push_str(text.trim()),
+            Run::Link(text, _) => out.push_str(text),
+        }
+        out.push(' ');
+    }
+    out.trim().to_owned()
+}
+
+/// Extract the value of attribute `key` from a raw attribute string.
+fn attr(attrs: &str, key: &str) -> Option<String> {
+    let start = attrs.find(key)?;
+    let after = attrs[start + key.len()..].trim_start();
+    let after = after.strip_prefix('=')?.trim_start();
+    let (quote, body) = match after.chars().next()? {
+        q @ ('"' | '\'') => (Some(q), &after[1..]),
+        _ => (None, after),
+    };
+    let end = match quote {
+        Some(q) => body.find(q)?,
+        None => body.find(char::is_whitespace).unwrap_or(body.len()),
+    };
+    Some(decode_entities(&body[..end]))
+}
+
+/// Decode the handful of HTML entities that matter for a text preview.
+fn decode_entities(text: &str) -> String {
+    if !text.contains('&') {
+        return text.to_owned();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(amp) = rest.find('&') {
+        out.push_str(&rest[..amp]);
+        rest = &rest[amp..];
+        if let Some(semi) = rest[..rest.len().min(12)].find(';') {
+            let entity = &rest[1..semi];
+            let decoded = match entity {
+                "amp" => Some('&'),
+                "lt" => Some('<'),
+                "gt" => Some('>'),
+                "quot" => Some('"'),
+                "apos" | "#39" => Some('\''),
+                "nbsp" => Some(' '),
+                other => other
+                    .strip_prefix("#x")
+                    .and_then(|hex| u32::from_str_radix(hex, 16).ok())
+                    .or_else(|| other.strip_prefix('#').and_then(|dec| dec.parse().ok()))
+                    .and_then(char::from_u32),
+            };
+            if let Some(ch) = decoded {
+                out.push(ch);
+                rest = &rest[semi + 1..];
+                continue;
+            }
+        }
+        out.push('&');
+        rest = &rest[1..];
+    }
+    out.push_str(rest);
+    out
 }
 
 // ── Opening things ────────────────────────────────────────────────────────────
@@ -333,5 +705,28 @@ mod tests {
         let spans = parse_inline("a ** b");
         assert_eq!(spans.len(), 1);
         assert!(matches!(&spans[0], Span::Text(t) if t == "a ** b"));
+    }
+
+    #[test]
+    fn html_parses_headings_lists_and_links() {
+        let blocks = parse_html(
+            "<h1>Title</h1><p>Hi <b>there</b> <a href=\"u\">link</a></p>\
+             <ul><li>one</li><li>two</li></ul><script>ignore()</script>",
+        );
+        assert!(matches!(&blocks[0], Block::Heading(1, t) if t == "Title"));
+        assert!(blocks.iter().any(|b| matches!(b, Block::Para(_))));
+        let items = blocks.iter().filter(|b| matches!(b, Block::Item { .. })).count();
+        assert_eq!(items, 2);
+        // The script contents must not appear as text.
+        assert!(!blocks.iter().any(|b| matches!(b, Block::Para(runs) if runs_to_text(runs).contains("ignore"))));
+        // The link survived.
+        assert!(blocks.iter().any(|b| matches!(b, Block::Para(runs)
+            if runs.iter().any(|r| matches!(r, Run::Link(t, u) if t == "link" && u == "u")))));
+    }
+
+    #[test]
+    fn html_decodes_entities_and_attrs() {
+        assert_eq!(decode_entities("a &amp; b &lt;c&gt; &#65;"), "a & b <c> A");
+        assert_eq!(attr("class=\"x\" href='y' rel=z", "href").as_deref(), Some("y"));
     }
 }
