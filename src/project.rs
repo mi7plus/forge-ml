@@ -38,10 +38,22 @@ impl Project {
 }
 
 pub fn is_editable(path: &Path) -> bool {
-    matches!(
-        path.extension().and_then(|value| value.to_str()),
-        Some("rs" | "toml" | "md" | "txt" | "json" | "ipynb" | "yaml" | "yml")
-    )
+    // Text formats the editor can open. Files without an extension (README,
+    // LICENSE, Dockerfile, .gitignore) are treated as text too.
+    match path.extension().and_then(|value| value.to_str()) {
+        Some(ext) => matches!(
+            ext.to_ascii_lowercase().as_str(),
+            "rs" | "toml" | "lock"
+                | "md" | "markdown" | "mkd" | "mdown"
+                | "txt" | "text" | "log"
+                | "json" | "ipynb" | "yaml" | "yml"
+                | "html" | "htm" | "xhtml" | "css" | "js" | "mjs" | "ts" | "jsx" | "tsx"
+                | "svg" | "xml" | "csv" | "tsv"
+                | "sh" | "bash" | "ps1" | "bat"
+                | "ini" | "cfg" | "conf" | "env" | "gitignore"
+        ),
+        None => true,
+    }
 }
 
 fn read_directory(directory: &Path) -> io::Result<Vec<FileNode>> {
@@ -82,5 +94,25 @@ fn apply_git_status(
         if let Some(children) = &mut node.children {
             apply_git_status(root, children, statuses);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_editable;
+    use std::path::Path;
+
+    #[test]
+    fn html_and_web_text_files_are_editable() {
+        for name in ["index.html", "page.HTM", "style.css", "app.js", "notes.md", "Cargo.toml"] {
+            assert!(is_editable(Path::new(name)), "{name} should be editable");
+        }
+    }
+
+    #[test]
+    fn extensionless_text_files_open_but_binaries_do_not() {
+        assert!(is_editable(Path::new("README"))); // no extension → text
+        assert!(!is_editable(Path::new("logo.png")));
+        assert!(!is_editable(Path::new("model.onnx")));
     }
 }
