@@ -36,9 +36,9 @@ jobs:
         with:
           key: ${{ matrix.os }}
       - name: Build (workspace + examples)
-        run: cargo build --workspace --examples --locked
+        run: cargo build --workspace --exclude forge-webview --examples --locked
       - name: Test
-        run: cargo test --workspace --locked
+        run: cargo test --workspace --exclude forge-webview --locked
 
   lint:
     name: Format & clippy
@@ -57,7 +57,7 @@ jobs:
       # `--all-features` so feature-gated code (adbc, forge_ml's deep-learning)
       # is compiled and linted too, instead of quietly rotting.
       - name: clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --exclude forge-webview --all-targets --all-features -- -D warnings
 
   generated-services:
     name: Generated services compile
@@ -74,4 +74,4 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
       - name: Compile the generated inference services
-        run: cargo test --workspace --locked -- --ignored
+        run: cargo test --workspace --exclude forge-webview --locked -- --ignored

@@ -261,21 +261,35 @@ fn flush(plain: &mut String, spans: &mut Vec<Span>) {
 fn html(ui: &mut egui::Ui, source: &str, path: Option<&Path>) {
     let on_disk = path.filter(|p| p.exists());
     ui.horizontal(|ui| {
-        let open_label = format!("Open in browser  {}", icons::ARROW_SQUARE_OUT.as_str());
-        if ui
-            .add_enabled(on_disk.is_some(), egui::Button::new(open_label))
-            .clicked()
-        {
+        // Primary: full CSS/JS rendering in Forge's own WebView window.
+        let rendered = egui::Button::new(
+            RichText::new("Open rendered preview")
+                .color(Color32::WHITE)
+                .strong(),
+        )
+        .fill(accent());
+        if ui.add_enabled(on_disk.is_some(), rendered).clicked() {
+            if let Some(path) = on_disk {
+                open_in_forge_webview(path);
+            }
+        }
+        // Secondary: the external system browser.
+        let browser = format!("Open in browser  {}", icons::ARROW_SQUARE_OUT.as_str());
+        if ui.add_enabled(on_disk.is_some(), egui::Button::new(browser)).clicked() {
             if let Some(path) = on_disk {
                 open_path(path);
             }
         }
-        ui.label(
-            RichText::new("In-app structural preview — open in your browser for full CSS/JS.")
-                .color(MUTED)
-                .size(12.0),
-        );
     });
+    ui.label(
+        RichText::new(if on_disk.is_some() {
+            "Rendered preview opens a real WebView in Forge. The quick structural view is below."
+        } else {
+            "Save the file to open the rendered preview. The quick structural view is below."
+        })
+        .color(MUTED)
+        .size(12.0),
+    );
     ui.add_space(8.0);
     render_blocks(ui, &parse_html(source));
 }
@@ -667,6 +681,22 @@ fn open(target: &str) {
 
 fn open_path(path: &Path) {
     open_raw(&path.to_string_lossy());
+}
+
+/// Open the file in Forge's own WebView window (`forge_webview`, installed beside
+/// the app), for full CSS/JS rendering without an external browser.
+fn open_in_forge_webview(path: &Path) {
+    let exe = if cfg!(windows) {
+        "forge_webview.exe"
+    } else {
+        "forge_webview"
+    };
+    let binary = std::env::current_exe()
+        .ok()
+        .and_then(|here| here.parent().map(|dir| dir.join(exe)))
+        .filter(|candidate| candidate.is_file())
+        .unwrap_or_else(|| std::path::PathBuf::from(exe));
+    let _ = Command::new(binary).arg(path).spawn();
 }
 
 fn open_raw(target: &str) {
