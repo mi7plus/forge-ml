@@ -89,12 +89,39 @@ impl crate::ForgeApp {
             .as_ref()
             .and_then(|path| crate::ui::preview::kind_for(path));
         if let Some(kind) = preview_kind {
-            use crate::ui::preview::PreviewMode;
+            use crate::ui::preview::{PreviewKind, PreviewMode};
+            // For HTML, offer a live Chromium preview in a dockable pane (the
+            // out-of-process forge_cef helper). Needs the file saved on disk.
+            let html_path = (kind == PreviewKind::Html)
+                .then(|| self.active().path.clone())
+                .flatten()
+                .filter(|p| p.exists());
+            let mut open_web = false;
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.preview_mode, PreviewMode::Edit, "Edit");
                 ui.selectable_value(&mut self.preview_mode, PreviewMode::Split, "Split");
                 ui.selectable_value(&mut self.preview_mode, PreviewMode::Preview, "Preview");
+                if kind == PreviewKind::Html {
+                    ui.separator();
+                    let label = format!(
+                        "{}  Open in web view",
+                        egui_phosphor_icons::icons::GLOBE.as_str()
+                    );
+                    if ui
+                        .add_enabled(html_path.is_some(), egui::Button::new(label))
+                        .on_hover_text("Live Chromium preview in a dockable pane")
+                        .clicked()
+                    {
+                        open_web = true;
+                    }
+                }
             });
+            if open_web {
+                if let Some(path) = &html_path {
+                    self.pending_open_web_preview =
+                        Some(crate::ui::cef_preview::file_url(path));
+                }
+            }
             let source = self.active().content.clone();
             let path = self.active().path.clone();
             match self.preview_mode {

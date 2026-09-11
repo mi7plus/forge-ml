@@ -79,6 +79,11 @@ tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"] }
 forge-protocol = { path = "crates/forge-protocol" }
 forge-storage = { path = "crates/forge-storage" }
 forge-cli = { path = "crates/forge-cli" }
+# Shared layout + command protocol for the out-of-process forge_cef web-preview
+# helper. Dependency-free (no `cef`), so linking it never triggers CEF's ~150MB
+# download; the IDE reads frames from a memory-mapped file and spawns forge_cef.
+forge-cef-ipc = { path = "crates/forge-cef-ipc" }
+memmap2 = "0.9"
 arrow = { version = "56", features = ["csv", "json", "ipc"] }
 parquet = { version = "56", features = ["arrow"] }
 csv = "1.3"

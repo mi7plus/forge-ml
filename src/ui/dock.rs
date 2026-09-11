@@ -114,6 +114,50 @@ impl crate::ForgeApp {
         kind
     }
 
+    /// Body of the Web preview pane: drives the live `forge_cef` session, or
+    /// shows why it isn't running. The session is spawned when the pane is
+    /// opened (via `pending_open_web_preview`); here we just render it.
+    fn web_preview_pane(&mut self, ui: &mut egui::Ui) {
+        match self.web_preview.as_mut() {
+            Some(preview) => preview.ui(ui),
+            None => {
+                ui.centered_and_justified(|ui| {
+                    ui.weak("No page open. Use \"Open in web view\" from an HTML file's preview.");
+                });
+            }
+        }
+    }
+
+    /// Ensure a single Web preview tile exists in the tree and return its kind.
+    /// Docks it beside an existing terminal/console group, else at the root.
+    pub(crate) fn ensure_web_preview_tile(tree: &mut Tree<PaneKind>) -> PaneKind {
+        let kind = PaneKind::WebPreview;
+        // Bind to a `let` so the iterator's borrow of `tree.tiles` is released
+        // before the mutable `set_visible` call below.
+        let existing = tree.tiles.iter().find_map(|(tid, tile)| match tile {
+            Tile::Pane(PaneKind::WebPreview) => Some(*tid),
+            _ => None,
+        });
+        if let Some(existing) = existing {
+            // Already present: make sure it's visible.
+            tree.tiles.set_visible(existing, true);
+            return kind;
+        }
+        let new_tile = tree.tiles.insert_pane(kind);
+        let anchor = tree
+            .tiles
+            .iter()
+            .find_map(|(tid, tile)| match tile {
+                Tile::Pane(PaneKind::Editor) => Some(*tid),
+                _ => None,
+            })
+            .and_then(|tile| tree.tiles.parent_of(tile));
+        if let Some(parent) = anchor.or_else(|| tree.root()) {
+            tree.move_tile_to_container(new_tile, parent, usize::MAX, false);
+        }
+        kind
+    }
+
     /// Render one pane's contents. Shared by the docked tiles and the floating
     /// pane windows so both paths stay identical.
     pub(crate) fn dock_pane_body(&mut self, kind: PaneKind, ui: &mut egui::Ui) {
@@ -129,6 +173,7 @@ impl crate::ForgeApp {
             PaneKind::Terminal(id) => self.terminal_pane(id, ui),
             PaneKind::RustConsole(id) => self.rust_console_pane(id, ui),
             PaneKind::DataViewer => self.dock_data_viewer(ui),
+            PaneKind::WebPreview => self.web_preview_pane(ui),
             // Inspector panes scroll as a whole; the stable id keeps each pane's
             // scroll position remembered across focus changes and restarts.
             PaneKind::Inspector(tab) => {

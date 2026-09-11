@@ -577,6 +577,9 @@ enum PaneKind {
     /// An independent Rust REPL kernel (its own Evcxr session), one per id.
     RustConsole(u32),
     DataViewer,
+    /// A live web preview rendered by the out-of-process `forge_cef` helper
+    /// (Chromium offscreen), shown as a dockable tile.
+    WebPreview,
     Inspector(InspectorTab),
 }
 
@@ -594,6 +597,7 @@ impl PaneKind {
             PaneKind::Terminal(_) => "Terminal",
             PaneKind::RustConsole(_) => "Rust kernel",
             PaneKind::DataViewer => "Data viewer",
+            PaneKind::WebPreview => "Web preview",
             PaneKind::Inspector(tab) => tab.label(),
         }
     }
@@ -612,6 +616,7 @@ impl PaneKind {
             PaneKind::Terminal(_) => icons::TERMINAL.as_str(),
             PaneKind::RustConsole(_) => icons::CUBE.as_str(),
             PaneKind::DataViewer => icons::TABLE.as_str(),
+            PaneKind::WebPreview => icons::GLOBE.as_str(),
             PaneKind::Inspector(tab) => tab.icon(),
         }
     }
@@ -1090,6 +1095,12 @@ struct ForgeApp {
     terminals: HashMap<u32, terminal::Terminal>,
     /// A request to create a new terminal, optionally as a sibling of a tile.
     pending_new_terminal: Option<Option<TileId>>,
+    /// The live web-preview session (out-of-process `forge_cef` helper), if the
+    /// Web preview pane has been opened. Lazily spawned; dropped closes it.
+    web_preview: Option<ui::cef_preview::CefPreview>,
+    /// A request to open the Web preview pane and load this URL, applied once the
+    /// dock tree is in hand (like `pending_new_terminal`).
+    pending_open_web_preview: Option<String>,
     /// Independent Rust REPL kernels keyed by pane id, spawned lazily on first show.
     kernels: HashMap<u32, rust_kernel::RustKernel>,
     /// A request to create a new Rust kernel, optionally as a sibling of a tile.
@@ -1718,6 +1729,8 @@ impl ForgeApp {
             floating_panes: Vec::new(),
             terminals: HashMap::new(),
             pending_new_terminal: None,
+            web_preview: None,
+            pending_open_web_preview: None,
             kernels: HashMap::new(),
             pending_new_kernel: None,
             last_inspector_tab: InspectorTab::Variables,
@@ -3448,6 +3461,10 @@ impl egui_tiles::Behavior<PaneKind> for ForgeApp {
             Some(PaneKind::RustConsole(id)) => {
                 self.kernels.remove(id);
             }
+            Some(PaneKind::WebPreview) => {
+                // Dropping the session shuts the forge_cef helper down.
+                self.web_preview = None;
+            }
             _ => {}
         }
         true
@@ -3730,6 +3747,18 @@ impl eframe::App for ForgeApp {
                 }
                 if let Some(anchor) = self.pending_new_kernel.take() {
                     let kind = Self::create_kernel(&mut tree, anchor);
+                    self.dock_focus = Some(kind);
+                }
+                if let Some(url) = self.pending_open_web_preview.take() {
+                    let kind = Self::ensure_web_preview_tile(&mut tree);
+                    // Reuse a running helper (just navigate) or spawn a new one.
+                    match self.web_preview.as_mut() {
+                        Some(preview) => preview.navigate(&url),
+                        None => match ui::cef_preview::CefPreview::spawn(&url, (960, 720)) {
+                            Ok(preview) => self.web_preview = Some(preview),
+                            Err(error) => self.console = format!("Web preview: {error}"),
+                        },
+                    }
                     self.dock_focus = Some(kind);
                 }
                 self.dock_tree = Some(tree);

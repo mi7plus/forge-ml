@@ -1,6 +1,7 @@
 //! Presentation layer for the Forge IDE — palette, styled widgets, and other
 //! rendering helpers split out of the main application module.
 
+pub mod cef_preview;
 pub mod data_view;
 pub mod dock;
 pub mod editing;
