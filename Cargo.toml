@@ -54,6 +54,7 @@ members = [
     "crates/forge-ml",
     "crates/forge-manager",
     "crates/forge-webview",
+    "crates/forge-cef",
 ]
 resolver = "2"
 

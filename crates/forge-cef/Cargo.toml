@@ -1,0 +1,13 @@
+[package]
+name = "forge-cef"
+version = "1.12.0"
+edition = "2021"
+description = "Forge's CEF (Chromium Embedded Framework) offscreen-render integration — validate CEF init + OSR before wiring it into the IDE."
+publish = false
+
+[[bin]]
+name = "forge_cef_probe"
+path = "src/main.rs"
+
+[dependencies]
+cef = "152.1.0"
