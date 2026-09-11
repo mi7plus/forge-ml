@@ -46,8 +46,11 @@ struct Surface {
     /// into a `&mut [u8]` inside `on_paint` for a single-threaded write.
     map_ptr: *mut u8,
     map_len: usize,
+    /// Logical (point) surface size; the physical buffer is this times `scale`.
     width: AtomicU32,
     height: AtomicU32,
+    /// Display device scale (pixels-per-point), stored as f32 bits.
+    scale: AtomicU32,
 }
 
 // SAFETY: the raw pointer is only dereferenced on the single CEF UI thread
@@ -62,6 +65,9 @@ unsafe impl Sync for Surface {}
 impl Surface {
     fn size(&self) -> (u32, u32) {
         (self.width.load(Ordering::Relaxed), self.height.load(Ordering::Relaxed))
+    }
+    fn scale(&self) -> f32 {
+        f32::from_bits(self.scale.load(Ordering::Relaxed))
     }
 }
 
@@ -123,6 +129,7 @@ fn main() {
         map_len: map.len(),
         width: AtomicU32::new(cli.width.unwrap_or(DEFAULT_W)),
         height: AtomicU32::new(cli.height.unwrap_or(DEFAULT_H)),
+        scale: AtomicU32::new(1.0f32.to_bits()),
     });
 
     let settings = Settings {
@@ -192,12 +199,19 @@ fn main() {
         while let Ok(cmd) = rx.try_recv() {
             match cmd {
                 Command::Shutdown => break 'pump,
-                Command::Resize { width, height } => {
-                    let w = width.clamp(1, ipc::MAX_WIDTH);
-                    let h = height.clamp(1, ipc::MAX_HEIGHT);
+                Command::Resize { width, height, device_scale } => {
+                    // width/height are logical points; cap so logical*scale
+                    // stays within the physical slot (MAX_WIDTH/HEIGHT).
+                    let scale = device_scale.clamp(0.5, 4.0);
+                    let max_w = (ipc::MAX_WIDTH as f32 / scale) as u32;
+                    let max_h = (ipc::MAX_HEIGHT as f32 / scale) as u32;
+                    let w = width.clamp(1, max_w.max(1));
+                    let h = height.clamp(1, max_h.max(1));
                     surface.width.store(w, Ordering::Relaxed);
                     surface.height.store(h, Ordering::Relaxed);
+                    surface.scale.store(scale.to_bits(), Ordering::Relaxed);
                     if let Some(host) = &host {
+                        host.notify_screen_info_changed();
                         host.was_resized();
                     }
                 }
@@ -326,6 +340,29 @@ fn make_render_handler(surface: Arc<Surface>) -> RenderHandler {
                     rect.y = 0;
                     rect.width = w as i32;
                     rect.height = h as i32;
+                }
+            }
+
+            // Report the display's device scale so CEF renders the offscreen
+            // buffer at physical resolution (logical size * scale) while the
+            // view rect above stays logical. Returning 1 means "handled".
+            fn screen_info(
+                &self,
+                _browser: Option<&mut Browser>,
+                screen_info: Option<&mut ScreenInfo>,
+            ) -> ::std::os::raw::c_int {
+                if let Some(info) = screen_info {
+                    let (w, h) = self.surface.size();
+                    let rect = Rect { x: 0, y: 0, width: w as i32, height: h as i32 };
+                    info.device_scale_factor = self.surface.scale();
+                    info.depth = 32;
+                    info.depth_per_component = 8;
+                    info.is_monochrome = 0;
+                    info.rect = rect.clone();
+                    info.available_rect = rect;
+                    1
+                } else {
+                    0
                 }
             }
 

@@ -227,8 +227,11 @@ impl KeyKind {
 /// surface (top-left origin), matching what the helper reports via `view_rect`.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
-    /// Resize the offscreen surface to `width`x`height` and repaint.
-    Resize { width: u32, height: u32 },
+    /// Resize the offscreen surface to `width`x`height` **logical** points and
+    /// repaint. `device_scale` is the display's pixels-per-point: the helper
+    /// renders the offscreen buffer at `width*scale` x `height*scale` physical
+    /// pixels (crisp on hi-DPI) while input and layout stay in logical points.
+    Resize { width: u32, height: u32, device_scale: f32 },
     /// Pointer moved to (x, y). `modifiers` is CEF's event-flags bitmask.
     MouseMove { x: i32, y: i32, modifiers: u32, leaving: bool },
     /// A mouse button went down (`up=false`) or up (`up=true`).
@@ -269,7 +272,9 @@ impl Command {
     /// placed last and takes the rest of the line, so URLs may contain spaces.
     pub fn to_line(&self) -> String {
         match self {
-            Command::Resize { width, height } => format!("resize {width} {height}"),
+            Command::Resize { width, height, device_scale } => {
+                format!("resize {width} {height} {device_scale}")
+            }
             Command::MouseMove { x, y, modifiers, leaving } => {
                 format!("mouse_move {x} {y} {modifiers} {}", *leaving as u8)
             }
@@ -301,6 +306,8 @@ impl Command {
             "resize" => Some(Command::Resize {
                 width: f.next()?.parse().ok()?,
                 height: f.next()?.parse().ok()?,
+                // Optional for backward compatibility; default to 1.0.
+                device_scale: f.next().and_then(|s| s.parse().ok()).unwrap_or(1.0),
             }),
             "mouse_move" => Some(Command::MouseMove {
                 x: f.next()?.parse().ok()?,
@@ -418,7 +425,7 @@ mod tests {
     #[test]
     fn command_line_roundtrip() {
         let cases = [
-            Command::Resize { width: 800, height: 600 },
+            Command::Resize { width: 800, height: 600, device_scale: 1.5 },
             Command::MouseMove { x: 10, y: -5, modifiers: 4, leaving: true },
             Command::MouseClick {
                 x: 1,
