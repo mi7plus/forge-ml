@@ -4519,7 +4519,13 @@ name = "forge-cef"
 version = "1.12.0"
 dependencies = [
  "cef",
+ "forge-cef-ipc",
+ "memmap2",
 ]
+
+[[package]]
+name = "forge-cef-ipc"
+version = "1.12.0"
 
 [[package]]
 name = "forge-cli"

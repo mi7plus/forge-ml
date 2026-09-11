@@ -2,12 +2,17 @@
 name = "forge-cef"
 version = "1.12.0"
 edition = "2021"
-description = "Forge's CEF (Chromium Embedded Framework) offscreen-render integration — validate CEF init + OSR before wiring it into the IDE."
+description = "Forge's CEF (Chromium Embedded Framework) offscreen-render helper — renders a page windowless and streams the framebuffer to the IDE over shared memory."
 publish = false
 
+# The IDE launches this helper (like forge_manager / forge_webview) so CEF's
+# heavy multi-process machinery and ~150MB Chromium runtime stay out of the main
+# egui binary. `--selftest` runs the original standalone OSR smoke test.
 [[bin]]
-name = "forge_cef_probe"
+name = "forge_cef"
 path = "src/main.rs"
 
 [dependencies]
 cef = "152.1.0"
+forge-cef-ipc = { path = "../forge-cef-ipc" }
+memmap2 = "0.9"
