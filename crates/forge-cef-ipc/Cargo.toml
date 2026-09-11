@@ -1,6 +1,6 @@
 [package]
 name = "forge-cef-ipc"
-version = "1.12.0"
+version = "1.13.0"
 edition = "2021"
 description = "Shared memory layout + command protocol for the Forge CEF offscreen-render helper. Dependency-free so the IDE can depend on it without pulling in CEF."
 publish = false

@@ -1,6 +1,6 @@
 [package]
 name = "forge-manager"
-version = "1.12.0"
+version = "1.13.0"
 edition = "2021"
 description = "Forge Manager — a standalone GUI to inspect and manage a Forge ML project's environment (Navigator-style)."
 publish = false

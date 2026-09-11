@@ -73,6 +73,13 @@ jobs:
           if-no-files-found: error
           path: |
             target/release/*.exe
+            # The helper binaries ship *inside* the installer (staged into
+            # packaging/helpers); exclude their loose target/release copies so
+            # they aren't published as stray release assets or picked up as the
+            # windows .exe in the update manifest.
+            '!target/release/forge_cef.exe'
+            '!target/release/forge_manager.exe'
+            '!target/release/forge_webview.exe'
             target/release/*.dmg
             target/release/*.deb
             target/release/*.AppImage
