@@ -33,7 +33,16 @@ icons = [
 # copies a directory recursively into `<resources>/forge-runtime/…`, whereas a
 # glob would try to copy the `bin`/`lib`/`vendor` subdirs as files and fail. The
 # resulting `forge-runtime/` layout is what src/offline.rs looks for.
-resources = ["packaging/resources/rust-analyzer*", "packaging/forge-runtime"]
+# `packaging/helpers` holds the sibling helper binaries (forge_manager,
+# forge_webview, and on Windows forge_cef + the CEF/Chromium runtime it needs).
+# Staged by packaging/stage-helpers.{sh,ps1} before packaging (like forge-runtime)
+# and located at runtime by src/helpers.rs. On Windows/NSIS it lands next to the
+# exe; forge_cef finds libcef.dll in its own dir there.
+resources = [
+    "packaging/resources/rust-analyzer*",
+    "packaging/forge-runtime",
+    "packaging/helpers",
+]
 
 [package.metadata.packager.nsis]
 installMode = "currentUser"

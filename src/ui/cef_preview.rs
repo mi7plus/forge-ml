@@ -401,15 +401,10 @@ fn bgra_to_color_image(width: u32, height: u32, bgra: &[u8]) -> egui::ColorImage
     egui::ColorImage::from_rgba_unmultiplied([w, h], &rgba)
 }
 
-/// Path to the `forge_cef` helper installed beside the running IDE executable,
-/// falling back to the bare name (found via PATH) for `cargo run` layouts.
+/// Path to the `forge_cef` helper (dev build beside the exe, or the packaged
+/// `helpers/` dir where the CEF runtime is staged alongside it).
 fn helper_binary() -> PathBuf {
-    let name = if cfg!(windows) { "forge_cef.exe" } else { "forge_cef" };
-    std::env::current_exe()
-        .ok()
-        .and_then(|here| here.parent().map(|dir| dir.join(name)))
-        .filter(|candidate| candidate.is_file())
-        .unwrap_or_else(|| PathBuf::from(name))
+    crate::helpers::locate("forge_cef")
 }
 
 /// A unique temp path for this session's frame buffer.

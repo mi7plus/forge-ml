@@ -51,6 +51,16 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./packaging/build-offline-bundle.ps1
+      - name: Stage helper binaries (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash packaging/stage-helpers.sh
+      - name: Stage helper binaries (Windows)
+        # Builds forge_cef + the CEF/Chromium runtime (downloads ~150MB and
+        # builds a C++ wrapper via CMake/Ninja) plus forge_manager/forge_webview.
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./packaging/stage-helpers.ps1
       - name: Install packager
         run: cargo install cargo-packager --locked
       - name: Build installer

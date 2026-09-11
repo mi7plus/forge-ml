@@ -18,6 +18,7 @@ mod export;
 mod git;
 mod github;
 mod glyph_guard;
+mod helpers;
 mod integration_worker;
 mod jobs;
 mod jupyter;

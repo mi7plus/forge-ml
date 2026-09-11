@@ -686,16 +686,7 @@ fn open_path(path: &Path) {
 /// Open the file in Forge's own WebView window (`forge_webview`, installed beside
 /// the app), for full CSS/JS rendering without an external browser.
 fn open_in_forge_webview(path: &Path) {
-    let exe = if cfg!(windows) {
-        "forge_webview.exe"
-    } else {
-        "forge_webview"
-    };
-    let binary = std::env::current_exe()
-        .ok()
-        .and_then(|here| here.parent().map(|dir| dir.join(exe)))
-        .filter(|candidate| candidate.is_file())
-        .unwrap_or_else(|| std::path::PathBuf::from(exe));
+    let binary = crate::helpers::locate("forge_webview");
     let _ = Command::new(binary).arg(path).spawn();
 }
 
