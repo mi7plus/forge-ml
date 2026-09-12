@@ -63,8 +63,25 @@ jobs:
         run: ./packaging/stage-helpers.ps1
       - name: Install packager
         run: cargo install cargo-packager --locked
-      - name: Build installer
+      - name: Build installer (Windows)
+        if: runner.os == 'Windows'
         run: cargo packager --release --formats ${{ matrix.formats }}
+      - name: Build installer (Unix, with retry)
+        # macOS dmg creation intermittently fails with a transient
+        # "hdiutil: create failed - Resource busy"; cargo packager is otherwise
+        # deterministic, so retry a few times before giving up (exit 1 only if
+        # every attempt fails, so a real error still fails the job).
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if cargo packager --release --formats ${{ matrix.formats }}; then
+              exit 0
+            fi
+            echo "cargo packager attempt $attempt failed; retrying in 15s…"
+            sleep 15
+          done
+          exit 1
       - uses: actions/upload-artifact@v4
         with:
           # matrix.os (not runner.os): the two macOS runners share runner.os
