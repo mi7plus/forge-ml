@@ -45,6 +45,7 @@
     <a href="#notebook">Notebook cells</a>
     <a href="#telemetry">Telemetry markers</a>
     <a href="#editor">Editor &amp; rust-analyzer</a>
+    <a href="#preview">Markdown &amp; web preview</a>
     <a href="#data">Data &amp; the grid</a>
     <a href="#experiments">Experiments</a>
     <a href="#plots">Plots</a>
@@ -53,6 +54,8 @@
     <a href="#sql">SQL workbench</a>
     <a href="#storage">Object storage</a>
     <a href="#remote">Remote Jupyter</a>
+    <a href="#environments">Reproducible environments</a>
+    <a href="#manager">Forge Manager</a>
     <a href="#a11y">Accessibility</a>
     <a href="#privacy">Privacy &amp; updates</a>
   </nav>
@@ -126,6 +129,7 @@
           <tr><td><span class="pane-ico">⌨</span><strong>Terminal</strong></td><td>A real embedded system terminal (ConPTY / forkpty) running your shell. Open several — each an independent, dockable, floatable pane.</td></tr>
           <tr><td><span class="pane-ico">◈</span><strong>Rust kernel</strong></td><td>An independent Rust REPL with its own Evcxr session. Run several side by side, each isolated from the notebook and one another.</td></tr>
           <tr><td><span class="pane-ico">▭</span><strong>Data viewer</strong></td><td>Full virtualized table viewer for an open dataset (also available as a floating window).</td></tr>
+          <tr><td><span class="pane-ico">🌐</span><strong>Web preview</strong></td><td>A live Chromium web view (Windows) that renders an HTML file in a dockable pane, with mouse, scroll, and keyboard. Opened from an HTML file's <em>Open in web view</em>.</td></tr>
           <tr><td><span class="pane-ico">◧</span><strong>Variables</strong></td><td>Live Evcxr variable names, Rust types, and sizes after every successful cell.</td></tr>
           <tr><td><span class="pane-ico">▤</span><strong>Data</strong></td><td>Imported datasets, quality profiles, and dataset actions.</td></tr>
           <tr><td><span class="pane-ico">📈</span><strong>Plots</strong></td><td>Metric, vector, and structured <code>forge_plot:</code> visualizations with history and exports.</td></tr>
@@ -241,6 +245,30 @@ println!(r#"forge_plot:{"name":"roc","kind":"line","series":[...]}"#); // struct
       search (<kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd>) returns clickable results.</p>
       <p>The <strong>Debug</strong> menu offers working analysis and inspection actions — run code analysis,
       open Problems, inspect variables, and restart the Rust console. Step debugging is not available yet.</p>
+    </section>
+
+    <section id="preview">
+      <h2>Markdown &amp; web preview</h2>
+      <p>Markdown and HTML files gain <strong>Edit / Split / Preview</strong> modes in the editor toolbar.
+      <em>Preview</em> renders the file; <em>Split</em> shows the source and the rendered view side by side,
+      and for Markdown the two scroll together. The preview is a compact in-app renderer — no external
+      dependency, so it can't drift from the pinned UI toolkit — covering headings, lists, block quotes,
+      fenced code, rules, tables, and inline emphasis, code, and links.</p>
+      <dl class="spec">
+        <dt>In-app web view</dt>
+        <dd>For full-fidelity HTML (CSS and JavaScript), an HTML file's <strong>Open in web view</strong>
+        button opens a <strong>dockable Web preview pane</strong> backed by a real Chromium engine — panned,
+        scrolled, clicked, and typed into like any browser, but embedded in the workspace rather than an
+        external window. It runs as a separate helper process, so a page can't destabilize the IDE.
+        <strong>Windows only</strong> today; the split/structural Markdown and HTML preview works on every
+        platform.</dd>
+        <dt>Rendered window</dt>
+        <dd>Alternatively, <em>Open rendered preview</em> opens the file in Forge's own WebView window
+        (WebView2 on Windows, WKWebView on macOS; Linux uses system WebKitGTK), and <em>Open in browser</em>
+        hands it to the system browser.</dd>
+      </dl>
+      <div class="note">The Chromium runtime that powers the dockable web view ships inside the Windows
+      installer, which is why that download is larger; the portable <code>forge_ide.exe</code> omits it.</div>
     </section>
 
     <section id="data">
@@ -368,6 +396,74 @@ println!(r#"forge_plot:{"name":"roc","kind":"line","series":[...]}"#); // struct
       Markdown, SVG, PNG, JSON) return to the originating cell and are shown as inert source rather than
       executed. Input requests open a focused, masked dialog; Cancel and Interrupt use a separate control lane
       so they stay responsive even while execution is blocked.</p>
+    </section>
+
+    <section id="environments">
+      <h2>Reproducible environments</h2>
+      <p>Beyond the offline Rust runtime, a Forge project can declare the wider environment it needs and pin
+      it so it rebuilds the same way anywhere. A project states its requirements in <code>forge.toml</code>,
+      and Forge resolves them into a fully-pinned <code>forge.lock</code> — the reproducible source of
+      truth.</p>
+<pre><code># forge.toml
+[gpu]
+backend = "auto"                 # auto · wgpu · cuda · cpu
+
+[native]
+tools = ["cmake", "protoc", "ninja"]
+
+[python]
+version = "&gt;=3.10"</code></pre>
+      <p>Resolution runs through a chain of <strong>providers</strong>, each of which probes what's present,
+      activates what it can, and records the result in the lock:</p>
+      <dl class="spec">
+        <dt>Bundled &amp; system</dt>
+        <dd>The shipped offline runtime and the tools already on the machine — the baseline every project starts from.</dd>
+        <dt>GPU</dt>
+        <dd>Resolves the compute backend against the <code>[gpu]</code> section. <code>forge gpu detect</code> reports the backends available on this machine.</dd>
+        <dt>Native libraries</dt>
+        <dd>Fulfils <code>[native]</code> tools from a <strong>hash-pinned catalog</strong> of prebuilts (CMake 3.30.5, protoc 28.3, Ninja 1.12.1, …), downloaded and <strong>SHA-256-verified</strong> into <code>.forge/native-env</code> — no system package manager required.</dd>
+        <dt>Python</dt>
+        <dd>Resolves an interpreter for the <code>[python]</code> requirement; <code>forge python check</code> reports what it finds.</dd>
+      </dl>
+      <p>The command line drives the whole cycle:</p>
+      <div class="table-scroll">
+      <table>
+        <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>forge doctor</code></td><td>Probe every provider and report gaps, incompatibilities, and what's missing.</td></tr>
+          <tr><td><code>forge env sync</code></td><td>Reconcile the working environment with <code>forge.lock</code> in place.</td></tr>
+          <tr><td><code>forge reproduce</code></td><td>Rebuild the locked environment on a fresh machine.</td></tr>
+          <tr><td><code>forge native check</code> / <code>provide</code> / <code>pin</code></td><td>Inspect, provision, or pin native tools from the catalog.</td></tr>
+          <tr><td><code>forge gpu detect</code> · <code>forge python check</code></td><td>Report the GPU backends and Python interpreter available here.</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <div class="note">Provisioned downloads are verified against a pinned SHA-256 before use, extracted
+      into the project's <code>.forge/</code> directory, and applied by <code>forge run</code> / <code>build</code> /
+      <code>test</code> — never touching system directories.</div>
+    </section>
+
+    <section id="manager">
+      <h2>Forge Manager</h2>
+      <p>Forge Manager is a companion desktop app — a Navigator-style console that sits over a project's
+      environment much as Anaconda Navigator sits over conda. Launch it from the IDE or with
+      <code>forge manage</code>.</p>
+      <dl class="spec">
+        <dt>Home</dt>
+        <dd>App tiles to launch Forge ML — or to download and install it — plus a verified view of the
+        current install.</dd>
+        <dt>Environment</dt>
+        <dd>The project's resolved environment at a glance: providers, the GPU backend, native tools, the
+        Python runtime, and any gaps, read straight from the same status the IDE reports.</dd>
+        <dt>Packages</dt>
+        <dd>Missing native tools with one-click <strong>Install</strong> that runs the same verified
+        provisioning as <code>forge native provide</code>.</dd>
+        <dt>Diagnostics</dt>
+        <dd>A <code>forge doctor</code> report in a readable console, so you can see what's wrong and fix it
+        without leaving the app.</dd>
+      </dl>
+      <div class="note">The Manager reads the IDE's machine-readable environment status and shells out to the
+      same provisioning commands, so what it shows and installs always matches the CLI and the IDE.</div>
     </section>
 
     <section id="a11y">

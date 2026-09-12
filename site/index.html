@@ -15,7 +15,7 @@
   <span class="brand"><img src="logo-mark.svg" alt="" width="26" height="26" style="vertical-align:-7px;margin-right:9px">FORGE <span>ML</span></span>
   <div class="links">
     <a href="#workspace">Workspace</a>
-    <a href="#screenshots">Screenshots</a>
+    <a href="#ecosystem">Environments</a>
     <a href="#features">Features</a>
     <a href="#workflow">Workflow</a>
     <a href="#ml">Train &amp; ship</a>
@@ -32,16 +32,19 @@
       <h1>The IDE for machine<br>learning in Rust.</h1>
       <p class="lede">A Spyder-style scientific workspace built for Rust: a fully dockable layout,
       a persistent Evcxr console, <code>//# %%</code> notebook cells, a live variable and plot
-      inspector, embedded Burn training, and native model deployment — one native desktop app,
-      offline by default.</p>
+      inspector, embedded Burn training, and native model deployment. Now a small ecosystem —
+      reproducible environments you can lock and rebuild, a companion environment
+      <strong>Manager</strong>, and an in-app web preview — all in one native desktop app,
+      GPU-ready and offline by default.</p>
       <div class="badges">
         <span class="chip">Evcxr console</span>
         <span class="chip">Dockable panes</span>
-        <span class="chip">Terminals &amp; kernels</span>
+        <span class="chip">Reproducible envs</span>
+        <span class="chip">GPU built-in</span>
         <span class="chip">Burn 0.22 training</span>
         <span class="chip">Millwright ONNX</span>
+        <span class="chip">Web preview</span>
         <span class="chip">rust-analyzer</span>
-        <span class="chip">Arrow / Parquet</span>
       </div>
       <div class="cta">
         <a class="btn primary" href="#download">Download for desktop →</a>
@@ -192,6 +195,37 @@
   </div>
 </section>
 
+<section id="ecosystem" class="tinted">
+  <div class="wrap">
+    <p class="eyebrow">Reproducible by construction</p>
+    <h2>Environments you can declare, lock, and rebuild</h2>
+    <p class="lede">A Forge project states what it needs in <code>forge.toml</code> — a GPU backend,
+    native libraries, a Python runtime — and Forge resolves it into a fully-pinned
+    <code>forge.lock</code>. Providers supply each piece: the bundled runtime, system tools, the GPU,
+    hash-verified native prebuilts, and Python. One command checks the whole thing; another rebuilds
+    it on a fresh machine.</p>
+    <div class="grid">
+      <div class="card"><span class="ico">◱</span><h3>Declare &amp; lock</h3><p><code>forge.toml</code> declares the <code>[gpu]</code>, <code>[native]</code>, and <code>[python]</code> requirements; <code>forge.lock</code> is the generated, fully-resolved environment — the reproducible source of truth.</p></div>
+      <div class="card"><span class="ico">◈</span><h3>doctor &amp; reproduce</h3><p><code>forge doctor</code> probes every provider and reports gaps; <code>forge reproduce</code> rebuilds the locked environment somewhere new; <code>forge env sync</code> reconciles it in place.</p></div>
+      <div class="card"><span class="ico">⇲</span><h3>Provisioned native tools</h3><p><code>forge native provide</code> fetches prebuilt <strong>CMake, protoc, and Ninja</strong> from a hash-pinned catalog, SHA-256-verified, into <code>.forge/native-env</code> — no system package manager needed.</p></div>
+      <div class="card"><span class="ico">⊞</span><h3>GPU &amp; Python providers</h3><p><code>forge gpu detect</code> reports the backends on this machine and <code>forge python check</code> resolves an interpreter. Each provider probes, activates, and records itself in the lock.</p></div>
+    </div>
+<pre><code># forge.toml — declare what this project needs
+[gpu]
+backend = "auto"                 # auto · wgpu · cuda · cpu
+
+[native]
+tools = ["cmake", "protoc", "ninja"]
+
+[python]
+version = "&gt;=3.10"</code></pre>
+    <div class="note"><strong>Forge Manager</strong> is a companion desktop app — a Navigator-style
+    console (<em>Home / Environment / Packages / Diagnostics</em>) that inspects a project's resolved
+    environment and installs missing native tools with one click, the way Anaconda Navigator sits over
+    conda. Launch it from the IDE or with <code>forge manage</code>.</div>
+  </div>
+</section>
+
 <section id="workspace" class="tinted">
   <div class="wrap">
     <p class="eyebrow">Your workspace, your way</p>
@@ -282,6 +316,7 @@
       <div class="card"><span class="ico">⌨</span><h3>Terminals &amp; kernels</h3><p>Real embedded system terminals (vim, htop, and all) plus independent Rust REPL kernels — open as many as you like, each a dockable, floatable pane.</p></div>
       <div class="card"><span class="ico">▦</span><h3>Notebook cells</h3><p>Split scripts into cells with <code>//# %%</code>. Run one, everything above, or all — with per-cell status, output, compiler errors, and timing.</p></div>
       <div class="card"><span class="ico">◔</span><h3>Variables &amp; plots</h3><p>Live Evcxr variable names and Rust types after every cell. Publish metrics, vectors, and tables from <code>stdout</code> into charts and grids.</p></div>
+      <div class="card"><span class="ico">◵</span><h3>Markdown &amp; web preview</h3><p>Preview Markdown and HTML beside the source, with linked scroll. HTML also renders in a dockable in-app web view — real Chromium, no external browser (Windows).</p></div>
       <div class="card"><span class="ico">⊞</span><h3>Data viewer</h3><p>Import CSV, TSV, JSON Lines, Parquet, and Arrow IPC. Virtualized two-axis grids with filter, sort, pin/hide columns, editing, and linked plots.</p></div>
       <div class="card"><span class="ico">◈</span><h3>rust-analyzer</h3><p>Document sync, inline diagnostics, hover, caret-anchored completion, and Ctrl+click go-to-definition across files.</p></div>
       <div class="card"><span class="ico">⌘</span><h3>Command palette</h3><p>Ctrl+Shift+P fuzzy-searches every command. Panes are keyboard-reachable and the whole layout is navigable without a mouse.</p></div>
