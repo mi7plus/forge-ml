@@ -88,15 +88,14 @@ jobs:
           # ("macOS"), which would collide since v4 artifact names are immutable.
           name: forge-ml-${{ matrix.os }}
           if-no-files-found: error
+          # Explicit allowlist of shippable artifacts. target/release also holds
+          # the helper exes (forge_cef/forge_manager/forge_webview — they ship
+          # INSIDE the installer), the `forge` CLI, and CEF's bootstrap*.exe; an
+          # exclusion denylist proved unreliable, so name only what we publish:
+          # the NSIS installer, the portable IDE exe, and the mac/Linux packages.
           path: |
-            target/release/*.exe
-            # The helper binaries ship *inside* the installer (staged into
-            # packaging/helpers); exclude their loose target/release copies so
-            # they aren't published as stray release assets or picked up as the
-            # windows .exe in the update manifest.
-            '!target/release/forge_cef.exe'
-            '!target/release/forge_manager.exe'
-            '!target/release/forge_webview.exe'
+            target/release/forge_ide_*_x64-setup.exe
+            target/release/forge_ide.exe
             target/release/*.dmg
             target/release/*.deb
             target/release/*.AppImage
@@ -127,7 +126,10 @@ jobs:
               # by the arch cargo-packager embeds in the filename (aarch64 vs x64).
               if name.endswith(".dmg"):
                   platform = "macos-aarch64" if "aarch64" in name else "macos-x86_64"
-              elif name.endswith(".exe"):
+              elif name.endswith("-setup.exe"):
+                  # The NSIS installer is the Windows update artifact — NOT the
+                  # portable forge_ide.exe (or any other stray .exe), which must
+                  # never be selected here.
                   platform = "windows-x86_64"
               elif name.endswith((".AppImage", ".deb")):
                   platform = "linux-x86_64"
