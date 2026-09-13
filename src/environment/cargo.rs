@@ -204,6 +204,38 @@ mod tests {
     }
 
     #[test]
+    fn declared_dependencies_reads_all_dep_tables() {
+        let dir = std::env::temp_dir().join(format!("forge-cargo-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname=\"x\"\nversion=\"0.1.0\"\n\
+             [dependencies]\nserde=\"1\"\npolars=\"0.40\"\n\
+             [dev-dependencies]\nproptest=\"1\"\n\
+             [build-dependencies]\ncc=\"1\"\n",
+        )
+        .unwrap();
+        let mut deps = declared_dependencies(&dir);
+        deps.sort();
+        assert_eq!(deps, vec!["cc", "polars", "proptest", "serde"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn provide_guards_empty_and_missing_manifest() {
+        let empty = CargoRequest::default();
+        assert!(provide(std::path::Path::new("."), &empty).contains("Nothing to provide"));
+        let with_crates = CargoRequest {
+            present: true,
+            crates: vec!["serde".into()],
+            require: false,
+        };
+        // A directory with no Cargo.toml is reported, not panicked on.
+        let nowhere = std::env::temp_dir().join("forge-cargo-no-such-project-xyz");
+        assert!(provide(&nowhere, &with_crates).contains("no Cargo.toml"));
+    }
+
+    #[test]
     fn materialize_records_sorted_crates() {
         let manifest =
             Manifest::parse("[cargo]\ncrates = [\"polars\", \"ndarray\"]\n").unwrap();

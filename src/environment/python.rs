@@ -356,6 +356,20 @@ mod tests {
     }
 
     #[test]
+    fn provide_guards_empty_packages() {
+        let no_packages = PythonRequest {
+            present: true,
+            version: None,
+            manager: Some("uv".into()),
+            bridge: Vec::new(),
+            packages: Vec::new(),
+            require: false,
+        };
+        let out = provide(&no_packages, std::path::Path::new("."));
+        assert!(out.contains("Nothing to install"), "got: {out}");
+    }
+
+    #[test]
     fn version_matching_is_major_minor() {
         assert!(version_matches("Python 3.13.1", "3.13"));
         assert!(version_matches("Python 3.13", "3.13"));
