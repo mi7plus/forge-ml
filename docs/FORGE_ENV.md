@@ -17,8 +17,9 @@ error and never silent.** A `forge.toml` written for a future Forge still loads.
 ## `forge.toml` — the manifest (optional)
 
 Lives beside `Cargo.toml`. Declares the environment; Cargo still owns crate
-resolution. A project without one just gets the defaults (bundled runtime,
-current toolchain), so its existence forces nothing.
+*resolution* (`Cargo.lock`), but Forge drives `cargo add`/`fetch` to keep the
+declared set in sync. A project without a manifest just gets the defaults
+(bundled runtime, current toolchain), so its existence forces nothing.
 
 ```toml
 schema = 1
@@ -31,11 +32,20 @@ channel = "stable"           # distribution channel
 [toolchain]
 rust = "1.98.0"              # pinned toolchain (source of truth)
 
-# ── Reserved sections ────────────────────────────────────────────────────────
-# Parsed + validated; non-empty today ⇒ "recognized, not yet active" diagnostic.
-[native]     # BLAS/LAPACK/OpenSSL/… — today a fixed prebuilt set in the bundle
-[gpu]        # cuda | rocm | metal | none — today CPU-only
-[python]     # managed PyO3/maturin env — today data exchange via ONNX/Arrow/Parquet
+# ── Active sections (each has a provider; forge doctor reports coverage) ──────
+[gpu]                        # backend = auto|wgpu|cuda|rocm|metal|directml|none
+backend = "auto"
+
+[native]                     # system libs (detect/bridge) + provisioned tools
+tools = ["cmake", "protoc", "ninja"]   # hash-pinned prebuilts via `forge native provide`
+
+[cargo]                      # crate deps Forge keeps in Cargo.toml
+crates = ["polars", "ndarray", "linfa"]
+
+[python]                     # a referenced uv/pixi env, with packages Forge installs
+version  = ">=3.10"
+manager  = "uv"              # uv | pixi | system
+packages = ["pyarrow", "onnxruntime"]
 ```
 
 Nothing uses `deny_unknown_fields`, and an unknown top-level section or a higher
@@ -141,17 +151,25 @@ cross-platform resolver the roadmap warns against; every artifact is verified by
 hash before use, and nothing downloaded is executed.
 
 `PythonProvider` (`src/environment/python.rs`) covers the `[python]` section
-(Phase 6) as a **reference**, never a manager: it checks that an interpreter of
-the requested version is resolvable (a project `.venv`, or PATH) and that the
-declared manager (`uv`/`pixi`) is present, and reports coverage or a gap — but it
-never creates, resolves, or installs a Python environment. The roadmap is
-emphatic that a managed Python env re-imports the problem Rust lets you escape, so
-Forge references what `uv`/`pixi` own. `forge python check` reports the bridge
-status; a missing interpreter or version mismatch is a gap only under
-`require = true`.
+(Phase 6). It **references** the interpreter — checking that one of the requested
+version is resolvable (a project `.venv`, or PATH) and that the declared manager
+(`uv`/`pixi`) is present, reporting coverage or a gap — and, with `packages`
+declared, **installs** them into that env (Phase 7): `forge python provide` uses
+the interpreter's `pip` (uv/system/`.venv`) or `pixi add` when the manager is
+pixi. `uv`/`pixi` still own the environment itself — Forge does not create a
+managed env, the problem Rust lets you escape — it installs into the one they own.
+`forge python check` reports the interpreter and per-package install status; a
+missing interpreter or version mismatch is a gap only under `require = true`.
 
-Every reserved manifest section now has a provider — nothing is left as
-"recognized but not yet active".
+`CrateProvider` (`src/environment/cargo.rs`) covers the `[cargo]` section
+(Phase 7) — the one place Forge *drives* the underlying tool. `forge cargo check`
+reports which of `[cargo].crates` are already in `Cargo.toml`; `forge cargo
+provide` runs `cargo add` for each missing crate and `cargo fetch`. `Cargo.lock`
+stays the source of truth for resolved versions — Forge invokes Cargo rather than
+reimplementing resolution.
+
+Every manifest section now has a provider — `[gpu]`, `[native]`, `[python]`, and
+`[cargo]` are all active; nothing is left "recognized but not yet active".
 
 `forge doctor` also runs read-only **host diagnostics** — the presence of rustc,
 cargo, rustup, a C compiler/linker, CUDA, and Python — so it can explain *why*
@@ -167,7 +185,11 @@ forge_ide --gpu-detect              # report detected GPU backends
 forge_ide --native-check    [dir]   # check [native] prerequisites (system + bridge guidance)
 forge_ide --native-provide  [dir]   # download+verify+extract pinned prebuilts; write .forge/native-env
 forge_ide --native-pin <url> --archive <zip|tar-gz> [--name n]   # print a verified catalog entry
-forge_ide --python-check    [dir]   # report the referenced Python bridge env (never manages it)
+forge_ide --cargo-check     [dir]   # report which [cargo].crates are in Cargo.toml
+forge_ide --cargo-provide   [dir]   # cargo add the declared crates + cargo fetch
+forge_ide --python-check    [dir]   # report the referenced Python env + package install status
+forge_ide --python-provide  [dir]   # install [python].packages into the referenced env
+forge_ide --env-provide     [dir]   # provision everything: native tools, crates, then packages
 forge_ide --env-status-json [dir]   # machine-readable status snapshot (consumed by the Manager GUI)
 ```
 
@@ -218,10 +240,13 @@ Shipped:
 - `BundledRuntimeProvider` — the offline runtime bundle (Phase 0).
 - `SystemToolchainProvider` — the user's own `rustc`/`cargo` fallback (Phase 2).
 - `GpuProvider` — CUDA/ROCm/Metal/DirectML detection, fills `[gpu]` (Phase 4).
-- `NativeLibProvider` — checks `[native]` prerequisites and bridges to the system
-  package manager; installs nothing (Phase 5).
-- `PythonProvider` — references a `uv`/`pixi` Python env for the bridge; does
-  **not** manage one (Phase 6).
+- `NativeLibProvider` — checks `[native]` prerequisites, bridges to the system
+  package manager, and provisions pinned prebuilt tools from a hash-verified
+  catalog (Phase 5).
+- `PythonProvider` — references a `uv`/`pixi` Python env and installs the declared
+  `[python].packages` into it; does **not** create the env itself (Phase 6/7).
+- `CrateProvider` — keeps `Cargo.toml` in sync with `[cargo].crates` via
+  `cargo add`/`fetch`; `Cargo.lock` owns resolved versions (Phase 7).
 
 All provider seams are now filled. Planned beyond them: **Forge Hub** — a
 datasets/models registry with checksums in `forge.lock` — deferred until the core

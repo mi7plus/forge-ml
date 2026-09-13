@@ -4,7 +4,7 @@
 
 # Forge ML
 
-Forge ML is a desktop compute studio for interactive Rust machine-learning work, shipping as signed Windows, macOS, and Linux installers.
+Forge ML is a desktop compute studio for interactive Rust machine-learning work, shipping as Windows, macOS, and Linux installers.
 
 Its workspace follows the scientific-IDE model popularized by Spyder — an editor surrounded by project, outline, variable, plot, help, diagnostics, console, and history panes — but every surface is a fully dockable pane. Split, drag between regions, tab together, reorder, or hide any pane; the arrangement is remembered across restarts.
 
@@ -16,9 +16,11 @@ See also the [user guide](docs/USER_GUIDE.md), [architecture](ARCHITECTURE.md), 
 
 ## What it does
 
-Forge ML has grown past a prototype — it ships signed Windows, macOS, and Linux
+Forge ML has grown past a prototype — it ships Windows, macOS, and Linux
 installers, each carrying an offline Rust runtime so notebooks and generated
-projects build with no user-installed toolchain and no network. The highlights
+projects build with no user-installed toolchain and no network. (Artifacts carry
+GitHub build-provenance attestations; OS code signing is not yet in place, so the
+first launch shows a publisher warning — see [Packaging](#packaging).) The highlights
 below are grouped by workflow; the [feature site](site/) and
 [user guide](docs/USER_GUIDE.md) carry the exhaustive list.
 
@@ -34,6 +36,8 @@ below are grouped by workflow; the [feature site](site/) and
   safe unsaved-change handling
 - Command palette, `Ctrl+1`–`Ctrl+9` inspector jumps, `F6` pane cycling, high
   contrast, and reduced-motion modes
+- Markdown & HTML preview (Edit / Split / Preview with linked scroll), plus a
+  dockable in-app **web preview** rendering real Chromium offscreen (Windows)
 
 ### Notebooks & the Rust runtime
 - Persistent Evcxr session off the UI thread; cells separated with `//# %% <name>`
@@ -90,12 +94,17 @@ below are grouped by workflow; the [feature site](site/) and
   environments, and project bundles; reproducible project bundles and standalone
   EDA / experiment-comparison HTML and PDF reports
 
-### Distribution & packaging
-- A thin `forge` CLI (scaffold projects with `forge.toml`, pass through to Cargo,
-  `env sync|doctor`) and a `forge_ml` umbrella crate re-exporting the curated
-  stack — both shipped in the installer
-- A declarative `forge.toml` / `forge.lock` environment system with reserved
-  `[native]`/`[gpu]`/`[python]` seams for a future environment manager
+### Environments, distribution & packaging
+- A declarative `forge.toml` / `forge.lock` environment system with **active**
+  providers for `[gpu]`, `[native]`, `[python]`, and `[cargo]`. `forge doctor`
+  probes them all; `forge env provide` provisions the whole stack — native tools
+  from a hash-pinned catalog, Cargo crates via `cargo add`, and Python packages
+  via pip/pixi — and `forge reproduce` rebuilds a locked environment elsewhere
+- **Forge Manager** — a companion Navigator-style GUI over that system (providers,
+  diagnostics, one-click native installs); launch with `forge manage`
+- A thin `forge` CLI (scaffold projects, pass through to Cargo, `env`, `gpu`,
+  `native`, `cargo`, `python`, `doctor`, `reproduce`) and a `forge_ml` umbrella
+  crate re-exporting the curated stack — all shipped in the installer
 - Tagged releases build an NSIS installer, a macOS DMG, and Linux DEB/AppImage
   packages with build-provenance attestations; updates are discovered and
   verified but never installed silently

@@ -72,9 +72,11 @@ hash, dataset hashes, toolchain).
 
 ## 5 · Pin and reproduce
 
-Freeze the environment, then prove any machine can reproduce a saved run:
+Provision the whole environment, freeze it, then prove any machine can reproduce a
+saved run:
 
 ```
+forge env provide              # native tools + [cargo].crates + [python].packages
 forge env sync                 # writes forge.lock
 forge reproduce <run-id>       # ok / warn / DIFF per dimension; non-zero if it can't
 ```
@@ -85,12 +87,14 @@ CI gate.
 
 ## Where things live
 
-- `forge.toml` — your environment manifest (profile, toolchain, reserved
-  `[gpu]`/`[native]`/`[python]` sections). See [FORGE_ENV.md](FORGE_ENV.md).
+- `forge.toml` — your environment manifest: `[gpu]`, `[native]`, `[cargo]`, and
+  `[python]` (all active), each provisioned and reported by `forge doctor`. See
+  [FORGE_ENV.md](FORGE_ENV.md).
 - `forge.lock` — the generated, pinned environment (references `Cargo.lock` by
   hash; never hand-edited).
-- `Cargo.toml` / `Cargo.lock` — still the source of truth for crates. Forge builds
-  *around* them; you rarely need to touch them directly.
+- `Cargo.toml` / `Cargo.lock` — the source of truth for crate *versions*. Forge
+  keeps `Cargo.toml` in sync from `[cargo].crates` but never reimplements
+  resolution.
 
 ## The `forge` command, in one screen
 
@@ -98,9 +102,13 @@ CI gate.
 forge new <name> [--profile P]   scaffold a project + forge.toml
 forge add <crate>...             cargo add with data-science feature defaults
 forge run | build | test         cargo passthrough
-forge env sync | doctor          write forge.lock / report the environment
-forge doctor                     diagnose toolchain, linker, CUDA, Python
+forge env doctor | sync | provide  report / lock / provision the environment
+forge cargo check | provide      keep Cargo.toml in sync with [cargo].crates
+forge python check | provide     report / install [python].packages
+forge native check | provide     check / fetch pinned native tools
+forge gpu detect                 report detected GPU backends
 forge reproduce <id>             verify the environment against a recorded run
+forge manage [dir]               open Forge Manager (environment/package GUI)
 forge ide [dir]                  open the Forge ML studio
 ```
 

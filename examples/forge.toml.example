@@ -1,0 +1,44 @@
+# forge.toml — an annotated reference environment manifest.
+#
+# Copy to `forge.toml` beside your project's Cargo.toml. Every section is
+# optional; a project without a manifest just uses the defaults. Forge declares
+# and provisions the environment *around* your code — Cargo still owns crate
+# version resolution (Cargo.lock). See docs/FORGE_ENV.md.
+#
+# Provision it all:  forge env provide      Lock it:  forge env sync
+# Report status:     forge doctor           Rebuild elsewhere: forge reproduce <id>
+
+schema = 1
+
+[environment]
+name    = "house-prices"     # optional label
+profile = "classical-ml"     # curated crate/tooling preset (see `forge new --profile`)
+channel = "stable"           # update channel
+
+[toolchain]
+rust = "1.98.0"              # pinned toolchain; a rust-toolchain.toml can be generated from it
+
+[gpu]
+# backend = auto | wgpu | cuda | rocm | metal | directml | none
+backend = "auto"            # `forge gpu detect` reports what's available here
+# require = true            # fail (don't fall back to CPU) if the backend is absent
+
+[native]
+# System tools/libraries the build expects. cmake/protoc/ninja ship in a hash-pinned
+# catalog, so `forge native provide` fetches + SHA-256-verifies them into .forge/.
+tools = ["cmake", "protoc", "ninja"]
+# blas = "openblas"         # openblas | mkl | accelerate | system | none (detect/bridge)
+# openssl = "vendored"      # vendored | system
+
+[cargo]
+# Crates Forge keeps in Cargo.toml. `forge cargo provide` runs `cargo add` for each,
+# then `cargo fetch`. Each entry is a `cargo add` spec (name or name@version).
+crates = ["polars", "ndarray", "linfa"]
+
+[python]
+# A *referenced* Python env (uv/pixi own it); Forge installs the declared packages
+# into it with `forge python provide` but never creates the env itself.
+version  = ">=3.10"
+manager  = "uv"             # uv | pixi | system
+packages = ["pyarrow", "onnxruntime"]
+# require = true            # fail if the interpreter/version is missing

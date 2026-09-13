@@ -11,18 +11,64 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+## [1.14.0] — 2026-09-13
+
 ### Added
+- **`forge.toml` now provisions Cargo crates and Python packages (Forge
+  Distribution, Phase 7).** The manifest becomes the single place a project's
+  whole dependency stack is declared — Forge *drives* Cargo and pip/pixi rather
+  than reimplementing them.
+  - **`[cargo].crates`** — a new `CrateProvider`. `forge cargo check` reports
+    which declared crates are already in `Cargo.toml`; `forge cargo provide` runs
+    `cargo add` for each missing crate and `cargo fetch`. `Cargo.lock` stays the
+    source of truth for resolved versions, and the `cargo` provider now shows in
+    `forge doctor`.
+  - **`[python].packages`** — the Python provider now *installs* declared packages
+    into the referenced env (`forge python provide`, via the interpreter's `pip`
+    for uv/system/`.venv` envs or `pixi add` when the manager is pixi). uv/pixi
+    still own the environment itself; `forge python check` reports per-package
+    install status.
+  - **`forge env provide`** provisions the whole manifest in one pass — native
+    tools, then crates, then Python packages. All provisioning is an explicit
+    command, never run at startup.
+
+## [1.13.0] — 2026-09-11
+
+### Added
+- **Dockable in-app web preview (real Chromium, offscreen).** HTML files gain an
+  **Open in web view** action that opens a live, dockable `PaneKind::WebPreview`
+  tile backed by a Chromium engine — mouse, scroll, and keyboard, with hi-DPI
+  rendering. It runs out of process (`forge_cef`) and streams frames to the IDE
+  over a shared-memory buffer defined by the dependency-free `forge-cef-ipc`
+  crate, so the IDE never links CEF and a page crash can't take it down. Windows
+  today; the ~150 MB Chromium runtime ships inside the Windows installer.
+- **In-editor Markdown & HTML preview.** Markdown and HTML files gain
+  **Edit / Split / Preview** modes, with source-and-render side by side and
+  linked scroll for Markdown. HTML can also open in Forge's own WebView window
+  (`forge_webview`) or the system browser.
 - **Forge Manager — a standalone environment/package GUI (Navigator-style).** A
-  new `forge_manager` desktop app gives a visual surface over the whole
-  environment system: providers, host diagnostics, GPU backends, the native
-  prerequisite catalog (with one-click **Install** for providable tools), and the
-  Python bridge — plus the manifest's profile and any gaps. It is a thin, decoupled
-  front-end: `forge_ide --env-status-json` emits a machine-readable snapshot, and
-  the Manager renders it and issues the same commands the CLI already exposes
-  (e.g. `--native-provide`), exactly as Anaconda Navigator sits over conda — so it
-  never links the environment internals. Launch it with **`forge manage [dir]`**.
-  (Works in development builds now; bundling `forge_manager` into the signed
-  installers is a follow-up packaging step.)
+  `forge_manager` desktop app gives a visual surface over the whole environment
+  system: providers, host diagnostics, GPU backends, the native prerequisite
+  catalog (with one-click **Install** for providable tools), and the Python
+  bridge — plus the manifest's profile and any gaps. It reads
+  `forge_ide --env-status-json` and issues the same commands the CLI exposes, the
+  way Anaconda Navigator sits over conda, so it never links the environment
+  internals. Launch it with **`forge manage [dir]`**.
+
+### Changed
+- **Installers bundle the sibling helpers.** `packaging/stage-helpers.{sh,ps1}`
+  stage `forge_manager` / `forge_webview` (and on Windows `forge_cef` + the CEF
+  runtime) into a `helpers/` resource located at runtime by `src/helpers.rs`, so
+  the preview and Manager work from an installed build, not just `cargo run`.
+
+### Fixed
+- **Release pipeline hardening.** Publish an explicit asset allowlist (no stray
+  helper/CLI exes leak into the release); select the NSIS `-setup.exe` as the
+  Windows update artifact; fix the macOS dmg update URL (GitHub renames spaces to
+  dots); and retry `cargo packager` on Unix to survive the transient
+  `hdiutil: Resource busy` dmg flake.
+
+## [1.12.0] — 2026-09-07
 
 ### Added
 - **Python provider + `forge python check` (Forge Distribution, Phase 6).** The
