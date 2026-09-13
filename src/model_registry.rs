@@ -130,7 +130,10 @@ impl ModelRegistry {
     ) -> Result<ModelVersion, String> {
         validate(model)?;
         validate(version)?;
-        let sha256 = format!("{:x}", Sha256::digest(bytes));
+        let sha256 = Sha256::digest(bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
         let size_bytes = bytes.len() as u64;
         let mut index = self.load()?;
         if let Some(existing) = index
@@ -296,7 +299,12 @@ fn artifact_identity(path: &Path) -> Result<(String, u64), String> {
         hasher.update(&buffer[..read]);
         size = size.saturating_add(read as u64);
     }
-    Ok((format!("{:x}", hasher.finalize()), size))
+    let hex = hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    Ok((hex, size))
 }
 
 pub fn generate_inference_service(

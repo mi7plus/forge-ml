@@ -7,6 +7,12 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # egui_code_editor 0.4+ targets a newer egui era, but this project pins the
+      # "future" egui 0.36, so bumping it fails to compile (CursorState:
+      # SerializableAny). Hold it at 0.3.x until egui itself moves.
+      - dependency-name: "egui_code_editor"
+        versions: [">=0.4.0"]
     groups:
       rust-dependencies:
         patterns:

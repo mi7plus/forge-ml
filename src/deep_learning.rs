@@ -461,7 +461,11 @@ fn training_data_fingerprint(inputs: &[f32], targets: &[f32]) -> String {
         hasher.update(input.to_le_bytes());
         hasher.update(target.to_le_bytes());
     }
-    format!("{:x}", hasher.finalize())
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>()
 }
 
 pub fn native_training_data(
