@@ -54,8 +54,6 @@ fn to_url(arg: &str) -> String {
     let absolute = std::fs::canonicalize(arg)
         .map(|path| path.to_string_lossy().into_owned())
         .unwrap_or_else(|_| arg.to_owned());
-    let cleaned = absolute
-        .trim_start_matches(r"\\?\")
-        .replace('\\', "/");
+    let cleaned = absolute.trim_start_matches(r"\\?\").replace('\\', "/");
     format!("file:///{cleaned}")
 }

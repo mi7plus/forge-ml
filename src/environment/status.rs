@@ -175,5 +175,6 @@ pub fn gather(root: &Path) -> EnvStatus {
 
 /// The status as pretty JSON (`forge_ide --env-status-json`).
 pub fn status_json(root: &Path) -> String {
-    serde_json::to_string_pretty(&gather(root)).unwrap_or_else(|error| format!("{{\"error\":\"{error}\"}}"))
+    serde_json::to_string_pretty(&gather(root))
+        .unwrap_or_else(|error| format!("{{\"error\":\"{error}\"}}"))
 }

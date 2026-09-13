@@ -182,7 +182,12 @@ impl Manifest {
     /// The typed `[gpu]` request. Absent section ⇒ a default (not present).
     pub fn gpu_request(&self) -> GpuRequest {
         let table = &self.gpu;
-        let string = |key: &str| table.get(key).and_then(toml::Value::as_str).map(str::to_owned);
+        let string = |key: &str| {
+            table
+                .get(key)
+                .and_then(toml::Value::as_str)
+                .map(str::to_owned)
+        };
         GpuRequest {
             present: !table.is_empty(),
             backend: string("backend"),
@@ -203,7 +208,12 @@ impl Manifest {
     /// The typed `[python]` request. Absent section ⇒ a default (not present).
     pub fn python_request(&self) -> PythonRequest {
         let table = &self.python;
-        let string = |key: &str| table.get(key).and_then(toml::Value::as_str).map(str::to_owned);
+        let string = |key: &str| {
+            table
+                .get(key)
+                .and_then(toml::Value::as_str)
+                .map(str::to_owned)
+        };
         PythonRequest {
             present: !table.is_empty(),
             // `version` may be a string ("3.13") or a bare number (3.13).
@@ -239,7 +249,12 @@ impl Manifest {
     /// The typed `[native]` request. Absent section ⇒ a default (not present).
     pub fn native_request(&self) -> NativeRequest {
         let table = &self.native;
-        let string = |key: &str| table.get(key).and_then(toml::Value::as_str).map(str::to_owned);
+        let string = |key: &str| {
+            table
+                .get(key)
+                .and_then(toml::Value::as_str)
+                .map(str::to_owned)
+        };
         NativeRequest {
             present: !table.is_empty(),
             blas: string("blas"),

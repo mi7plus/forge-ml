@@ -64,7 +64,10 @@ unsafe impl Sync for Surface {}
 
 impl Surface {
     fn size(&self) -> (u32, u32) {
-        (self.width.load(Ordering::Relaxed), self.height.load(Ordering::Relaxed))
+        (
+            self.width.load(Ordering::Relaxed),
+            self.height.load(Ordering::Relaxed),
+        )
     }
     fn scale(&self) -> f32 {
         f32::from_bits(self.scale.load(Ordering::Relaxed))
@@ -84,7 +87,11 @@ fn main() {
     // opening the shared memory (subprocesses have neither).
     let args = Args::new();
     let mut app = make_app();
-    let code = execute_process(Some(args.as_main_args()), Some(&mut app), std::ptr::null_mut());
+    let code = execute_process(
+        Some(args.as_main_args()),
+        Some(&mut app),
+        std::ptr::null_mut(),
+    );
     if code >= 0 {
         std::process::exit(code);
     }
@@ -102,7 +109,11 @@ fn main() {
     // Open the IDE-allocated frame-buffer file and map it. The IDE creates and
     // sizes the file and initializes the header before spawning us; we just map
     // and validate it.
-    let file = match std::fs::OpenOptions::new().read(true).write(true).open(&shm_path) {
+    let file = match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&shm_path)
+    {
         Ok(f) => f,
         Err(e) => {
             eprintln!("forge_cef: cannot open shm file {shm_path:?}: {e}");
@@ -137,8 +148,12 @@ fn main() {
         no_sandbox: 1,
         ..Default::default()
     };
-    if initialize(Some(args.as_main_args()), Some(&settings), Some(&mut app), std::ptr::null_mut())
-        != 1
+    if initialize(
+        Some(args.as_main_args()),
+        Some(&settings),
+        Some(&mut app),
+        std::ptr::null_mut(),
+    ) != 1
     {
         eprintln!("forge_cef: cef::initialize failed");
         std::process::exit(1);
@@ -186,7 +201,11 @@ fn main() {
         let _ = tx.send(Command::Shutdown);
     });
 
-    println!("forge_cef: ready (windowless, {}x{})", surface.width.load(Ordering::Relaxed), surface.height.load(Ordering::Relaxed));
+    println!(
+        "forge_cef: ready (windowless, {}x{})",
+        surface.width.load(Ordering::Relaxed),
+        surface.height.load(Ordering::Relaxed)
+    );
 
     let host = browser.host();
     // Take input focus so the page reacts to the events we forward.
@@ -199,7 +218,11 @@ fn main() {
         while let Ok(cmd) = rx.try_recv() {
             match cmd {
                 Command::Shutdown => break 'pump,
-                Command::Resize { width, height, device_scale } => {
+                Command::Resize {
+                    width,
+                    height,
+                    device_scale,
+                } => {
                     // width/height are logical points; cap so logical*scale
                     // stays within the physical slot (MAX_WIDTH/HEIGHT).
                     let scale = device_scale.clamp(0.5, 4.0);
@@ -215,13 +238,25 @@ fn main() {
                         host.was_resized();
                     }
                 }
-                Command::MouseMove { x, y, modifiers, leaving } => {
+                Command::MouseMove {
+                    x,
+                    y,
+                    modifiers,
+                    leaving,
+                } => {
                     if let Some(host) = &host {
                         let ev = MouseEvent { x, y, modifiers };
                         host.send_mouse_move_event(Some(&ev), leaving as i32);
                     }
                 }
-                Command::MouseClick { x, y, modifiers, button, up, click_count } => {
+                Command::MouseClick {
+                    x,
+                    y,
+                    modifiers,
+                    button,
+                    up,
+                    click_count,
+                } => {
                     if let Some(host) = &host {
                         let ev = MouseEvent { x, y, modifiers };
                         host.send_mouse_click_event(
@@ -232,13 +267,24 @@ fn main() {
                         );
                     }
                 }
-                Command::MouseWheel { x, y, modifiers, delta_x, delta_y } => {
+                Command::MouseWheel {
+                    x,
+                    y,
+                    modifiers,
+                    delta_x,
+                    delta_y,
+                } => {
                     if let Some(host) = &host {
                         let ev = MouseEvent { x, y, modifiers };
                         host.send_mouse_wheel_event(Some(&ev), delta_x, delta_y);
                     }
                 }
-                Command::Key { kind, modifiers, windows_key_code, character } => {
+                Command::Key {
+                    kind,
+                    modifiers,
+                    windows_key_code,
+                    character,
+                } => {
                     if let Some(host) = &host {
                         let ev = KeyEvent {
                             type_: key_kind(kind),
@@ -408,7 +454,13 @@ struct Cli {
 
 impl Cli {
     fn parse(args: impl Iterator<Item = String>) -> Self {
-        let mut cli = Cli { selftest: false, shm: None, url: None, width: None, height: None };
+        let mut cli = Cli {
+            selftest: false,
+            shm: None,
+            url: None,
+            width: None,
+            height: None,
+        };
         let mut it = args.peekable();
         while let Some(a) = it.next() {
             match a.as_str() {
@@ -433,7 +485,12 @@ fn run_selftest(args: &Args, app: &mut App) {
         no_sandbox: 1,
         ..Default::default()
     };
-    if initialize(Some(args.as_main_args()), Some(&settings), Some(app), std::ptr::null_mut()) != 1
+    if initialize(
+        Some(args.as_main_args()),
+        Some(&settings),
+        Some(app),
+        std::ptr::null_mut(),
+    ) != 1
     {
         eprintln!("forge_cef --selftest: cef::initialize failed");
         std::process::exit(1);

@@ -86,7 +86,10 @@ pub fn format(checks: &[Check]) -> String {
             Status::Absent => "MISS",
             Status::Note => "note",
         };
-        out.push_str(&format!("  [{marker}] {:<12} {}\n", check.label, check.detail));
+        out.push_str(&format!(
+            "  [{marker}] {:<12} {}\n",
+            check.label, check.detail
+        ));
     }
     out
 }
@@ -131,7 +134,11 @@ fn cuda_check() -> Check {
     }) {
         return Check::present("CUDA", format!("nvcc: {version}"));
     }
-    if Command::new("nvidia-smi").arg("-L").output().is_ok_and(|o| o.status.success()) {
+    if Command::new("nvidia-smi")
+        .arg("-L")
+        .output()
+        .is_ok_and(|o| o.status.success())
+    {
         return Check::note(
             "CUDA",
             "NVIDIA driver present but no nvcc toolkit — needed for Linux GPU ONNX inference",
@@ -201,7 +208,10 @@ mod tests {
         assert!(labels.contains(&"rustc"));
         assert!(labels.contains(&"cargo"));
         // The BLAS line is a fixed note regardless of the host.
-        let blas = checks.iter().find(|check| check.label == "BLAS/LAPACK").unwrap();
+        let blas = checks
+            .iter()
+            .find(|check| check.label == "BLAS/LAPACK")
+            .unwrap();
         assert_eq!(blas.status, Status::Note);
     }
 }

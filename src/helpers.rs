@@ -29,7 +29,11 @@ pub fn locate(name: &str) -> PathBuf {
                 parent.join("helpers").join(&file),
                 parent.join("resources").join("helpers").join(&file),
                 // … macOS app bundle Resources …
-                parent.join("..").join("Resources").join("helpers").join(&file),
+                parent
+                    .join("..")
+                    .join("Resources")
+                    .join("helpers")
+                    .join(&file),
                 // … deb / AppImage prefix.
                 parent
                     .join("..")

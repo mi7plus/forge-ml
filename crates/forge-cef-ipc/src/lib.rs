@@ -84,7 +84,10 @@ fn write_u32(buf: &mut [u8], off: usize, val: u32) {
 /// Initialize the header of a freshly created map. Called once by whoever
 /// allocates the file (the IDE, or the helper in self-test mode).
 pub fn init_header(buf: &mut [u8]) {
-    assert!(buf.len() >= TOTAL_BYTES, "map too small for CEF frame buffer");
+    assert!(
+        buf.len() >= TOTAL_BYTES,
+        "map too small for CEF frame buffer"
+    );
     write_u32(buf, OFF_MAGIC, MAGIC);
     write_u32(buf, OFF_VERSION, LAYOUT_VERSION);
     write_u32(buf, OFF_MAX_WIDTH, MAX_WIDTH);
@@ -231,9 +234,18 @@ pub enum Command {
     /// repaint. `device_scale` is the display's pixels-per-point: the helper
     /// renders the offscreen buffer at `width*scale` x `height*scale` physical
     /// pixels (crisp on hi-DPI) while input and layout stay in logical points.
-    Resize { width: u32, height: u32, device_scale: f32 },
+    Resize {
+        width: u32,
+        height: u32,
+        device_scale: f32,
+    },
     /// Pointer moved to (x, y). `modifiers` is CEF's event-flags bitmask.
-    MouseMove { x: i32, y: i32, modifiers: u32, leaving: bool },
+    MouseMove {
+        x: i32,
+        y: i32,
+        modifiers: u32,
+        leaving: bool,
+    },
     /// A mouse button went down (`up=false`) or up (`up=true`).
     MouseClick {
         x: i32,
@@ -272,21 +284,51 @@ impl Command {
     /// placed last and takes the rest of the line, so URLs may contain spaces.
     pub fn to_line(&self) -> String {
         match self {
-            Command::Resize { width, height, device_scale } => {
+            Command::Resize {
+                width,
+                height,
+                device_scale,
+            } => {
                 format!("resize {width} {height} {device_scale}")
             }
-            Command::MouseMove { x, y, modifiers, leaving } => {
+            Command::MouseMove {
+                x,
+                y,
+                modifiers,
+                leaving,
+            } => {
                 format!("mouse_move {x} {y} {modifiers} {}", *leaving as u8)
             }
-            Command::MouseClick { x, y, modifiers, button, up, click_count } => format!(
+            Command::MouseClick {
+                x,
+                y,
+                modifiers,
+                button,
+                up,
+                click_count,
+            } => format!(
                 "mouse_click {x} {y} {modifiers} {} {} {click_count}",
                 *button as u32, *up as u8
             ),
-            Command::MouseWheel { x, y, modifiers, delta_x, delta_y } => {
+            Command::MouseWheel {
+                x,
+                y,
+                modifiers,
+                delta_x,
+                delta_y,
+            } => {
                 format!("mouse_wheel {x} {y} {modifiers} {delta_x} {delta_y}")
             }
-            Command::Key { kind, modifiers, windows_key_code, character } => {
-                format!("key {} {modifiers} {windows_key_code} {character}", *kind as u32)
+            Command::Key {
+                kind,
+                modifiers,
+                windows_key_code,
+                character,
+            } => {
+                format!(
+                    "key {} {modifiers} {windows_key_code} {character}",
+                    *kind as u32
+                )
             }
             Command::Focus(on) => format!("focus {}", *on as u8),
             Command::Navigate(url) => format!("navigate {url}"),
@@ -425,8 +467,17 @@ mod tests {
     #[test]
     fn command_line_roundtrip() {
         let cases = [
-            Command::Resize { width: 800, height: 600, device_scale: 1.5 },
-            Command::MouseMove { x: 10, y: -5, modifiers: 4, leaving: true },
+            Command::Resize {
+                width: 800,
+                height: 600,
+                device_scale: 1.5,
+            },
+            Command::MouseMove {
+                x: 10,
+                y: -5,
+                modifiers: 4,
+                leaving: true,
+            },
             Command::MouseClick {
                 x: 1,
                 y: 2,
@@ -435,7 +486,13 @@ mod tests {
                 up: true,
                 click_count: 2,
             },
-            Command::MouseWheel { x: 3, y: 4, modifiers: 0, delta_x: 0, delta_y: -120 },
+            Command::MouseWheel {
+                x: 3,
+                y: 4,
+                modifiers: 0,
+                delta_x: 0,
+                delta_y: -120,
+            },
             Command::Key {
                 kind: KeyKind::Char,
                 modifiers: 2,

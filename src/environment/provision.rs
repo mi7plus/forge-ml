@@ -153,9 +153,10 @@ fn expose(entry: &TargetArtifact, dir: &Path) -> Exposure {
         exposure.path_dirs.push(dir.join(bin));
     }
     for (key, relative) in &entry.env {
-        exposure
-            .env
-            .push((key.clone(), dir.join(relative).to_string_lossy().into_owned()));
+        exposure.env.push((
+            key.clone(),
+            dir.join(relative).to_string_lossy().into_owned(),
+        ));
     }
     exposure
 }
@@ -210,7 +211,10 @@ mod tests {
     struct MapFetcher(HashMap<String, Vec<u8>>);
     impl Fetcher for MapFetcher {
         fn fetch(&self, url: &str) -> Result<Vec<u8>, String> {
-            self.0.get(url).cloned().ok_or_else(|| "no such url".to_owned())
+            self.0
+                .get(url)
+                .cloned()
+                .ok_or_else(|| "no such url".to_owned())
         }
     }
 

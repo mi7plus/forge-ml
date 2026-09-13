@@ -138,8 +138,11 @@ impl CefPreview {
             match &mut self.texture {
                 Some(tex) => tex.set(image, egui::TextureOptions::LINEAR),
                 None => {
-                    self.texture =
-                        Some(ui.ctx().load_texture("forge_cef_frame", image, egui::TextureOptions::LINEAR));
+                    self.texture = Some(ui.ctx().load_texture(
+                        "forge_cef_frame",
+                        image,
+                        egui::TextureOptions::LINEAR,
+                    ));
                 }
             }
         }
@@ -176,7 +179,12 @@ impl CefPreview {
         // Pointer move (only meaningful while hovering).
         if let Some(pos) = response.hover_pos() {
             let (x, y) = to_surface(pos);
-            self.send(Command::MouseMove { x, y, modifiers: 0, leaving: false });
+            self.send(Command::MouseMove {
+                x,
+                y,
+                modifiers: 0,
+                leaving: false,
+            });
         }
 
         // Button presses/releases. egui gives us press/release via input events;
@@ -188,7 +196,10 @@ impl CefPreview {
             let (x, y) = to_surface(pos);
             ui.input(|i| {
                 for ev in &i.events {
-                    if let egui::Event::PointerButton { button, pressed, .. } = ev {
+                    if let egui::Event::PointerButton {
+                        button, pressed, ..
+                    } = ev
+                    {
                         if let Some(b) = map_button(*button) {
                             self.send(Command::MouseClick {
                                 x,
@@ -224,9 +235,18 @@ impl CefPreview {
             ui.input(|i| {
                 for ev in &i.events {
                     match ev {
-                        egui::Event::Key { key, pressed, modifiers, .. } => {
+                        egui::Event::Key {
+                            key,
+                            pressed,
+                            modifiers,
+                            ..
+                        } => {
                             self.send(Command::Key {
-                                kind: if *pressed { KeyKind::KeyDown } else { KeyKind::KeyUp },
+                                kind: if *pressed {
+                                    KeyKind::KeyDown
+                                } else {
+                                    KeyKind::KeyUp
+                                },
                                 modifiers: cef_modifiers(modifiers),
                                 windows_key_code: vk_code(*key),
                                 character: 0,
@@ -256,7 +276,11 @@ impl CefPreview {
         };
         let mut line = cmd.to_line();
         line.push('\n');
-        if stdin.write_all(line.as_bytes()).and_then(|_| stdin.flush()).is_err() {
+        if stdin
+            .write_all(line.as_bytes())
+            .and_then(|_| stdin.flush())
+            .is_err()
+        {
             self.error = Some("Lost the connection to the web preview helper.".to_string());
             self.stdin = None;
         }
@@ -383,7 +407,10 @@ fn vk_code(key: egui::Key) -> i32 {
 }
 
 fn clamp_size(size: (u32, u32)) -> (u32, u32) {
-    (size.0.clamp(1, ipc::MAX_WIDTH), size.1.clamp(1, ipc::MAX_HEIGHT))
+    (
+        size.0.clamp(1, ipc::MAX_WIDTH),
+        size.1.clamp(1, ipc::MAX_HEIGHT),
+    )
 }
 
 /// Convert a BGRA frame (top-to-bottom) to an egui `ColorImage`.

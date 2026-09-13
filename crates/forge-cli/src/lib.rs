@@ -95,10 +95,16 @@ fn cmd_new(args: &[String]) -> Result<(), String> {
     // Replace cargo's stub main.rs with a Forge starter, and write a forge-only
     // README, so `forge run` does something meaningful and the reader never has
     // to reach for cargo.
-    std::fs::write(root.join("src").join("main.rs"), scaffold::starter_main(profile))
-        .map_err(|e| format!("writing src/main.rs: {e}"))?;
-    std::fs::write(root.join("README.md"), scaffold::project_readme(display, profile))
-        .map_err(|e| format!("writing README.md: {e}"))?;
+    std::fs::write(
+        root.join("src").join("main.rs"),
+        scaffold::starter_main(profile),
+    )
+    .map_err(|e| format!("writing src/main.rs: {e}"))?;
+    std::fs::write(
+        root.join("README.md"),
+        scaffold::project_readme(display, profile),
+    )
+    .map_err(|e| format!("writing README.md: {e}"))?;
 
     println!("Created {name} (profile: {}).", profile.name);
     println!("  cd {name} && forge run     # build and run the starter");
@@ -160,7 +166,9 @@ fn cmd_python(args: &[String]) -> Result<(), String> {
     match args.split_first() {
         Some((sub, rest)) if sub == "check" => forward("--python-check", rest),
         Some((sub, rest)) if sub == "provide" => forward("--python-provide", rest),
-        Some((other, _)) => Err(format!("unknown python subcommand `{other}` (check | provide)")),
+        Some((other, _)) => Err(format!(
+            "unknown python subcommand `{other}` (check | provide)"
+        )),
         None => Err("usage: forge python <check|provide> [dir]".into()),
     }
 }
@@ -178,7 +186,9 @@ fn cmd_cargo(args: &[String]) -> Result<(), String> {
     match args.split_first() {
         Some((sub, rest)) if sub == "check" => forward("--cargo-check", rest),
         Some((sub, rest)) if sub == "provide" => forward("--cargo-provide", rest),
-        Some((other, _)) => Err(format!("unknown cargo subcommand `{other}` (check | provide)")),
+        Some((other, _)) => Err(format!(
+            "unknown cargo subcommand `{other}` (check | provide)"
+        )),
         None => Err("usage: forge cargo <check|provide> [dir]".into()),
     }
 }
@@ -350,8 +360,12 @@ fn parse_new_args(args: &[String]) -> Result<(&str, &str), String> {
             i += 1;
         }
     }
-    let name = name
-        .ok_or_else(|| format!("usage: forge new <name> [--profile {}]", profiles::profile_names()))?;
+    let name = name.ok_or_else(|| {
+        format!(
+            "usage: forge new <name> [--profile {}]",
+            profiles::profile_names()
+        )
+    })?;
     Ok((name, profile))
 }
 
@@ -482,7 +496,10 @@ mod tests {
         let text = "path\t/opt/tools/bin\nenv\tOPENSSL_DIR=/opt/openssl\njunk line\npath\tC:\\p";
         let (paths, vars) = parse_native_env(text);
         assert_eq!(paths, ["/opt/tools/bin", "C:\\p"]);
-        assert_eq!(vars, [("OPENSSL_DIR".to_owned(), "/opt/openssl".to_owned())]);
+        assert_eq!(
+            vars,
+            [("OPENSSL_DIR".to_owned(), "/opt/openssl".to_owned())]
+        );
     }
 
     #[test]

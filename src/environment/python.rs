@@ -209,7 +209,10 @@ pub fn provide(request: &PythonRequest, root: &Path) -> String {
             .output()
         {
             Ok(output) if output.status.success() => {
-                format!("Installed {} package(s) with `pixi add`.\n", request.packages.len())
+                format!(
+                    "Installed {} package(s) with `pixi add`.\n",
+                    request.packages.len()
+                )
             }
             Ok(output) => format!(
                 "forge python provide: `pixi add` failed: {}\n",
@@ -237,7 +240,11 @@ pub fn provide(request: &PythonRequest, root: &Path) -> String {
         ),
         Ok(output) => format!(
             "forge python provide: pip install failed: {}\n",
-            String::from_utf8_lossy(&output.stderr).trim().lines().last().unwrap_or("")
+            String::from_utf8_lossy(&output.stderr)
+                .trim()
+                .lines()
+                .last()
+                .unwrap_or("")
         ),
         Err(error) => format!("forge python provide: could not run {python}: {error}\n"),
     }
@@ -291,7 +298,12 @@ impl EnvironmentProvider for PythonProvider {
             extra.insert(
                 "packages".to_owned(),
                 toml::Value::Array(
-                    request.packages.iter().cloned().map(toml::Value::String).collect(),
+                    request
+                        .packages
+                        .iter()
+                        .cloned()
+                        .map(toml::Value::String)
+                        .collect(),
                 ),
             );
         }

@@ -118,8 +118,7 @@ impl crate::ForgeApp {
             });
             if open_web {
                 if let Some(path) = &html_path {
-                    self.pending_open_web_preview =
-                        Some(crate::ui::cef_preview::file_url(path));
+                    self.pending_open_web_preview = Some(crate::ui::cef_preview::file_url(path));
                 }
             }
             let source = self.active().content.clone();
@@ -144,10 +143,8 @@ impl crate::ForgeApp {
                         full.min,
                         egui::pos2(full.min.x + half, full.max.y),
                     );
-                    let right = egui::Rect::from_min_max(
-                        egui::pos2(mid + gap / 2.0, full.min.y),
-                        full.max,
-                    );
+                    let right =
+                        egui::Rect::from_min_max(egui::pos2(mid + gap / 2.0, full.min.y), full.max);
                     let divider = ui.visuals().widgets.noninteractive.bg_stroke.color;
                     ui.painter()
                         .vline(mid, full.y_range(), egui::Stroke::new(1.0, divider));

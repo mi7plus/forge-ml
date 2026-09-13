@@ -89,7 +89,11 @@ mod tests {
     fn every_profile_is_findable_and_nonempty() {
         for profile in PROFILES {
             assert!(!profile.crates.is_empty(), "{} has no crates", profile.name);
-            assert!(!profile.summary.is_empty(), "{} has no summary", profile.name);
+            assert!(
+                !profile.summary.is_empty(),
+                "{} has no summary",
+                profile.name
+            );
             assert!(Profile::find(profile.name).is_some());
         }
         assert!(Profile::find("bogus").is_none());
@@ -106,7 +110,11 @@ mod tests {
     fn profile_names_lists_all() {
         let names = profile_names();
         for profile in PROFILES {
-            assert!(names.contains(profile.name), "{} missing from list", profile.name);
+            assert!(
+                names.contains(profile.name),
+                "{} missing from list",
+                profile.name
+            );
         }
     }
 }

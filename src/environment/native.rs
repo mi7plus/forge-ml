@@ -85,11 +85,7 @@ fn openssl_status(kind: &str) -> Prereq {
             if pkg_config_has("openssl") || tool_version("openssl", &["version"]).is_some() {
                 satisfied("openssl (system)", "found on the system")
             } else {
-                missing(
-                    "openssl (system)",
-                    "not found",
-                    &install_hint("openssl"),
-                )
+                missing("openssl (system)", "not found", &install_hint("openssl"))
             }
         }
     }
@@ -155,7 +151,10 @@ pub fn report(request: &NativeRequest) -> String {
         if prereq.satisfied {
             out.push_str(&format!("  [ok  ] {:<20} {}\n", prereq.name, prereq.detail));
         } else {
-            out.push_str(&format!("  [MISS] {:<20} {} — {}\n", prereq.name, prereq.detail, prereq.hint));
+            out.push_str(&format!(
+                "  [MISS] {:<20} {} — {}\n",
+                prereq.name, prereq.detail, prereq.hint
+            ));
         }
     }
     out.push_str(
@@ -225,9 +224,7 @@ pub fn provide(root: &Path, only: &[String]) -> String {
                     selected.push(artifact)
                 }
                 Some(_) => {}
-                None => {
-                    return format!("forge native provide: `{name}` is not in the catalog.\n")
-                }
+                None => return format!("forge native provide: `{name}` is not in the catalog.\n"),
             }
         }
     }
@@ -284,7 +281,9 @@ pub fn provide(root: &Path, only: &[String]) -> String {
 /// catalog entry for the current host so pins are never fabricated by hand.
 pub fn pin(url: &str, archive: &str, name: Option<&str>) -> String {
     if !matches!(archive, "zip" | "tar-gz") {
-        return format!("forge native pin: --archive must be `zip` or `tar-gz` (got `{archive}`)\n");
+        return format!(
+            "forge native pin: --archive must be `zip` or `tar-gz` (got `{archive}`)\n"
+        );
     }
     let bytes = match HttpFetcher.fetch(url) {
         Ok(bytes) => bytes,
@@ -447,7 +446,10 @@ mod tests {
     #[test]
     fn blas_none_is_satisfied_and_accelerate_is_macos_only() {
         assert!(blas_status("none").satisfied);
-        assert_eq!(blas_status("accelerate").satisfied, cfg!(target_os = "macos"));
+        assert_eq!(
+            blas_status("accelerate").satisfied,
+            cfg!(target_os = "macos")
+        );
     }
 
     #[test]

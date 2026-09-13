@@ -97,7 +97,10 @@ fn markdown(ui: &mut egui::Ui, source: &str) {
             ui.add_space(2.0);
             continue;
         }
-        if let Some(quote) = trimmed.strip_prefix("> ").or_else(|| trimmed.strip_prefix(">")) {
+        if let Some(quote) = trimmed
+            .strip_prefix("> ")
+            .or_else(|| trimmed.strip_prefix(">"))
+        {
             ui.horizontal_top(|ui| {
                 ui.add_space(4.0);
                 ui.label(RichText::new("|").size(16.0).strong().color(accent()));
@@ -275,7 +278,10 @@ fn html(ui: &mut egui::Ui, source: &str, path: Option<&Path>) {
         }
         // Secondary: the external system browser.
         let browser = format!("Open in browser  {}", icons::ARROW_SQUARE_OUT.as_str());
-        if ui.add_enabled(on_disk.is_some(), egui::Button::new(browser)).clicked() {
+        if ui
+            .add_enabled(on_disk.is_some(), egui::Button::new(browser))
+            .clicked()
+        {
             if let Some(path) = on_disk {
                 open_path(path);
             }
@@ -315,11 +321,18 @@ enum Run {
 enum Block {
     Heading(u8, String),
     Para(Vec<Run>),
-    Item { ordered: Option<usize>, depth: usize, runs: Vec<Run> },
+    Item {
+        ordered: Option<usize>,
+        depth: usize,
+        runs: Vec<Run>,
+    },
     Pre(String),
     Quote(Vec<Run>),
     Rule,
-    Row { header: bool, cells: Vec<Vec<Run>> },
+    Row {
+        header: bool,
+        cells: Vec<Vec<Run>>,
+    },
     Image(String),
 }
 
@@ -341,7 +354,11 @@ fn render_blocks(ui: &mut egui::Ui, blocks: &[Block]) {
                 render_runs(ui, runs, TEXT);
                 ui.add_space(4.0);
             }
-            Block::Item { ordered, depth, runs } => {
+            Block::Item {
+                ordered,
+                depth,
+                runs,
+            } => {
                 ui.horizontal_top(|ui| {
                     ui.add_space(8.0 + 16.0 * *depth as f32);
                     match ordered {
@@ -364,7 +381,11 @@ fn render_blocks(ui: &mut egui::Ui, blocks: &[Block]) {
                 ui.separator();
             }
             Block::Image(alt) => {
-                ui.label(RichText::new(format!("[image: {alt}]")).italics().color(MUTED));
+                ui.label(
+                    RichText::new(format!("[image: {alt}]"))
+                        .italics()
+                        .color(MUTED),
+                );
             }
             Block::Row { header, cells } => {
                 ui.horizontal_top(|ui| {
@@ -434,7 +455,12 @@ fn parse_html(source: &str) -> Vec<Block> {
                 continue; // comment / doctype
             }
             if let Some(name) = inner.strip_prefix('/') {
-                w.close(name.trim().trim_end_matches('/').to_ascii_lowercase().as_str());
+                w.close(
+                    name.trim()
+                        .trim_end_matches('/')
+                        .to_ascii_lowercase()
+                        .as_str(),
+                );
             } else {
                 let inner = inner.trim();
                 let (name, attrs) = match inner.find(|c: char| c.is_whitespace()) {
@@ -520,7 +546,9 @@ impl Walker {
             "code" if self.pre.is_none() => self.style.code = true,
             "a" => self.link = attr(attrs, "href"),
             "img" => {
-                let alt = attr(attrs, "alt").or_else(|| attr(attrs, "src")).unwrap_or_default();
+                let alt = attr(attrs, "alt")
+                    .or_else(|| attr(attrs, "src"))
+                    .unwrap_or_default();
                 self.blocks.push(Block::Image(alt));
             }
             "table" => self.flush(),
@@ -552,7 +580,8 @@ impl Walker {
             }
             "pre" => {
                 if let Some(code) = self.pre.take() {
-                    self.blocks.push(Block::Pre(code.trim_matches('\n').to_owned()));
+                    self.blocks
+                        .push(Block::Pre(code.trim_matches('\n').to_owned()));
                 }
             }
             "strong" | "b" => self.style.bold = false,
@@ -594,7 +623,11 @@ impl Walker {
                     current
                 })
             });
-            Block::Item { ordered, depth, runs }
+            Block::Item {
+                ordered,
+                depth,
+                runs,
+            }
         } else {
             Block::Para(runs)
         };
@@ -692,7 +725,9 @@ fn open_in_forge_webview(path: &Path) {
 
 fn open_raw(target: &str) {
     #[cfg(windows)]
-    let _ = Command::new("cmd").args(["/C", "start", "", target]).spawn();
+    let _ = Command::new("cmd")
+        .args(["/C", "start", "", target])
+        .spawn();
     #[cfg(target_os = "macos")]
     let _ = Command::new("open").arg(target).spawn();
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -706,7 +741,10 @@ mod tests {
 
     #[test]
     fn recognizes_previewable_extensions() {
-        assert_eq!(kind_for(&PathBuf::from("a.md")), Some(PreviewKind::Markdown));
+        assert_eq!(
+            kind_for(&PathBuf::from("a.md")),
+            Some(PreviewKind::Markdown)
+        );
         assert_eq!(kind_for(&PathBuf::from("a.HTML")), Some(PreviewKind::Html));
         assert_eq!(kind_for(&PathBuf::from("a.rs")), None);
     }
@@ -745,10 +783,15 @@ mod tests {
         );
         assert!(matches!(&blocks[0], Block::Heading(1, t) if t == "Title"));
         assert!(blocks.iter().any(|b| matches!(b, Block::Para(_))));
-        let items = blocks.iter().filter(|b| matches!(b, Block::Item { .. })).count();
+        let items = blocks
+            .iter()
+            .filter(|b| matches!(b, Block::Item { .. }))
+            .count();
         assert_eq!(items, 2);
         // The script contents must not appear as text.
-        assert!(!blocks.iter().any(|b| matches!(b, Block::Para(runs) if runs_to_text(runs).contains("ignore"))));
+        assert!(!blocks
+            .iter()
+            .any(|b| matches!(b, Block::Para(runs) if runs_to_text(runs).contains("ignore"))));
         // The link survived.
         assert!(blocks.iter().any(|b| matches!(b, Block::Para(runs)
             if runs.iter().any(|r| matches!(r, Run::Link(t, u) if t == "link" && u == "u")))));
@@ -757,6 +800,9 @@ mod tests {
     #[test]
     fn html_decodes_entities_and_attrs() {
         assert_eq!(decode_entities("a &amp; b &lt;c&gt; &#65;"), "a & b <c> A");
-        assert_eq!(attr("class=\"x\" href='y' rel=z", "href").as_deref(), Some("y"));
+        assert_eq!(
+            attr("class=\"x\" href='y' rel=z", "href").as_deref(),
+            Some("y")
+        );
     }
 }

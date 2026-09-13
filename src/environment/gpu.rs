@@ -145,10 +145,7 @@ impl EnvironmentProvider for GpuProvider {
         let mut extra = toml::Table::new();
         extra.insert("require".to_owned(), toml::Value::Boolean(request.require));
         if let Some(backend) = &request.backend {
-            extra.insert(
-                "requested".to_owned(),
-                toml::Value::String(backend.clone()),
-            );
+            extra.insert("requested".to_owned(), toml::Value::String(backend.clone()));
         }
         extra.insert(
             "detected".to_owned(),
@@ -203,9 +200,7 @@ fn evaluate(request: &GpuRequest, detected: &[&'static str]) -> Probe {
             if !detected.is_empty() || !request.require {
                 Probe::Available
             } else {
-                Probe::Incompatible(
-                    "[gpu] require=true but no GPU backend was detected".to_owned(),
-                )
+                Probe::Incompatible("[gpu] require=true but no GPU backend was detected".to_owned())
             }
         }
     }
@@ -226,7 +221,10 @@ mod tests {
 
     #[test]
     fn requested_backend_present_is_available() {
-        assert_eq!(evaluate(&request(Some("cuda"), true), &["cuda"]), Probe::Available);
+        assert_eq!(
+            evaluate(&request(Some("cuda"), true), &["cuda"]),
+            Probe::Available
+        );
     }
 
     #[test]
@@ -238,7 +236,10 @@ mod tests {
     #[test]
     fn optional_backend_absent_falls_back_to_cpu() {
         // require = false ⇒ still available (CPU fallback), even with no GPU.
-        assert_eq!(evaluate(&request(Some("cuda"), false), &[]), Probe::Available);
+        assert_eq!(
+            evaluate(&request(Some("cuda"), false), &[]),
+            Probe::Available
+        );
         assert_eq!(evaluate(&request(None, false), &[]), Probe::Available);
     }
 
@@ -250,16 +251,28 @@ mod tests {
 
     #[test]
     fn backend_none_is_always_available() {
-        assert_eq!(evaluate(&request(Some("none"), true), &[]), Probe::Available);
+        assert_eq!(
+            evaluate(&request(Some("none"), true), &[]),
+            Probe::Available
+        );
     }
 
     #[test]
     fn select_prefers_requested_then_first_detected() {
         let detected = vec![
-            Backend { name: "directml", detail: String::new() },
-            Backend { name: "cuda", detail: String::new() },
+            Backend {
+                name: "directml",
+                detail: String::new(),
+            },
+            Backend {
+                name: "cuda",
+                detail: String::new(),
+            },
         ];
-        assert_eq!(select(&request(Some("cuda"), false), &detected), Some("cuda"));
+        assert_eq!(
+            select(&request(Some("cuda"), false), &detected),
+            Some("cuda")
+        );
         assert_eq!(select(&request(None, false), &detected), Some("directml"));
         assert_eq!(select(&request(Some("none"), false), &detected), None);
         assert_eq!(select(&request(Some("rocm"), false), &detected), None);

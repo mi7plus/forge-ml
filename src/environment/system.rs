@@ -37,7 +37,9 @@ impl EnvironmentProvider for SystemToolchainProvider {
             return Probe::Missing("the bundled runtime is active in this build".to_owned());
         }
         let Some(rustc) = tool_version("rustc", &["--version"]) else {
-            return Probe::Missing("no `rustc` on PATH (install from https://rustup.rs)".to_owned());
+            return Probe::Missing(
+                "no `rustc` on PATH (install from https://rustup.rs)".to_owned(),
+            );
         };
         if tool_version("cargo", &["--version"]).is_none() {
             return Probe::Missing("`rustc` found but no `cargo` on PATH".to_owned());
@@ -59,8 +61,8 @@ impl EnvironmentProvider for SystemToolchainProvider {
     }
 
     fn materialize(&self, _manifest: &Manifest) -> Result<LockEntry, String> {
-        let version =
-            tool_version("rustc", &["--version"]).ok_or_else(|| "no system `rustc` to record".to_owned())?;
+        let version = tool_version("rustc", &["--version"])
+            .ok_or_else(|| "no system `rustc` to record".to_owned())?;
         Ok(LockEntry {
             id: self.id().to_owned(),
             kind: "system-toolchain".to_owned(),

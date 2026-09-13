@@ -126,7 +126,12 @@ fn evaluate(
 
     // Git commit — reproducibility-critical when the run recorded one.
     if recorded.git_commit.is_empty() {
-        line(&mut lines, "warn", "commit", "the run recorded no git commit");
+        line(
+            &mut lines,
+            "warn",
+            "commit",
+            "the run recorded no git commit",
+        );
     } else if recorded.git_commit == current.git_commit {
         line(&mut lines, "ok", "commit", &short_id(&recorded.git_commit));
     } else {
@@ -165,9 +170,19 @@ fn evaluate(
 
     // Cargo.lock — reproducibility-critical when the run recorded a hash.
     if recorded.cargo_lock_hash.is_empty() {
-        line(&mut lines, "warn", "Cargo.lock", "the run recorded no lock hash");
+        line(
+            &mut lines,
+            "warn",
+            "Cargo.lock",
+            "the run recorded no lock hash",
+        );
     } else if recorded.cargo_lock_hash == current.cargo_lock_hash {
-        line(&mut lines, "ok", "Cargo.lock", &short_id(&recorded.cargo_lock_hash));
+        line(
+            &mut lines,
+            "ok",
+            "Cargo.lock",
+            &short_id(&recorded.cargo_lock_hash),
+        );
     } else {
         critical_ok = false;
         line(
@@ -179,18 +194,36 @@ fn evaluate(
     }
 
     // Toolchain and platform — informational drift, not a hard failure.
-    drift(&mut lines, "rustc", &recorded.rustc_version, &current.rustc_version);
-    drift(&mut lines, "cargo", &recorded.cargo_version, &current.cargo_version);
+    drift(
+        &mut lines,
+        "rustc",
+        &recorded.rustc_version,
+        &current.rustc_version,
+    );
+    drift(
+        &mut lines,
+        "cargo",
+        &recorded.cargo_version,
+        &current.cargo_version,
+    );
     let recorded_platform = format!("{}/{}", recorded.os, recorded.architecture);
     let current_platform = format!("{}/{}", current.os, current.architecture);
-    drift(&mut lines, "platform", &recorded_platform, &current_platform);
+    drift(
+        &mut lines,
+        "platform",
+        &recorded_platform,
+        &current_platform,
+    );
 
     // Datasets — a changed input is reproducibility-critical.
     for dataset in datasets {
         match &dataset.current {
-            Some(current) if *current == dataset.recorded => {
-                line(&mut lines, "ok", "dataset", &format!("{} unchanged", dataset.name))
-            }
+            Some(current) if *current == dataset.recorded => line(
+                &mut lines,
+                "ok",
+                "dataset",
+                &format!("{} unchanged", dataset.name),
+            ),
             Some(_) => {
                 critical_ok = false;
                 line(

@@ -19,7 +19,10 @@ fn env_cli_dir(args: &[String], flag_pos: usize) -> PathBuf {
 
 /// Load a project's manifest, defaulting to an empty one on absence or error.
 fn manifest_at(root: &std::path::Path) -> environment::Manifest {
-    environment::Manifest::load(root).ok().flatten().unwrap_or_default()
+    environment::Manifest::load(root)
+        .ok()
+        .flatten()
+        .unwrap_or_default()
 }
 
 /// Handle an environment/reproduce CLI flag if present. Returns `true` when the
@@ -92,25 +95,37 @@ pub fn dispatch(cli: &[String]) -> bool {
     // `--python-check [dir]` reports the referenced Python bridge env for a project.
     if let Some(pos) = cli.iter().position(|a| a == "--python-check") {
         let root = env_cli_dir(cli, pos);
-        print!("{}", environment::python_report(&manifest_at(&root).python_request(), &root));
+        print!(
+            "{}",
+            environment::python_report(&manifest_at(&root).python_request(), &root)
+        );
         return true;
     }
     // `--cargo-check [dir]` reports which `[cargo].crates` are already in Cargo.toml.
     if let Some(pos) = cli.iter().position(|a| a == "--cargo-check") {
         let root = env_cli_dir(cli, pos);
-        print!("{}", environment::cargo_report(&manifest_at(&root).cargo_request(), &root));
+        print!(
+            "{}",
+            environment::cargo_report(&manifest_at(&root).cargo_request(), &root)
+        );
         return true;
     }
     // `--cargo-provide [dir]` runs `cargo add` for each declared crate + `cargo fetch`.
     if let Some(pos) = cli.iter().position(|a| a == "--cargo-provide") {
         let root = env_cli_dir(cli, pos);
-        print!("{}", environment::cargo_provide(&root, &manifest_at(&root).cargo_request()));
+        print!(
+            "{}",
+            environment::cargo_provide(&root, &manifest_at(&root).cargo_request())
+        );
         return true;
     }
     // `--python-provide [dir]` installs the declared [python].packages into the env.
     if let Some(pos) = cli.iter().position(|a| a == "--python-provide") {
         let root = env_cli_dir(cli, pos);
-        print!("{}", environment::python_provide(&manifest_at(&root).python_request(), &root));
+        print!(
+            "{}",
+            environment::python_provide(&manifest_at(&root).python_request(), &root)
+        );
         return true;
     }
     // `--env-provide [dir]` provisions the whole manifest: native tools, crates, packages.
@@ -118,8 +133,14 @@ pub fn dispatch(cli: &[String]) -> bool {
         let root = env_cli_dir(cli, pos);
         let manifest = manifest_at(&root);
         print!("{}", environment::native_provide(&root, &[]));
-        print!("{}", environment::cargo_provide(&root, &manifest.cargo_request()));
-        print!("{}", environment::python_provide(&manifest.python_request(), &root));
+        print!(
+            "{}",
+            environment::cargo_provide(&root, &manifest.cargo_request())
+        );
+        print!(
+            "{}",
+            environment::python_provide(&manifest.python_request(), &root)
+        );
         return true;
     }
     // `--reproduce <ID> [dir]` verifies the environment against a recorded run's

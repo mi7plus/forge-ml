@@ -273,7 +273,8 @@ cuda = "13"
         assert_eq!(gpu.cuda.as_deref(), Some("13"));
         // Every reserved section now has a provider, so none is flagged
         // "not yet active" — not gpu, native, or python.
-        let all = Manifest::parse("[gpu]\nx=1\n[native]\ny=1\n[python]\nversion=\"3.13\"\n").unwrap();
+        let all =
+            Manifest::parse("[gpu]\nx=1\n[native]\ny=1\n[python]\nversion=\"3.13\"\n").unwrap();
         assert!(!all.warnings().iter().any(|w| w.contains("not yet active")));
         assert_eq!(all.python_request().version.as_deref(), Some("3.13"));
     }

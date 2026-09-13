@@ -110,22 +110,33 @@ pub fn provide(root: &Path, request: &CargoRequest) -> String {
             }
             Ok(output) => {
                 let err = String::from_utf8_lossy(&output.stderr);
-                out.push_str(&format!("  [FAIL] {spec} — {}\n", err.trim().lines().last().unwrap_or("cargo add failed")));
+                out.push_str(&format!(
+                    "  [FAIL] {spec} — {}\n",
+                    err.trim().lines().last().unwrap_or("cargo add failed")
+                ));
             }
             Err(error) => out.push_str(&format!("  [FAIL] {spec} — {error}\n")),
         }
     }
 
     // Resolve + populate the lockfile and cache so the graph is ready offline.
-    match Command::new("cargo").current_dir(root).arg("fetch").output() {
+    match Command::new("cargo")
+        .current_dir(root)
+        .arg("fetch")
+        .output()
+    {
         Ok(output) if output.status.success() => {
-            out.push_str(&format!("\nAdded {added} crate(s); `cargo fetch` resolved the graph.\n"));
+            out.push_str(&format!(
+                "\nAdded {added} crate(s); `cargo fetch` resolved the graph.\n"
+            ));
         }
         Ok(output) => out.push_str(&format!(
             "\nAdded {added} crate(s), but `cargo fetch` failed: {}\n",
             String::from_utf8_lossy(&output.stderr).trim()
         )),
-        Err(error) => out.push_str(&format!("\nAdded {added} crate(s); `cargo fetch` could not run: {error}\n")),
+        Err(error) => out.push_str(&format!(
+            "\nAdded {added} crate(s); `cargo fetch` could not run: {error}\n"
+        )),
     }
     out
 }
@@ -197,10 +208,7 @@ mod tests {
     #[test]
     fn absent_section_probes_missing() {
         let manifest = Manifest::default();
-        assert!(matches!(
-            CrateProvider.probe(&manifest),
-            Probe::Missing(_)
-        ));
+        assert!(matches!(CrateProvider.probe(&manifest), Probe::Missing(_)));
     }
 
     #[test]
@@ -237,8 +245,7 @@ mod tests {
 
     #[test]
     fn materialize_records_sorted_crates() {
-        let manifest =
-            Manifest::parse("[cargo]\ncrates = [\"polars\", \"ndarray\"]\n").unwrap();
+        let manifest = Manifest::parse("[cargo]\ncrates = [\"polars\", \"ndarray\"]\n").unwrap();
         let entry = CrateProvider.materialize(&manifest).unwrap();
         assert_eq!(entry.id, "cargo");
         assert_eq!(entry.kind, "cargo-crates");

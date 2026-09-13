@@ -43,14 +43,41 @@ pub fn is_editable(path: &Path) -> bool {
     match path.extension().and_then(|value| value.to_str()) {
         Some(ext) => matches!(
             ext.to_ascii_lowercase().as_str(),
-            "rs" | "toml" | "lock"
-                | "md" | "markdown" | "mkd" | "mdown"
-                | "txt" | "text" | "log"
-                | "json" | "ipynb" | "yaml" | "yml"
-                | "html" | "htm" | "xhtml" | "css" | "js" | "mjs" | "ts" | "jsx" | "tsx"
-                | "svg" | "xml" | "csv" | "tsv"
-                | "sh" | "bash" | "ps1" | "bat"
-                | "ini" | "cfg" | "conf" | "env" | "gitignore"
+            "rs" | "toml"
+                | "lock"
+                | "md"
+                | "markdown"
+                | "mkd"
+                | "mdown"
+                | "txt"
+                | "text"
+                | "log"
+                | "json"
+                | "ipynb"
+                | "yaml"
+                | "yml"
+                | "html"
+                | "htm"
+                | "xhtml"
+                | "css"
+                | "js"
+                | "mjs"
+                | "ts"
+                | "jsx"
+                | "tsx"
+                | "svg"
+                | "xml"
+                | "csv"
+                | "tsv"
+                | "sh"
+                | "bash"
+                | "ps1"
+                | "bat"
+                | "ini"
+                | "cfg"
+                | "conf"
+                | "env"
+                | "gitignore"
         ),
         None => true,
     }
@@ -104,7 +131,14 @@ mod tests {
 
     #[test]
     fn html_and_web_text_files_are_editable() {
-        for name in ["index.html", "page.HTM", "style.css", "app.js", "notes.md", "Cargo.toml"] {
+        for name in [
+            "index.html",
+            "page.HTM",
+            "style.css",
+            "app.js",
+            "notes.md",
+            "Cargo.toml",
+        ] {
             assert!(is_editable(Path::new(name)), "{name} should be editable");
         }
     }
