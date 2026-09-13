@@ -29,7 +29,7 @@ offline, reproducible environment with a thin `forge` CLI) is designed in
 
 ## Current status
 
-Current application version: `1.1.0`
+Current application version: `1.14.0`
 
 Forge ML is a shipping desktop IDE with interactive Rust execution, editor and
 language tooling, project navigation, telemetry plots, experiment snapshots, a
@@ -38,6 +38,17 @@ deployment, and a self-contained offline runtime bundle. It publishes native
 installers for Windows, macOS, and Linux. Foundation modules isolate protocol,
 storage, notebook, data, plot, experiment, environment, and persisted UI
 concerns; tables, plots, and metrics enter through the `forge_*` stdout adapter.
+
+Since the 1.x line it has grown a small **ecosystem**: a `forge.toml`/`forge.lock`
+environment system whose `[gpu]`/`[native]`/`[cargo]`/`[python]` providers are all
+active and provisioned by `forge env provide` (`forge doctor`/`reproduce` verify);
+a companion **Forge Manager** GUI over that system; and a dockable in-app **web
+preview** (real Chromium, offscreen). See the [environment design](docs/FORGE_ENV.md).
+
+> The `0.x` sections below are a **historical implementation log** — kept as a
+> record of how the prototype was built. For the release-by-release history see
+> [CHANGELOG.md](CHANGELOG.md); this document's forward-looking parts are
+> "Current status" above and the numbered `1.0`+ / "Now/Next" sections.
 
 ## Implemented prototype capabilities
 
@@ -1765,8 +1776,9 @@ Implementation notes:
   drop the ignore when Millwright ships a polars with a newer `object_store`.**
   Same for the unmaintained `bincode`/`paste`/`ttf-parser` warnings (via
   egui/burn/wgpu), which clear when those upstreams move off them.
-- `src/main.rs` is large; extraction into `app_*`/`ui` modules is ongoing
-  (`app_files.rs`, `app_exec.rs`, `app_lsp.rs` done).
+- `src/main.rs` is large; extraction into `app_*`/`ui`/`cli` modules is ongoing
+  (`app_files.rs`, `app_exec.rs`, `app_lsp.rs`, `cli.rs` done; the
+  `egui_tiles::Behavior` impl could still move to `ui/dock.rs`).
 - Evcxr compilation latency and cancellation semantics require careful UX.
 - Arrow/Polars version alignment will affect Forge, Millwright, ADBC, and Python interchange.
 - Large egui tables require virtualization rather than regular grids.
