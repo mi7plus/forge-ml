@@ -727,3 +727,54 @@ fn main() -> eframe::Result<()> {
         Box::new(|cc| Ok(Box::new(ManagerApp::new(&cc.egui_ctx)))),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn color_of_maps_status_strings() {
+        assert_eq!(color_of("ok"), OK);
+        assert_eq!(color_of("available"), OK);
+        assert_eq!(color_of("note"), WARN);
+        assert_eq!(color_of("missing — no [gpu] section"), BAD);
+        assert_eq!(color_of("incompatible — wrong version"), BAD);
+        assert_eq!(color_of("something else"), WARN);
+    }
+
+    #[test]
+    fn env_status_deserializes_the_ide_snapshot() {
+        // A representative `forge_ide --env-status-json` payload.
+        let json = r#"{
+            "forge_version": "1.14.0",
+            "target": "x86_64-pc-windows-msvc",
+            "manifest_present": true,
+            "profile": "classical-ml",
+            "providers": [{"id": "cargo", "status": "available"}],
+            "diagnostics": [{"name": "cargo", "status": "ok", "detail": "1.98.0"}],
+            "gpu": [{"name": "wgpu", "detail": "available"}],
+            "native": {"prereqs": [{"name": "cmake", "satisfied": false, "detail": "not found", "providable": true}], "catalog": []},
+            "python": {"present": true, "interpreter": "Python 3.11", "source": ".venv"},
+            "gaps": ["[gpu] required but no backend"]
+        }"#;
+        let status: EnvStatus = serde_json::from_str(json).expect("valid snapshot");
+        assert_eq!(status.forge_version, "1.14.0");
+        assert!(status.manifest_present);
+        assert_eq!(status.profile.as_deref(), Some("classical-ml"));
+        assert_eq!(status.providers.len(), 1);
+        assert_eq!(status.providers[0].id, "cargo");
+        assert_eq!(status.native.prereqs.len(), 1);
+        assert!(status.native.prereqs[0].providable);
+        assert!(status.python.present);
+        assert_eq!(status.gaps.len(), 1);
+    }
+
+    #[test]
+    fn env_status_tolerates_a_minimal_snapshot() {
+        // Missing fields default rather than failing (forward/back compatibility).
+        let status: EnvStatus = serde_json::from_str("{}").expect("empty object");
+        assert!(status.forge_version.is_empty());
+        assert!(!status.manifest_present);
+        assert!(status.providers.is_empty());
+    }
+}
