@@ -7,6 +7,7 @@ mod app_exec;
 mod app_files;
 mod app_lsp;
 mod classification;
+mod cli;
 mod commands;
 mod data;
 mod database;
@@ -172,16 +173,6 @@ fn tame_child_consoles() {
 #[cfg(not(windows))]
 fn tame_child_consoles() {}
 
-/// The directory argument following an `--env-*` flag, or the current directory.
-fn env_cli_dir(args: &[String], flag_pos: usize) -> std::path::PathBuf {
-    args.get(flag_pos + 1)
-        .filter(|value| !value.starts_with("--"))
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| {
-            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
-        })
-}
-
 fn main() -> eframe::Result<()> {
     // Evcxr relaunches the current executable as its isolated evaluation runtime.
     // This hook turns that child into a headless runtime before eframe can open a window.
@@ -195,141 +186,10 @@ fn main() -> eframe::Result<()> {
         notebook_selftest();
         return Ok(());
     }
-    // Forge environment CLI seams (see docs/FORGE_ENV.md). `--env-doctor [dir]`
-    // reports manifest/provider/gap state; `--env-sync [dir]` writes forge.lock.
-    let cli: Vec<String> = std::env::args().collect();
-    if let Some(pos) = cli.iter().position(|a| a == "--env-doctor") {
-        let root = env_cli_dir(&cli, pos);
-        print!("{}", environment::doctor(&root));
-        return Ok(());
-    }
-    if let Some(pos) = cli.iter().position(|a| a == "--env-sync") {
-        let root = env_cli_dir(&cli, pos);
-        match environment::sync_project(&root) {
-            Ok(path) => println!("Wrote {}", path.display()),
-            Err(error) => eprintln!("forge env sync failed: {error}"),
-        }
-        return Ok(());
-    }
-    // `--env-status-json [dir]` emits a machine-readable snapshot for the Forge
-    // Manager GUI.
-    if let Some(pos) = cli.iter().position(|a| a == "--env-status-json") {
-        let root = env_cli_dir(&cli, pos);
-        println!("{}", environment::status_json(&root));
-        return Ok(());
-    }
-    // `--gpu-detect` reports the GPU backends detected on this machine.
-    if cli.iter().any(|a| a == "--gpu-detect") {
-        print!("{}", environment::gpu_report());
-        return Ok(());
-    }
-    // `--native-check [dir]` checks a project's [native] prerequisites against
-    // the system (it never installs anything).
-    if let Some(pos) = cli.iter().position(|a| a == "--native-check") {
-        let root = env_cli_dir(&cli, pos);
-        let manifest = environment::Manifest::load(&root)
-            .ok()
-            .flatten()
-            .unwrap_or_default();
-        print!("{}", environment::native_report(&manifest.native_request()));
-        return Ok(());
-    }
-    // `--native-provide [dir]` downloads+verifies+extracts the project's pinned
-    // native prebuilts and writes `.forge/native-env`.
-    if let Some(pos) = cli.iter().position(|a| a == "--native-provide") {
-        let root = env_cli_dir(&cli, pos);
-        let tools: Vec<String> = cli
-            .iter()
-            .position(|a| a == "--tools")
-            .and_then(|i| cli.get(i + 1))
-            .map(|value| {
-                value
-                    .split(',')
-                    .map(|tool| tool.trim().to_owned())
-                    .filter(|tool| !tool.is_empty())
-                    .collect()
-            })
-            .unwrap_or_default();
-        print!("{}", environment::native_provide(&root, &tools));
-        return Ok(());
-    }
-    // `--native-pin <url> --archive <zip|tar-gz> [--name <n>]` fetches, hashes,
-    // and prints a ready-to-paste catalog entry.
-    if let Some(pos) = cli.iter().position(|a| a == "--native-pin") {
-        let url = cli.get(pos + 1).filter(|value| !value.starts_with("--"));
-        let flag = |name: &str| {
-            cli.iter()
-                .position(|a| a == name)
-                .and_then(|i| cli.get(i + 1))
-                .map(String::as_str)
-        };
-        match url {
-            Some(url) => print!(
-                "{}",
-                environment::native_pin(url, flag("--archive").unwrap_or("zip"), flag("--name"))
-            ),
-            None => eprintln!("forge native pin: usage: forge native pin <https-url> --archive <zip|tar-gz> [--name <n>]"),
-        }
-        return Ok(());
-    }
-    // `--python-check [dir]` reports the referenced Python bridge env for a project.
-    if let Some(pos) = cli.iter().position(|a| a == "--python-check") {
-        let root = env_cli_dir(&cli, pos);
-        let manifest = environment::Manifest::load(&root)
-            .ok()
-            .flatten()
-            .unwrap_or_default();
-        print!(
-            "{}",
-            environment::python_report(&manifest.python_request(), &root)
-        );
-        return Ok(());
-    }
-    // `--cargo-check [dir]` reports which `[cargo].crates` are already in Cargo.toml.
-    if let Some(pos) = cli.iter().position(|a| a == "--cargo-check") {
-        let root = env_cli_dir(&cli, pos);
-        let manifest = environment::Manifest::load(&root).ok().flatten().unwrap_or_default();
-        print!("{}", environment::cargo_report(&manifest.cargo_request(), &root));
-        return Ok(());
-    }
-    // `--cargo-provide [dir]` runs `cargo add` for each declared crate + `cargo fetch`.
-    if let Some(pos) = cli.iter().position(|a| a == "--cargo-provide") {
-        let root = env_cli_dir(&cli, pos);
-        let manifest = environment::Manifest::load(&root).ok().flatten().unwrap_or_default();
-        print!("{}", environment::cargo_provide(&root, &manifest.cargo_request()));
-        return Ok(());
-    }
-    // `--python-provide [dir]` installs the declared [python].packages into the env.
-    if let Some(pos) = cli.iter().position(|a| a == "--python-provide") {
-        let root = env_cli_dir(&cli, pos);
-        let manifest = environment::Manifest::load(&root).ok().flatten().unwrap_or_default();
-        print!("{}", environment::python_provide(&manifest.python_request(), &root));
-        return Ok(());
-    }
-    // `--env-provide [dir]` provisions the whole manifest at once: native tools,
-    // Cargo crates, then Python packages — the single "make it real" command.
-    if let Some(pos) = cli.iter().position(|a| a == "--env-provide") {
-        let root = env_cli_dir(&cli, pos);
-        let manifest = environment::Manifest::load(&root).ok().flatten().unwrap_or_default();
-        print!("{}", environment::native_provide(&root, &[]));
-        print!("{}", environment::cargo_provide(&root, &manifest.cargo_request()));
-        print!("{}", environment::python_provide(&manifest.python_request(), &root));
-        return Ok(());
-    }
-    // `--reproduce <ID> [dir]` verifies the current environment against a recorded
-    // run's provenance; exits non-zero on a reproducibility-critical divergence.
-    if let Some(pos) = cli.iter().position(|a| a == "--reproduce") {
-        let id = cli.get(pos + 1).filter(|value| !value.starts_with("--"));
-        let Some(id) = id else {
-            eprintln!("forge reproduce: usage: forge reproduce <run-id> [dir]");
-            return Ok(());
-        };
-        let root = env_cli_dir(&cli, pos + 1);
-        let report = reproduce::reproduce(&root, id);
-        print!("{}", report.text);
-        if !report.reproducible {
-            std::process::exit(1);
-        }
+    // Forge environment / reproduce CLI seams (see docs/FORGE_ENV.md and src/cli.rs).
+    // Each returns early without opening a window when it handles the arguments.
+    let cli_args: Vec<String> = std::env::args().collect();
+    if cli::dispatch(&cli_args) {
         return Ok(());
     }
     let app_name = format!("Forge ML {APP_VERSION}");
