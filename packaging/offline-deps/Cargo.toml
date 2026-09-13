@@ -10,6 +10,11 @@ version = "0.0.0"
 edition = "2021"
 publish = false
 
+# These dependencies are declared to vendor them into the offline runtime cache,
+# not to be used from `lib.rs`, so cargo-machete's "unused" flag is expected.
+[package.metadata.cargo-machete]
+ignored = ["millwright", "burn"]
+
 [workspace]
 
 [lib]
