@@ -582,92 +582,7 @@ impl crate::ForgeApp {
         for checkpoint in &self.deep_outputs.checkpoints {
             ui.label(format!("Checkpoint: {checkpoint}"));
         }
-        if let Some(model) = &self.deep_outputs.model {
-            ui.collapsing(
-                format!(
-                    "Model summary · {} · {} parameters",
-                    model.name, model.parameters
-                ),
-                |ui| {
-                    egui::Grid::new("model_summary")
-                        .striped(true)
-                        .show(ui, |ui| {
-                            for (name, shape, parameters) in &model.layers {
-                                ui.label(name);
-                                ui.label(shape);
-                                ui.label(parameters.to_string());
-                                ui.end_row();
-                            }
-                        });
-                },
-            );
-        }
-        ui.collapsing("Tensors", |ui| {
-            for tensor in &self.deep_outputs.tensors {
-                ui.label(format!(
-                    "{} {:?} · {} values",
-                    tensor.name,
-                    tensor.shape,
-                    tensor.values.len()
-                ));
-                egui::ScrollArea::horizontal().show(ui, |ui| {
-                    ui.monospace(
-                        tensor
-                            .values
-                            .iter()
-                            .take(256)
-                            .map(|value| format!("{value:.4}"))
-                            .collect::<Vec<_>>()
-                            .join("  "),
-                    );
-                });
-            }
-        });
-        ui.collapsing("Images", |ui| {
-            for image in &self.deep_outputs.images {
-                ui.label(format!("{} · {}×{}", image.name, image.width, image.height));
-                if image.rgba.len() == image.width * image.height * 4 {
-                    let color = egui::ColorImage::from_rgba_unmultiplied(
-                        [image.width, image.height],
-                        &image.rgba,
-                    );
-                    let texture = ui.ctx().load_texture(
-                        format!("deep_image_{}", image.name),
-                        color,
-                        Default::default(),
-                    );
-                    let size = texture.size_vec2();
-                    ui.image((texture.id(), size));
-                }
-            }
-        });
-        ui.collapsing("Embeddings", |ui| {
-            for embedding in &self.deep_outputs.embeddings {
-                Plot::new(format!("embedding_{}", embedding.name))
-                    .height(180.0)
-                    .show(ui, |plot_ui| {
-                        plot_ui.points(
-                            Points::new(
-                                &embedding.name,
-                                PlotPoints::from(embedding.points.clone()),
-                            )
-                            .radius(3.0),
-                        );
-                    });
-            }
-        });
-        ui.collapsing("Predictions", |ui| {
-            for prediction in &self.deep_outputs.predictions {
-                ui.label(&prediction.name);
-                for (label, probability) in prediction.labels.iter().zip(&prediction.probabilities)
-                {
-                    ui.add(
-                        egui::ProgressBar::new(*probability as f32)
-                            .text(format!("{label} · {probability:.3}")),
-                    );
-                }
-            }
-        });
+        self.deep_learning_outputs(ui);
         ui.separator();
         ui.strong("Remote execution");
         ui.horizontal_wrapped(|ui| {
@@ -908,6 +823,98 @@ impl crate::ForgeApp {
                 },
             );
         }
+    }
+
+    /// The read-only output sections of the Deep Learning inspector: the model
+    /// summary and the tensor / image / embedding / prediction demos. Extracted
+    /// from `deep_learning_inspector` to keep that builder to a readable length.
+    fn deep_learning_outputs(&self, ui: &mut egui::Ui) {
+        if let Some(model) = &self.deep_outputs.model {
+            ui.collapsing(
+                format!(
+                    "Model summary · {} · {} parameters",
+                    model.name, model.parameters
+                ),
+                |ui| {
+                    egui::Grid::new("model_summary")
+                        .striped(true)
+                        .show(ui, |ui| {
+                            for (name, shape, parameters) in &model.layers {
+                                ui.label(name);
+                                ui.label(shape);
+                                ui.label(parameters.to_string());
+                                ui.end_row();
+                            }
+                        });
+                },
+            );
+        }
+        ui.collapsing("Tensors", |ui| {
+            for tensor in &self.deep_outputs.tensors {
+                ui.label(format!(
+                    "{} {:?} · {} values",
+                    tensor.name,
+                    tensor.shape,
+                    tensor.values.len()
+                ));
+                egui::ScrollArea::horizontal().show(ui, |ui| {
+                    ui.monospace(
+                        tensor
+                            .values
+                            .iter()
+                            .take(256)
+                            .map(|value| format!("{value:.4}"))
+                            .collect::<Vec<_>>()
+                            .join("  "),
+                    );
+                });
+            }
+        });
+        ui.collapsing("Images", |ui| {
+            for image in &self.deep_outputs.images {
+                ui.label(format!("{} · {}×{}", image.name, image.width, image.height));
+                if image.rgba.len() == image.width * image.height * 4 {
+                    let color = egui::ColorImage::from_rgba_unmultiplied(
+                        [image.width, image.height],
+                        &image.rgba,
+                    );
+                    let texture = ui.ctx().load_texture(
+                        format!("deep_image_{}", image.name),
+                        color,
+                        Default::default(),
+                    );
+                    let size = texture.size_vec2();
+                    ui.image((texture.id(), size));
+                }
+            }
+        });
+        ui.collapsing("Embeddings", |ui| {
+            for embedding in &self.deep_outputs.embeddings {
+                Plot::new(format!("embedding_{}", embedding.name))
+                    .height(180.0)
+                    .show(ui, |plot_ui| {
+                        plot_ui.points(
+                            Points::new(
+                                &embedding.name,
+                                PlotPoints::from(embedding.points.clone()),
+                            )
+                            .radius(3.0),
+                        );
+                    });
+            }
+        });
+        ui.collapsing("Predictions", |ui| {
+            for prediction in &self.deep_outputs.predictions {
+                ui.label(&prediction.name);
+                for (label, probability) in prediction.labels.iter().zip(&prediction.probabilities)
+                {
+                    ui.add(
+                        egui::ProgressBar::new(*probability as f32)
+                            .text(format!("{label} · {probability:.3}")),
+                    );
+                }
+            }
+        });
     }
 
     /// Train a native softmax classifier on the selected dataset and open its
