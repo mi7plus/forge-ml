@@ -59,6 +59,35 @@ jobs:
       - name: clippy
         run: cargo clippy --workspace --exclude forge-webview --exclude forge-cef --all-targets --all-features -- -D warnings
 
+  helper-crates:
+    name: Helper crates (Windows)
+    # forge-webview (system WebView) and forge-cef (CEF/Chromium) are excluded
+    # from the workspace build/lint above because they need WebKitGTK / the CEF
+    # SDK, so nothing otherwise lints them — a regression only surfaces at release
+    # time. Clippy them on Windows, where they build. Skipped on direct pushes
+    # (kept Linux-fast, like the windows/macOS matrix); runs on PRs, the daily
+    # schedule, and manual dispatch. forge-cef pulls a ~150MB CEF distribution and
+    # a CMake/Ninja build, so it is limited to the schedule/dispatch.
+    if: github.event_name != 'push'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.98.0
+        with:
+          components: clippy
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Clippy forge-webview
+        run: cargo clippy -p forge-webview --all-targets -- -D warnings
+      - name: Ensure Ninja (for forge-cef's CMake build)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) { choco install ninja -y }
+      - name: Clippy forge-cef
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: cargo clippy -p forge-cef --all-targets -- -D warnings
+
   generated-services:
     name: Generated services compile
     # The generated_onnx_service_compiles test is #[ignore]d in normal runs
