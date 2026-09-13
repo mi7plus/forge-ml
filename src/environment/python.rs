@@ -117,11 +117,130 @@ pub fn report(request: &PythonRequest, root: &Path) -> String {
             request.bridge.join(", ")
         ));
     }
+    if !request.packages.is_empty() {
+        let installed = interpreter
+            .as_ref()
+            .and_then(|found| installed_packages(&interpreter_program(root, found)));
+        out.push_str("  packages:\n");
+        for spec in &request.packages {
+            let name = normalize(pkg_name(spec));
+            let status = match &installed {
+                Some(set) if set.contains(&name) => "ok  ",
+                Some(_) => "MISS",
+                None => "?   ", // couldn't list (no interpreter / pip)
+            };
+            out.push_str(&format!("    [{status}] {spec}\n"));
+        }
+    }
     out.push_str(
-        "\nForge references this environment; it does not create or resolve it. Manage it \
-         with uv (`uv sync`) or pixi (`pixi install`).\n",
+        "\nForge references the interpreter (uv/pixi own the env). With `packages` declared, \
+         `forge python provide` installs them into it.\n",
     );
     out
+}
+
+/// The program to invoke Python for `interpreter` under `root`: the project
+/// `.venv` when that's the source, else a PATH interpreter.
+fn interpreter_program(root: &Path, interpreter: &Interpreter) -> String {
+    if interpreter.source == ".venv" {
+        let venv = if cfg!(windows) {
+            root.join(".venv").join("Scripts").join("python.exe")
+        } else {
+            root.join(".venv").join("bin").join("python")
+        };
+        return venv.to_string_lossy().into_owned();
+    }
+    if cfg!(windows) && tool_version("python", &["--version"]).is_some() {
+        "python".to_owned()
+    } else {
+        "python3".to_owned()
+    }
+}
+
+/// The distribution name a pip spec refers to (`pandas>=2` ⇒ `pandas`,
+/// `scikit-learn[extra]` ⇒ `scikit-learn`).
+fn pkg_name(spec: &str) -> &str {
+    let end = spec
+        .find(|c: char| "<>=!~[ @;".contains(c))
+        .unwrap_or(spec.len());
+    spec[..end].trim()
+}
+
+/// Normalize a distribution name for comparison (PyPI treats `-`/`_` and case
+/// as equivalent): lowercase, underscores to hyphens.
+fn normalize(name: &str) -> String {
+    name.trim().to_ascii_lowercase().replace('_', "-")
+}
+
+/// The set of installed distribution names (normalized) reported by the
+/// interpreter's pip, or `None` if pip could not be listed.
+fn installed_packages(python: &str) -> Option<std::collections::HashSet<String>> {
+    let output = std::process::Command::new(python)
+        .args(["-m", "pip", "list", "--format=freeze"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    Some(
+        text.lines()
+            .filter_map(|line| line.split(['=', '@', ' ']).next())
+            .filter(|name| !name.is_empty())
+            .map(normalize)
+            .collect(),
+    )
+}
+
+/// `forge python provide` — install the declared `packages` into the referenced
+/// environment. Uses `pixi add` when the manager is pixi, otherwise the resolved
+/// interpreter's `pip`. Real installs; nothing beyond the package manager runs.
+pub fn provide(request: &PythonRequest, root: &Path) -> String {
+    if !request.present || request.packages.is_empty() {
+        return "Nothing to install — declare `packages = [...]` under [python] in forge.toml.\n"
+            .to_owned();
+    }
+    // pixi manages its own environment file; add packages there.
+    if request.manager.as_deref() == Some("pixi") {
+        return match std::process::Command::new("pixi")
+            .current_dir(root)
+            .arg("add")
+            .args(&request.packages)
+            .output()
+        {
+            Ok(output) if output.status.success() => {
+                format!("Installed {} package(s) with `pixi add`.\n", request.packages.len())
+            }
+            Ok(output) => format!(
+                "forge python provide: `pixi add` failed: {}\n",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ),
+            Err(error) => format!("forge python provide: could not run pixi: {error}\n"),
+        };
+    }
+
+    let Some(interpreter) = find_interpreter(root) else {
+        return "forge python provide: no interpreter found (create one with `uv venv` or `python -m venv .venv`).\n"
+            .to_owned();
+    };
+    let python = interpreter_program(root, &interpreter);
+    match std::process::Command::new(&python)
+        .args(["-m", "pip", "install"])
+        .args(&request.packages)
+        .output()
+    {
+        Ok(output) if output.status.success() => format!(
+            "Installed {} package(s) into {} ({}).\n",
+            request.packages.len(),
+            interpreter.source,
+            interpreter.version
+        ),
+        Ok(output) => format!(
+            "forge python provide: pip install failed: {}\n",
+            String::from_utf8_lossy(&output.stderr).trim().lines().last().unwrap_or("")
+        ),
+        Err(error) => format!("forge python provide: could not run {python}: {error}\n"),
+    }
 }
 
 pub struct PythonProvider;
@@ -167,6 +286,14 @@ impl EnvironmentProvider for PythonProvider {
         }
         if let Some(want) = &request.version {
             extra.insert("requested".to_owned(), toml::Value::String(want.clone()));
+        }
+        if !request.packages.is_empty() {
+            extra.insert(
+                "packages".to_owned(),
+                toml::Value::Array(
+                    request.packages.iter().cloned().map(toml::Value::String).collect(),
+                ),
+            );
         }
         Ok(LockEntry {
             id: self.id().to_owned(),
@@ -215,8 +342,17 @@ mod tests {
             version: version.map(str::to_owned),
             manager: None,
             bridge: Vec::new(),
+            packages: Vec::new(),
             require,
         }
+    }
+
+    #[test]
+    fn pkg_name_strips_version_specifiers() {
+        assert_eq!(pkg_name("numpy"), "numpy");
+        assert_eq!(pkg_name("pandas>=2"), "pandas");
+        assert_eq!(pkg_name("scikit-learn[extra]"), "scikit-learn");
+        assert_eq!(normalize("Scikit_Learn"), "scikit-learn");
     }
 
     #[test]

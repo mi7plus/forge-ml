@@ -35,6 +35,7 @@ pub fn run() -> ExitCode {
         "doctor" => run_forge_ide(&["--env-doctor".to_owned()]),
         "gpu" => cmd_gpu(rest),
         "native" => cmd_native(rest),
+        "cargo" => cmd_cargo(rest),
         "python" => cmd_python(rest),
         "manage" => cmd_manage(rest),
         "reproduce" => cmd_reproduce(rest),
@@ -120,11 +121,18 @@ fn cmd_add(args: &[String]) -> Result<(), String> {
 fn cmd_env(args: &[String]) -> Result<(), String> {
     let (sub, rest) = args
         .split_first()
-        .ok_or("usage: forge env <sync|doctor> [dir]")?;
+        .ok_or("usage: forge env <sync|doctor|provide> [dir]")?;
     let mut forwarded = match sub.as_str() {
         "sync" => vec!["--env-sync".to_owned()],
         "doctor" => vec!["--env-doctor".to_owned()],
-        other => return Err(format!("unknown env subcommand `{other}` (sync | doctor)")),
+        // Provision the whole manifest at once: native tools, Cargo crates, then
+        // Python packages.
+        "provide" => vec!["--env-provide".to_owned()],
+        other => {
+            return Err(format!(
+                "unknown env subcommand `{other}` (sync | doctor | provide)"
+            ))
+        }
     };
     forwarded.extend(rest.iter().cloned());
     run_forge_ide(&forwarded)
@@ -144,14 +152,34 @@ fn cmd_gpu(args: &[String]) -> Result<(), String> {
 /// (interpreter, version, manager). Forge references the env; it never manages
 /// it. Delegates to forge_ide.
 fn cmd_python(args: &[String]) -> Result<(), String> {
+    let forward = |flag: &str, rest: &[String]| {
+        let mut forwarded = vec![flag.to_owned()];
+        forwarded.extend(rest.iter().cloned());
+        run_forge_ide(&forwarded)
+    };
     match args.split_first() {
-        Some((sub, rest)) if sub == "check" => {
-            let mut forwarded = vec!["--python-check".to_owned()];
-            forwarded.extend(rest.iter().cloned());
-            run_forge_ide(&forwarded)
-        }
-        Some((other, _)) => Err(format!("unknown python subcommand `{other}` (check)")),
-        None => Err("usage: forge python check [dir]".into()),
+        Some((sub, rest)) if sub == "check" => forward("--python-check", rest),
+        Some((sub, rest)) if sub == "provide" => forward("--python-provide", rest),
+        Some((other, _)) => Err(format!("unknown python subcommand `{other}` (check | provide)")),
+        None => Err("usage: forge python <check|provide> [dir]".into()),
+    }
+}
+
+/// `forge cargo <check|provide> [dir]` — declare crate dependencies in
+/// `[cargo].crates` and keep `Cargo.toml`/`Cargo.lock` in sync. `check` reports
+/// which are already present; `provide` runs `cargo add` for the rest and fetches
+/// the graph. Delegates to forge_ide.
+fn cmd_cargo(args: &[String]) -> Result<(), String> {
+    let forward = |flag: &str, rest: &[String]| {
+        let mut forwarded = vec![flag.to_owned()];
+        forwarded.extend(rest.iter().cloned());
+        run_forge_ide(&forwarded)
+    };
+    match args.split_first() {
+        Some((sub, rest)) if sub == "check" => forward("--cargo-check", rest),
+        Some((sub, rest)) if sub == "provide" => forward("--cargo-provide", rest),
+        Some((other, _)) => Err(format!("unknown cargo subcommand `{other}` (check | provide)")),
+        None => Err("usage: forge cargo <check|provide> [dir]".into()),
     }
 }
 
@@ -380,11 +408,12 @@ fn print_help() {
          \x20 forge new <name> [--profile P]   scaffold a project + forge.toml (P below; default {})\n\
          \x20 forge add <crate>...             cargo add with data-science feature defaults\n\
          \x20 forge run|build|test [args]      cargo passthrough\n\
-         \x20 forge env sync|doctor [dir]      write forge.lock / report the environment\n\
+         \x20 forge env sync|doctor|provide   write forge.lock / report / provision everything\n\
          \x20 forge doctor                     diagnose the current environment\n\
          \x20 forge gpu detect                 report detected GPU backends\n\
          \x20 forge native check|provide|pin  check / download+provide / pin native prerequisites\n\
-         \x20 forge python check [dir]        report the referenced Python bridge environment\n\
+         \x20 forge cargo check|provide [dir] check / cargo-add the crates in [cargo].crates\n\
+         \x20 forge python check|provide [dir] report / install the [python].packages\n\
          \x20 forge reproduce <id> [dir]       verify the environment against a recorded run\n\
          \x20 forge manage [dir]               open the Forge Manager (environment/package GUI)\n\
          \x20 forge ide [dir]                  open the Forge ML desktop app\n\

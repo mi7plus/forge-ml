@@ -285,6 +285,37 @@ fn main() -> eframe::Result<()> {
         );
         return Ok(());
     }
+    // `--cargo-check [dir]` reports which `[cargo].crates` are already in Cargo.toml.
+    if let Some(pos) = cli.iter().position(|a| a == "--cargo-check") {
+        let root = env_cli_dir(&cli, pos);
+        let manifest = environment::Manifest::load(&root).ok().flatten().unwrap_or_default();
+        print!("{}", environment::cargo_report(&manifest.cargo_request(), &root));
+        return Ok(());
+    }
+    // `--cargo-provide [dir]` runs `cargo add` for each declared crate + `cargo fetch`.
+    if let Some(pos) = cli.iter().position(|a| a == "--cargo-provide") {
+        let root = env_cli_dir(&cli, pos);
+        let manifest = environment::Manifest::load(&root).ok().flatten().unwrap_or_default();
+        print!("{}", environment::cargo_provide(&root, &manifest.cargo_request()));
+        return Ok(());
+    }
+    // `--python-provide [dir]` installs the declared [python].packages into the env.
+    if let Some(pos) = cli.iter().position(|a| a == "--python-provide") {
+        let root = env_cli_dir(&cli, pos);
+        let manifest = environment::Manifest::load(&root).ok().flatten().unwrap_or_default();
+        print!("{}", environment::python_provide(&manifest.python_request(), &root));
+        return Ok(());
+    }
+    // `--env-provide [dir]` provisions the whole manifest at once: native tools,
+    // Cargo crates, then Python packages — the single "make it real" command.
+    if let Some(pos) = cli.iter().position(|a| a == "--env-provide") {
+        let root = env_cli_dir(&cli, pos);
+        let manifest = environment::Manifest::load(&root).ok().flatten().unwrap_or_default();
+        print!("{}", environment::native_provide(&root, &[]));
+        print!("{}", environment::cargo_provide(&root, &manifest.cargo_request()));
+        print!("{}", environment::python_provide(&manifest.python_request(), &root));
+        return Ok(());
+    }
     // `--reproduce <ID> [dir]` verifies the current environment against a recorded
     // run's provenance; exits non-zero on a reproducibility-critical divergence.
     if let Some(pos) = cli.iter().position(|a| a == "--reproduce") {

@@ -28,6 +28,7 @@ impl Capabilities {
             "native" => self.native,
             "gpu" => self.gpu,
             "python" => self.python,
+            "cargo" => self.crates,
             "toolchain" => self.toolchain,
             _ => false,
         }

@@ -10,6 +10,7 @@
 //! rewrite. See `docs/FORGE_ENV.md`.
 
 mod bundled;
+mod cargo;
 mod diagnostics;
 mod gpu;
 mod lock;
@@ -22,6 +23,7 @@ mod status;
 mod system;
 
 pub use bundled::BundledRuntimeProvider;
+pub use cargo::{provide as cargo_provide, report as cargo_report, CrateProvider};
 pub use gpu::{report as gpu_report, GpuProvider};
 pub use lock::{sha256_hex, Lock};
 pub use manifest::Manifest;
@@ -29,7 +31,7 @@ pub use native::{
     pin as native_pin, provide as native_provide, report as native_report, NativeLibProvider,
 };
 pub use provider::{Activation, EnvironmentProvider, Probe};
-pub use python::{report as python_report, PythonProvider};
+pub use python::{provide as python_provide, report as python_report, PythonProvider};
 pub use status::status_json;
 pub use system::SystemToolchainProvider;
 
@@ -65,6 +67,7 @@ impl Resolver {
         resolver.register(Box::new(GpuProvider));
         resolver.register(Box::new(NativeLibProvider));
         resolver.register(Box::new(PythonProvider));
+        resolver.register(Box::new(CrateProvider));
         resolver
     }
 

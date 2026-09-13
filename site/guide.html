@@ -400,10 +400,11 @@ println!(r#"forge_plot:{"name":"roc","kind":"line","series":[...]}"#); // struct
 
     <section id="environments">
       <h2>Reproducible environments</h2>
-      <p>Beyond the offline Rust runtime, a Forge project can declare the wider environment it needs and pin
-      it so it rebuilds the same way anywhere. A project states its requirements in <code>forge.toml</code>,
-      and Forge resolves them into a fully-pinned <code>forge.lock</code> — the reproducible source of
-      truth.</p>
+      <p>Beyond the offline Rust runtime, a Forge project can declare the <em>whole</em> environment it
+      needs — down to the Cargo crates and Python packages — and pin it so it rebuilds the same way
+      anywhere. A project states its requirements in <code>forge.toml</code>, Forge <strong>provisions</strong>
+      them, and resolution is captured in a fully-pinned <code>forge.lock</code>. Forge does not reinvent
+      Cargo or pip; it <em>drives</em> them, so one manifest is the single place the stack is declared.</p>
 <pre><code># forge.toml
 [gpu]
 backend = "auto"                 # auto · wgpu · cuda · cpu
@@ -411,10 +412,15 @@ backend = "auto"                 # auto · wgpu · cuda · cpu
 [native]
 tools = ["cmake", "protoc", "ninja"]
 
+[cargo]
+crates = ["polars", "ndarray", "linfa"]
+
 [python]
-version = "&gt;=3.10"</code></pre>
+version = "&gt;=3.10"
+manager = "uv"                   # uv · pixi · system
+packages = ["pyarrow", "onnxruntime"]</code></pre>
       <p>Resolution runs through a chain of <strong>providers</strong>, each of which probes what's present,
-      activates what it can, and records the result in the lock:</p>
+      provisions or activates what it can, and records the result in the lock:</p>
       <dl class="spec">
         <dt>Bundled &amp; system</dt>
         <dd>The shipped offline runtime and the tools already on the machine — the baseline every project starts from.</dd>
@@ -422,8 +428,10 @@ version = "&gt;=3.10"</code></pre>
         <dd>Resolves the compute backend against the <code>[gpu]</code> section. <code>forge gpu detect</code> reports the backends available on this machine.</dd>
         <dt>Native libraries</dt>
         <dd>Fulfils <code>[native]</code> tools from a <strong>hash-pinned catalog</strong> of prebuilts (CMake 3.30.5, protoc 28.3, Ninja 1.12.1, …), downloaded and <strong>SHA-256-verified</strong> into <code>.forge/native-env</code> — no system package manager required.</dd>
-        <dt>Python</dt>
-        <dd>Resolves an interpreter for the <code>[python]</code> requirement; <code>forge python check</code> reports what it finds.</dd>
+        <dt>Cargo crates</dt>
+        <dd>Keeps <code>Cargo.toml</code> in sync with <code>[cargo].crates</code>: <code>forge cargo provide</code> runs <code>cargo&nbsp;add</code> for each missing crate and fetches the graph. Cargo.lock stays the source of truth for resolved versions.</dd>
+        <dt>Python packages</dt>
+        <dd>References the interpreter for the <code>[python]</code> requirement, and installs the declared <code>packages</code> into it — <code>forge python provide</code> uses <code>pip</code> (uv/system envs) or <code>pixi add</code>. uv/pixi still own the env itself.</dd>
       </dl>
       <p>The command line drives the whole cycle:</p>
       <div class="table-scroll">
@@ -431,16 +439,21 @@ version = "&gt;=3.10"</code></pre>
         <thead><tr><th>Command</th><th>What it does</th></tr></thead>
         <tbody>
           <tr><td><code>forge doctor</code></td><td>Probe every provider and report gaps, incompatibilities, and what's missing.</td></tr>
+          <tr><td><code>forge env provide</code></td><td>Provision the whole manifest at once — native tools, then crates, then Python packages.</td></tr>
           <tr><td><code>forge env sync</code></td><td>Reconcile the working environment with <code>forge.lock</code> in place.</td></tr>
           <tr><td><code>forge reproduce</code></td><td>Rebuild the locked environment on a fresh machine.</td></tr>
+          <tr><td><code>forge cargo check</code> / <code>provide</code></td><td>Report which <code>[cargo].crates</code> are in Cargo.toml, or <code>cargo add</code> the rest and fetch.</td></tr>
+          <tr><td><code>forge python check</code> / <code>provide</code></td><td>Report the interpreter and package status, or install the <code>[python].packages</code>.</td></tr>
           <tr><td><code>forge native check</code> / <code>provide</code> / <code>pin</code></td><td>Inspect, provision, or pin native tools from the catalog.</td></tr>
-          <tr><td><code>forge gpu detect</code> · <code>forge python check</code></td><td>Report the GPU backends and Python interpreter available here.</td></tr>
+          <tr><td><code>forge gpu detect</code></td><td>Report the GPU backends available on this machine.</td></tr>
         </tbody>
       </table>
       </div>
-      <div class="note">Provisioned downloads are verified against a pinned SHA-256 before use, extracted
-      into the project's <code>.forge/</code> directory, and applied by <code>forge run</code> / <code>build</code> /
-      <code>test</code> — never touching system directories.</div>
+      <div class="note">Provisioning stays scoped to the project: native prebuilts are SHA-256-verified and
+      extracted into <code>.forge/</code> (applied by <code>forge run</code> / <code>build</code> / <code>test</code>),
+      crates land in the project's <code>Cargo.toml</code> / <code>Cargo.lock</code>, and Python packages install
+      into the project's referenced env — never system-wide. All provisioning is an explicit command, never
+      run silently on startup.</div>
     </section>
 
     <section id="manager">

@@ -200,29 +200,34 @@
     <p class="eyebrow">Reproducible by construction</p>
     <h2>Environments you can declare, lock, and rebuild</h2>
     <p class="lede">A Forge project states what it needs in <code>forge.toml</code> — a GPU backend,
-    native libraries, a Python runtime — and Forge resolves it into a fully-pinned
-    <code>forge.lock</code>. Providers supply each piece: the bundled runtime, system tools, the GPU,
-    hash-verified native prebuilts, and Python. One command checks the whole thing; another rebuilds
-    it on a fresh machine.</p>
+    native libraries, <strong>Cargo crates</strong>, a Python interpreter and its <strong>packages</strong>
+    — and one command provisions the lot, then locks it into <code>forge.lock</code>. Forge doesn't
+    reinvent Cargo or pip; it drives them, so the whole stack is declared in one place and rebuilds the
+    same way anywhere.</p>
     <div class="grid">
-      <div class="card"><span class="ico">◱</span><h3>Declare &amp; lock</h3><p><code>forge.toml</code> declares the <code>[gpu]</code>, <code>[native]</code>, and <code>[python]</code> requirements; <code>forge.lock</code> is the generated, fully-resolved environment — the reproducible source of truth.</p></div>
-      <div class="card"><span class="ico">◈</span><h3>doctor &amp; reproduce</h3><p><code>forge doctor</code> probes every provider and reports gaps; <code>forge reproduce</code> rebuilds the locked environment somewhere new; <code>forge env sync</code> reconciles it in place.</p></div>
+      <div class="card"><span class="ico">◱</span><h3>Declare &amp; lock</h3><p>One manifest declares the <code>[gpu]</code>, <code>[native]</code>, <code>[cargo]</code>, and <code>[python]</code> needs; <code>forge.lock</code> is the generated, fully-resolved environment — the reproducible source of truth.</p></div>
+      <div class="card"><span class="ico">⊞</span><h3>Crates &amp; Python packages</h3><p><code>forge cargo provide</code> runs <code>cargo add</code> for each declared crate and fetches the graph; <code>forge python provide</code> installs the declared packages into the referenced env with <code>pip</code>/<code>pixi</code>.</p></div>
       <div class="card"><span class="ico">⇲</span><h3>Provisioned native tools</h3><p><code>forge native provide</code> fetches prebuilt <strong>CMake, protoc, and Ninja</strong> from a hash-pinned catalog, SHA-256-verified, into <code>.forge/native-env</code> — no system package manager needed.</p></div>
-      <div class="card"><span class="ico">⊞</span><h3>GPU &amp; Python providers</h3><p><code>forge gpu detect</code> reports the backends on this machine and <code>forge python check</code> resolves an interpreter. Each provider probes, activates, and records itself in the lock.</p></div>
+      <div class="card"><span class="ico">◈</span><h3>doctor, provide &amp; reproduce</h3><p><code>forge doctor</code> probes every provider and reports gaps; <code>forge env provide</code> provisions everything at once; <code>forge reproduce</code> rebuilds the locked environment on a fresh machine.</p></div>
     </div>
-<pre><code># forge.toml — declare what this project needs
+<pre><code># forge.toml — declare the whole environment
 [gpu]
 backend = "auto"                 # auto · wgpu · cuda · cpu
 
 [native]
 tools = ["cmake", "protoc", "ninja"]
 
+[cargo]
+crates = ["polars", "ndarray", "linfa"]
+
 [python]
-version = "&gt;=3.10"</code></pre>
+version = "&gt;=3.10"
+manager = "uv"
+packages = ["pyarrow", "onnxruntime"]</code></pre>
     <div class="note"><strong>Forge Manager</strong> is a companion desktop app — a Navigator-style
     console (<em>Home / Environment / Packages / Diagnostics</em>) that inspects a project's resolved
-    environment and installs missing native tools with one click, the way Anaconda Navigator sits over
-    conda. Launch it from the IDE or with <code>forge manage</code>.</div>
+    environment and installs what's missing with one click, the way Anaconda Navigator sits over conda.
+    Launch it from the IDE or with <code>forge manage</code>.</div>
   </div>
 </section>
 
