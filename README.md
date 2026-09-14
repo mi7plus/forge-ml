@@ -6,6 +6,12 @@
 
 Forge ML is a desktop compute studio for interactive Rust machine-learning work, shipping as Windows, macOS, and Linux installers.
 
+<p align="center">
+  <img src="assets/forge-demo.gif" alt="A Forge ML notebook session: generating a dataset, sending it to the data viewer, plotting it, fitting a model with gradient descent, and showing the training-loss curve and fitted line — all in native Rust." width="900">
+</p>
+
+<p align="center"><em>A live notebook: data → plots → a fitted model with a training-loss curve, unedited.</em></p>
+
 Its workspace follows the scientific-IDE model popularized by Spyder — an editor surrounded by project, outline, variable, plot, help, diagnostics, console, and history panes — but every surface is a fully dockable pane. Split, drag between regions, tab together, reorder, or hide any pane; the arrangement is remembered across restarts.
 
 A browsable feature site lives under [`site/`](site/) (homepage plus a detailed guide), deployed to GitHub Pages by [`.github/workflows/pages.yml`](.github/workflows/pages.yml).

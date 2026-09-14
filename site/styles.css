@@ -154,6 +154,13 @@ h3 { font-size: 1.06rem; margin: 1.5em 0 .4em; }
 .shot figcaption { display: flex; flex-direction: column; gap: 2px; padding: 12px 16px; font-weight: 600; font-size: .95rem; }
 .shot figcaption span { font-weight: 400; color: var(--muted); font-size: .84rem; }
 
+.foot { color: var(--muted); font-size: .82rem; margin-top: 8px; }
+
+/* Demo video */
+.demo { margin: 28px auto 0; max-width: 1000px; }
+.demo video { display: block; width: 100%; height: auto; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface-2); }
+.demo figcaption { margin-top: 12px; text-align: center; color: var(--muted); font-size: .9rem; }
+
 /* Split feature rows */
 .rows { display: grid; gap: 18px; margin-top: 26px; }
 .row2 { display: grid; grid-template-columns: 200px 1fr; gap: 20px; align-items: start; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }

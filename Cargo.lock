@@ -4461,7 +4461,7 @@ checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
 name = "forge-cef"
-version = "1.14.0"
+version = "1.15.0"
 dependencies = [
  "cef",
  "forge-cef-ipc",
@@ -4470,15 +4470,15 @@ dependencies = [
 
 [[package]]
 name = "forge-cef-ipc"
-version = "1.14.0"
+version = "1.15.0"
 
 [[package]]
 name = "forge-cli"
-version = "1.14.0"
+version = "1.15.0"
 
 [[package]]
 name = "forge-manager"
-version = "1.14.0"
+version = "1.15.0"
 dependencies = [
  "eframe",
  "egui",
@@ -4507,7 +4507,7 @@ dependencies = [
 
 [[package]]
 name = "forge-webview"
-version = "1.14.0"
+version = "1.15.0"
 dependencies = [
  "tao",
  "wry",
@@ -4515,7 +4515,7 @@ dependencies = [
 
 [[package]]
 name = "forge_ide"
-version = "1.14.0"
+version = "1.15.0"
 dependencies = [
  "adbc_core",
  "alacritty_terminal",
@@ -4560,7 +4560,7 @@ dependencies = [
 
 [[package]]
 name = "forge_ml"
-version = "1.14.0"
+version = "1.15.0"
 dependencies = [
  "burn",
  "millwright",

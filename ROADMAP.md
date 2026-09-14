@@ -32,7 +32,7 @@ offline, reproducible environment with a thin `forge` CLI) is designed in
 
 ## Current status
 
-Current application version: `1.14.0`
+Current application version: `1.15.0`
 
 Forge ML is a shipping desktop IDE with interactive Rust execution, editor and
 language tooling, project navigation, telemetry plots, experiment snapshots, a

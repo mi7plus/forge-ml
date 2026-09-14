@@ -11,6 +11,39 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+## [1.15.0] — 2026-09-15
+
+### Fixed
+- **Windows: a console window no longer flashes on every notebook cell run.**
+  `tame_child_consoles()` (which gives the whole process tree one hidden console
+  to inherit) ran *after* `evcxr::runtime_hook()`, so the evcxr evaluation-runtime
+  child skipped it and each per-cell `cargo`/`rustc` compile allocated a fresh
+  console. It now runs first.
+
+### Changed
+- **Metric charts draw point markers.** A `forge_metric` emitted once (a summary
+  scalar like `final_loss` or `r_squared`) is a single-point series and drew no
+  visible line; the Charts pane now overlays markers (a larger dot for a lone
+  point) so the value is visible, with the exact number on hover.
+- **Dependency updates:** arrow/parquet 59, zip 8, sha2 0.11, ndarray 0.17, and
+  egui 0.36.2 — behavior and hashes unchanged (the sha2 digest is byte-identical).
+- **Large internal restructuring (no user-facing change).** The `ForgeApp` state
+  struct was decomposed from 232 flat fields to ~144 by grouping 15 cohesive
+  subsystems into sub-state structs (now in `src/app_state.rs`), the `eframe::App`
+  and `egui_tiles::Behavior` impls moved to `src/ui/app_impl.rs`, and the largest
+  builders (`poll_background`, `deep_learning_inspector`, `menu_bar`,
+  `data_inspector`, `deployment_inspector`, `notebook_pane`, `ForgeApp::new`) were
+  split into focused helpers. No function now exceeds ~285 lines.
+
+### Added
+- **Repository quality gates:** a `cargo doc` CI job (denies broken intra-doc
+  links and enforces `forge-protocol`'s `#![deny(missing_docs)]`), a `cargo-deny`
+  license/advisory/duplicate check, a `justfile` reproducing the CI gate, and
+  issue / pull-request templates. `ROADMAP.md` was trimmed to a forward-looking
+  tracker with its build log archived to `docs/HISTORY.md`.
+- **A demo:** `examples/notebooks/demo.rs` (a self-contained linear-regression
+  notebook) plus a screen-recorded demo on the feature site and the README.
+
 ## [1.14.0] — 2026-09-13
 
 ### Added

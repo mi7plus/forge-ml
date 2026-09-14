@@ -143,7 +143,7 @@
 
 <section id="download">
   <div class="wrap">
-    <p class="eyebrow">Download · v1.14.0</p>
+    <p class="eyebrow">Download · v1.15.0</p>
     <h2>Get the desktop app</h2>
     <p class="lede">Native installers with the offline Rust runtime bundled in — the toolchain and the
     Millwright/Burn dependency cache ship inside, so notebook <code>:dep</code> cells compile with no
@@ -153,31 +153,39 @@
         <h3>Windows</h3>
         <p>Windows 10 / 11 · x64</p>
         <div class="cta" style="margin-top:14px">
-          <a class="btn primary" href="https://github.com/mi7plus/forge-ml/releases/download/v1.14.0/forge_ide_1.14.0_x64-setup.exe">Installer (.exe) · 357&nbsp;MB</a>
+          <a class="btn primary" href="https://github.com/mi7plus/forge-ml/releases/download/v1.15.0/forge_ide_1.15.0_x64-setup.exe">Installer (.exe) · 357&nbsp;MB</a>
         </div>
+        <p class="foot">≈&nbsp;2&nbsp;GB on disk once installed</p>
         <p style="margin-top:12px">Now bundles the Chromium engine that powers the in-app web preview.
           Portable build:
-          <a href="https://github.com/mi7plus/forge-ml/releases/download/v1.14.0/forge_ide.exe">forge_ide.exe</a> · 156&nbsp;MB
-          (no web preview)</p>
+          <a href="https://github.com/mi7plus/forge-ml/releases/download/v1.15.0/forge_ide.exe">forge_ide.exe</a> · 156&nbsp;MB
+          (single file, no web preview)</p>
       </div>
       <div class="card">
         <h3>macOS</h3>
         <p>Apple Silicon (arm64)</p>
         <div class="cta" style="margin-top:14px">
-          <a class="btn primary" href="https://github.com/mi7plus/forge-ml/releases/download/v1.14.0/Forge.ML_1.14.0_aarch64.dmg">Disk image (.dmg) · 320&nbsp;MB</a>
+          <a class="btn primary" href="https://github.com/mi7plus/forge-ml/releases/download/v1.15.0/Forge.ML_1.15.0_aarch64.dmg">Disk image (.dmg) · 320&nbsp;MB</a>
         </div>
+        <p class="foot">≈&nbsp;2&nbsp;GB on disk once installed</p>
       </div>
       <div class="card">
         <h3>Linux</h3>
         <p>x86_64</p>
         <div class="cta" style="margin-top:14px">
-          <a class="btn primary" href="https://github.com/mi7plus/forge-ml/releases/download/v1.14.0/forge_ide_1.14.0_x86_64.AppImage">AppImage · 455&nbsp;MB</a>
-          <a class="btn ghost" href="https://github.com/mi7plus/forge-ml/releases/download/v1.14.0/forge_ide_1.14.0_amd64.deb">.deb · 392&nbsp;MB</a>
+          <a class="btn primary" href="https://github.com/mi7plus/forge-ml/releases/download/v1.15.0/forge_ide_1.15.0_x86_64.AppImage">AppImage · 455&nbsp;MB</a>
+          <a class="btn ghost" href="https://github.com/mi7plus/forge-ml/releases/download/v1.15.0/forge_ide_1.15.0_amd64.deb">.deb · 392&nbsp;MB</a>
         </div>
+        <p class="foot">≈&nbsp;2&nbsp;GB on disk once installed</p>
       </div>
     </div>
+    <p class="note">Those are the compressed <strong>download</strong> sizes. Plan for roughly
+      <strong>2&nbsp;GB free</strong> after install — the bundled offline Rust toolchain and the
+      Millwright/Burn dependency cache expand on disk (that is what lets <code>:dep</code> cells build
+      with no network). The portable <code>forge_ide.exe</code> is the exception: a single ~156&nbsp;MB
+      file with no offline runtime.</p>
     <p class="note">Verify a download against
-      <a href="https://github.com/mi7plus/forge-ml/releases/download/v1.14.0/SHA256SUMS">SHA256SUMS</a>.
+      <a href="https://github.com/mi7plus/forge-ml/releases/download/v1.15.0/SHA256SUMS">SHA256SUMS</a>.
       Each artifact carries a GitHub build-provenance attestation. Prefer to build from source?
       See <a href="#start">Clone and run</a>.</p>
     <p class="note"><strong>GPU is built in.</strong> Pick a compute device in <em>Settings → Compute</em> or
@@ -262,51 +270,18 @@ packages = ["pyarrow", "onnxruntime"]</code></pre>
 <section id="screenshots" class="tinted">
   <div class="wrap">
     <p class="eyebrow">See it in action</p>
-    <h2>Screens from a live session</h2>
-    <p class="lede">Captured from the running desktop app — the dockable layout, native
-    classification, embedded terminals and kernels, and the data and inference tools.</p>
-    <div class="shots">
-      <figure class="shot">
-        <img src="screenshots/workspace.png" width="1600" height="874" loading="lazy"
-             alt="The Forge ML workspace: a file navigator, an editor open on a Rust notebook with //# %% cells, and the notebook cell rail below."
-             onerror="this.closest('.shot').classList.add('pending')">
-        <figcaption>The dockable workspace<span>editor, panes, console, and status bar</span></figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="screenshots/classification.png" width="1600" height="1000" loading="lazy"
-             alt="Native softmax classification results with per-class precision, recall, and F1, and a confusion-matrix heatmap."
-             onerror="this.closest('.shot').classList.add('pending')">
-        <figcaption>Native classification<span>metrics and a confusion-matrix heatmap</span></figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="screenshots/terminals-kernels.png" width="1600" height="874" loading="lazy"
-             alt="An embedded system terminal docked to the right of the editor, alongside the live variables inspector."
-             onerror="this.closest('.shot').classList.add('pending')">
-        <figcaption>Terminals &amp; Rust kernels<span>independent, dockable, floatable panes</span></figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="screenshots/data-viewer.png" width="1600" height="1000" loading="lazy"
-             alt="The virtualized data viewer showing a large table with filtering, sorting, and pinned columns."
-             onerror="this.closest('.shot').classList.add('pending')">
-        <figcaption>Data viewer<span>virtualized grid with filter, sort, and pinning</span></figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="screenshots/playground.png" width="1600" height="1000" loading="lazy"
-             alt="The inference playground with a per-feature input form and live per-class probability bars."
-             onerror="this.closest('.shot').classList.add('pending')">
-        <figcaption>Inference playground<span>per-feature form, live class probabilities</span></figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="screenshots/plots.png" width="1600" height="1000" loading="lazy"
-             alt="Live training-loss line charts and the experiments board comparing several runs."
-             onerror="this.closest('.shot').classList.add('pending')">
-        <figcaption>Plots &amp; experiments<span>live charts and the runs board</span></figcaption>
-      </figure>
-    </div>
-    <p class="note">These load from <code>site/screenshots/</code>; until a capture is added, each
-    tile shows a placeholder. See the
-    <a href="https://github.com/mi7plus/forge-ml/blob/main/site/screenshots/README.md">capture guide</a>
-    for the recommended shots, window size, and file names.</p>
+    <h2>A live session, start to finish</h2>
+    <p class="lede">One notebook, no setup: generate a dataset, send it to the data viewer, plot it,
+    fit a model with gradient descent, then watch the scatter, the fitted line, and the training-loss
+    curve appear — all in native Rust.</p>
+    <figure class="demo">
+      <video src="forge-demo.mp4" width="1600" height="868" autoplay muted loop playsinline controls
+             preload="metadata"
+             aria-label="Screen recording of a Forge ML notebook: cells run to generate data, render a scatter plot and a data-plus-fit line, and show a descending training-loss curve.">
+        <a href="forge-demo.mp4">Watch the demo (MP4)</a>
+      </video>
+      <figcaption>From a fresh notebook to a fitted model with live plots — unedited.</figcaption>
+    </figure>
   </div>
 </section>
 
