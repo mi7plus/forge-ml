@@ -640,167 +640,7 @@ impl crate::ForgeApp {
                             .size(9.0)
                             .color(MUTED),
                     );
-                    if spec.kind == PlotKind::Heatmap {
-                        draw_heatmap(ui, &spec.matrix);
-                        return;
-                    }
-                    if spec.kind == PlotKind::Box {
-                        draw_box_summary(ui, spec);
-                    }
-                    Plot::new(format!("structured_plot_{index}"))
-                        .height(260.0)
-                        .allow_zoom(true)
-                        .allow_drag(true)
-                        .allow_scroll(true)
-                        .allow_boxed_zoom(true)
-                        .auto_bounds(true)
-                        .show(ui, |plot_ui| {
-                            for (series_index, series) in
-                                spec.series.iter().filter(|s| s.visible).enumerate()
-                            {
-                                let mut points = transformed_points(series, spec.x_log, spec.y_log);
-                                if clip_outliers_on {
-                                    points = crate::ui::plotting::clip_outliers(&points);
-                                }
-                                match spec.kind {
-                                    PlotKind::Scatter | PlotKind::Residual => plot_ui.points(
-                                        Points::new(&series.name, PlotPoints::from(points))
-                                            .radius(3.0),
-                                    ),
-                                    PlotKind::Bar | PlotKind::FeatureImportance => {
-                                        let bars = if !series.values.is_empty() {
-                                            series
-                                                .values
-                                                .iter()
-                                                .enumerate()
-                                                .map(|(i, v)| Bar::new(i as f64, *v))
-                                                .collect()
-                                        } else {
-                                            points.iter().map(|p| Bar::new(p[0], p[1])).collect()
-                                        };
-                                        plot_ui.bar_chart(BarChart::new(&series.name, bars));
-                                    }
-                                    PlotKind::Histogram => plot_ui.bar_chart(BarChart::new(
-                                        &series.name,
-                                        histogram(&series.values, 24),
-                                    )),
-                                    PlotKind::Area => plot_ui.line(
-                                        Line::new(&series.name, PlotPoints::from(points))
-                                            .fill(0.0)
-                                            .fill_alpha(0.25),
-                                    ),
-                                    PlotKind::Box => {
-                                        // Tukey box-and-whisker, one box per series
-                                        // at its own x offset so groups sit side by side.
-                                        if let Some(stats) = box_stats(&series.values) {
-                                            let x = series_index as f64;
-                                            let (half, cap) = (0.28, 0.14);
-                                            plot_ui.polygon(Polygon::new(
-                                                &series.name,
-                                                PlotPoints::from(vec![
-                                                    [x - half, stats.q1],
-                                                    [x + half, stats.q1],
-                                                    [x + half, stats.q3],
-                                                    [x - half, stats.q3],
-                                                ]),
-                                            ));
-                                            plot_ui.line(
-                                                Line::new(
-                                                    &series.name,
-                                                    PlotPoints::from(vec![
-                                                        [x - half, stats.median],
-                                                        [x + half, stats.median],
-                                                    ]),
-                                                )
-                                                .width(2.0),
-                                            );
-                                            for (a, b) in [
-                                                ([x, stats.q3], [x, stats.whisker_hi]),
-                                                ([x, stats.q1], [x, stats.whisker_lo]),
-                                                (
-                                                    [x - cap, stats.whisker_hi],
-                                                    [x + cap, stats.whisker_hi],
-                                                ),
-                                                (
-                                                    [x - cap, stats.whisker_lo],
-                                                    [x + cap, stats.whisker_lo],
-                                                ),
-                                            ] {
-                                                plot_ui.line(Line::new(
-                                                    &series.name,
-                                                    PlotPoints::from(vec![a, b]),
-                                                ));
-                                            }
-                                            if !stats.outliers.is_empty() {
-                                                plot_ui.points(
-                                                    Points::new(
-                                                        format!("{} outliers", series.name),
-                                                        PlotPoints::from(
-                                                            stats
-                                                                .outliers
-                                                                .iter()
-                                                                .map(|&o| [x, o])
-                                                                .collect::<Vec<_>>(),
-                                                        ),
-                                                    )
-                                                    .radius(2.5),
-                                                );
-                                            }
-                                        }
-                                    }
-                                    PlotKind::Violin => {
-                                        // Mirrored KDE profile per group at its x offset.
-                                        let density = kde(&series.values, 64);
-                                        if !density.is_empty() {
-                                            let x = series_index as f64;
-                                            let max_d = density
-                                                .iter()
-                                                .map(|d| d[1])
-                                                .fold(0.0_f64, f64::max)
-                                                .max(1e-9);
-                                            let half = 0.42;
-                                            let mut poly: Vec<[f64; 2]> =
-                                                Vec::with_capacity(density.len() * 2);
-                                            for &[y, d] in &density {
-                                                poly.push([x + d / max_d * half, y]);
-                                            }
-                                            for &[y, d] in density.iter().rev() {
-                                                poly.push([x - d / max_d * half, y]);
-                                            }
-                                            plot_ui.polygon(Polygon::new(
-                                                &series.name,
-                                                PlotPoints::from(poly),
-                                            ));
-                                            if let Some((_, _, median, _, _)) =
-                                                quartiles(&series.values)
-                                            {
-                                                plot_ui.line(Line::new(
-                                                    &series.name,
-                                                    PlotPoints::from(vec![
-                                                        [x - half * 0.5, median],
-                                                        [x + half * 0.5, median],
-                                                    ]),
-                                                ));
-                                            }
-                                        }
-                                    }
-                                    PlotKind::Ecdf => plot_ui.line(
-                                        Line::new(
-                                            &series.name,
-                                            PlotPoints::from(ecdf(&series.values)),
-                                        )
-                                        .width(2.0),
-                                    ),
-                                    _ => plot_ui.line(
-                                        Line::new(&series.name, PlotPoints::from(points))
-                                            .width(if series_index == 0 { 2.5 } else { 1.5 }),
-                                    ),
-                                }
-                            }
-                        });
-                    if !spec.x_label.is_empty() || !spec.y_label.is_empty() {
-                        ui.label(format!("X: {}    Y: {}", spec.x_label, spec.y_label));
-                    }
+                    draw_structured_plot(ui, spec, index, clip_outliers_on);
                 });
         }
         if let Some(index) = delete {
@@ -1373,6 +1213,147 @@ impl crate::ForgeApp {
             }
         }
         ui.take_available_space();
+    }
+}
+
+/// Draw one structured plot: a heatmap, a box-summary, or an egui `Plot` with
+/// each visible series rendered per its [`PlotKind`]. Reads `spec` only.
+fn draw_structured_plot(ui: &mut egui::Ui, spec: &PlotSpec, index: usize, clip_outliers_on: bool) {
+    if spec.kind == PlotKind::Heatmap {
+        draw_heatmap(ui, &spec.matrix);
+        return;
+    }
+    if spec.kind == PlotKind::Box {
+        draw_box_summary(ui, spec);
+    }
+    Plot::new(format!("structured_plot_{index}"))
+        .height(260.0)
+        .allow_zoom(true)
+        .allow_drag(true)
+        .allow_scroll(true)
+        .allow_boxed_zoom(true)
+        .auto_bounds(true)
+        .show(ui, |plot_ui| {
+            for (series_index, series) in spec.series.iter().filter(|s| s.visible).enumerate() {
+                let mut points = transformed_points(series, spec.x_log, spec.y_log);
+                if clip_outliers_on {
+                    points = crate::ui::plotting::clip_outliers(&points);
+                }
+                match spec.kind {
+                    PlotKind::Scatter | PlotKind::Residual => plot_ui
+                        .points(Points::new(&series.name, PlotPoints::from(points)).radius(3.0)),
+                    PlotKind::Bar | PlotKind::FeatureImportance => {
+                        let bars = if !series.values.is_empty() {
+                            series
+                                .values
+                                .iter()
+                                .enumerate()
+                                .map(|(i, v)| Bar::new(i as f64, *v))
+                                .collect()
+                        } else {
+                            points.iter().map(|p| Bar::new(p[0], p[1])).collect()
+                        };
+                        plot_ui.bar_chart(BarChart::new(&series.name, bars));
+                    }
+                    PlotKind::Histogram => plot_ui
+                        .bar_chart(BarChart::new(&series.name, histogram(&series.values, 24))),
+                    PlotKind::Area => plot_ui.line(
+                        Line::new(&series.name, PlotPoints::from(points))
+                            .fill(0.0)
+                            .fill_alpha(0.25),
+                    ),
+                    PlotKind::Box => {
+                        // Tukey box-and-whisker, one box per series
+                        // at its own x offset so groups sit side by side.
+                        if let Some(stats) = box_stats(&series.values) {
+                            let x = series_index as f64;
+                            let (half, cap) = (0.28, 0.14);
+                            plot_ui.polygon(Polygon::new(
+                                &series.name,
+                                PlotPoints::from(vec![
+                                    [x - half, stats.q1],
+                                    [x + half, stats.q1],
+                                    [x + half, stats.q3],
+                                    [x - half, stats.q3],
+                                ]),
+                            ));
+                            plot_ui.line(
+                                Line::new(
+                                    &series.name,
+                                    PlotPoints::from(vec![
+                                        [x - half, stats.median],
+                                        [x + half, stats.median],
+                                    ]),
+                                )
+                                .width(2.0),
+                            );
+                            for (a, b) in [
+                                ([x, stats.q3], [x, stats.whisker_hi]),
+                                ([x, stats.q1], [x, stats.whisker_lo]),
+                                ([x - cap, stats.whisker_hi], [x + cap, stats.whisker_hi]),
+                                ([x - cap, stats.whisker_lo], [x + cap, stats.whisker_lo]),
+                            ] {
+                                plot_ui.line(Line::new(&series.name, PlotPoints::from(vec![a, b])));
+                            }
+                            if !stats.outliers.is_empty() {
+                                plot_ui.points(
+                                    Points::new(
+                                        format!("{} outliers", series.name),
+                                        PlotPoints::from(
+                                            stats
+                                                .outliers
+                                                .iter()
+                                                .map(|&o| [x, o])
+                                                .collect::<Vec<_>>(),
+                                        ),
+                                    )
+                                    .radius(2.5),
+                                );
+                            }
+                        }
+                    }
+                    PlotKind::Violin => {
+                        // Mirrored KDE profile per group at its x offset.
+                        let density = kde(&series.values, 64);
+                        if !density.is_empty() {
+                            let x = series_index as f64;
+                            let max_d = density
+                                .iter()
+                                .map(|d| d[1])
+                                .fold(0.0_f64, f64::max)
+                                .max(1e-9);
+                            let half = 0.42;
+                            let mut poly: Vec<[f64; 2]> = Vec::with_capacity(density.len() * 2);
+                            for &[y, d] in &density {
+                                poly.push([x + d / max_d * half, y]);
+                            }
+                            for &[y, d] in density.iter().rev() {
+                                poly.push([x - d / max_d * half, y]);
+                            }
+                            plot_ui.polygon(Polygon::new(&series.name, PlotPoints::from(poly)));
+                            if let Some((_, _, median, _, _)) = quartiles(&series.values) {
+                                plot_ui.line(Line::new(
+                                    &series.name,
+                                    PlotPoints::from(vec![
+                                        [x - half * 0.5, median],
+                                        [x + half * 0.5, median],
+                                    ]),
+                                ));
+                            }
+                        }
+                    }
+                    PlotKind::Ecdf => plot_ui.line(
+                        Line::new(&series.name, PlotPoints::from(ecdf(&series.values))).width(2.0),
+                    ),
+                    _ => plot_ui.line(
+                        Line::new(&series.name, PlotPoints::from(points))
+                            .width(if series_index == 0 { 2.5 } else { 1.5 }),
+                    ),
+                }
+            }
+        });
+    if !spec.x_label.is_empty() || !spec.y_label.is_empty() {
+        ui.label(format!("X: {}    Y: {}", spec.x_label, spec.y_label));
     }
 }
 

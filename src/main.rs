@@ -2434,6 +2434,39 @@ impl ForgeApp {
         if let Some(root) = self.project_root() {
             self.job_queue.poll(root);
         }
+        self.drain_integration_events();
+        if let Some(kernel) = &self.python_kernel {
+            while let Some(result) = kernel.try_recv() {
+                self.python_mime_outputs = result.mime;
+                self.python_mime_outputs
+                    .extend(python_kernel::mime_outputs(&result.output));
+                self.python_console_output
+                    .push_str(&format!("\nOut [{}]:\n{}", result.id, result.output));
+            }
+        }
+        ctx.request_repaint_after(Duration::from_millis(if self.integration_pending > 0 {
+            100
+        } else {
+            750
+        }));
+        self.drain_runtime_events(ctx);
+        if let Some(lines) = self.diagnostics.try_recv() {
+            self.diagnostic_lines = lines;
+            self.diagnostics_running = false;
+            ctx.request_repaint();
+        }
+        self.drain_lsp_events(ctx);
+        if matches!(self.run_state, RunState::Running(_) | RunState::Booting)
+            || self.diagnostics_running
+            || self.definition_probe_pending
+        {
+            ctx.request_repaint_after(std::time::Duration::from_millis(80));
+        }
+    }
+
+    /// Drain the integration/database/training worker's results and apply
+    /// them to app state (imports, exports, SQL, training, batch inference).
+    fn drain_integration_events(&mut self) {
         while let Some(event) = self.integration_worker.try_recv() {
             if !matches!(
                 &event,
@@ -2672,20 +2705,10 @@ impl ForgeApp {
                 }
             }
         }
-        if let Some(kernel) = &self.python_kernel {
-            while let Some(result) = kernel.try_recv() {
-                self.python_mime_outputs = result.mime;
-                self.python_mime_outputs
-                    .extend(python_kernel::mime_outputs(&result.output));
-                self.python_console_output
-                    .push_str(&format!("\nOut [{}]:\n{}", result.id, result.output));
-            }
-        }
-        ctx.request_repaint_after(Duration::from_millis(if self.integration_pending > 0 {
-            100
-        } else {
-            750
-        }));
+    }
+
+    /// Drain the notebook/console runtime's cell results and apply them.
+    fn drain_runtime_events(&mut self, ctx: &egui::Context) {
         while let Some(result) = self.runtime.try_recv() {
             match result {
                 CellResult::Ready => {
@@ -2858,11 +2881,10 @@ impl ForgeApp {
             }
             ctx.request_repaint();
         }
-        if let Some(lines) = self.diagnostics.try_recv() {
-            self.diagnostic_lines = lines;
-            self.diagnostics_running = false;
-            ctx.request_repaint();
-        }
+    }
+
+    /// Drain rust-analyzer (LSP) events and apply them to editor state.
+    fn drain_lsp_events(&mut self, ctx: &egui::Context) {
         while let Some(event) = self.lsp.try_recv() {
             match event {
                 LspEvent::Status(status) => {
@@ -2961,12 +2983,6 @@ impl ForgeApp {
                 }
             }
             ctx.request_repaint();
-        }
-        if matches!(self.run_state, RunState::Running(_) | RunState::Booting)
-            || self.diagnostics_running
-            || self.definition_probe_pending
-        {
-            ctx.request_repaint_after(std::time::Duration::from_millis(80));
         }
     }
 
