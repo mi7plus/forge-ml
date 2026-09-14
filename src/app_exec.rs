@@ -29,8 +29,8 @@ impl crate::ForgeApp {
             self.run_next();
             return;
         }
-        if self.remote_notebook_execution {
-            let Some(session) = self.remote_kernel_session.clone() else {
+        if self.remote.notebook_execution {
+            let Some(session) = self.remote.kernel_session.clone() else {
                 self.run_queue.clear();
                 self.run_state = RunState::Failed;
                 self.cell_records.entry(cell_id).or_default().state = Some(CellState::Failed);
@@ -47,9 +47,9 @@ impl crate::ForgeApp {
                     input: input_rx,
                 }) {
                 Ok(()) => {
-                    self.remote_input_sender = Some(input_tx);
+                    self.remote.input_sender = Some(input_tx);
                     self.integration_pending += 1;
-                    self.remote_execution_pending = true;
+                    self.remote.execution_pending = true;
                     self.run_state = RunState::Running(cell_id);
                     let provenance = self.project_root().map(|root| git::provenance(&root));
                     let record = self.cell_records.entry(cell_id).or_default();

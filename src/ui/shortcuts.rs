@@ -89,7 +89,7 @@ impl crate::ForgeApp {
     }
 
     pub(crate) fn remote_input_window(&mut self, ctx: &egui::Context) {
-        let Some(prompt) = self.remote_input_prompt.clone() else {
+        let Some(prompt) = self.remote.input_prompt.clone() else {
             return;
         };
         let mut submit = false;
@@ -102,10 +102,10 @@ impl crate::ForgeApp {
                 ui.set_min_width(380.0);
                 ui.label(prompt);
                 let response = ui.add(
-                    egui::TextEdit::singleline(&mut self.remote_input_response)
-                        .password(self.remote_input_password)
+                    egui::TextEdit::singleline(&mut self.remote.input_response)
+                        .password(self.remote.input_password)
                         .desired_width(f32::INFINITY)
-                        .hint_text(if self.remote_input_password {
+                        .hint_text(if self.remote.input_password {
                             "Password input"
                         } else {
                             "Reply to remote kernel"
@@ -121,33 +121,33 @@ impl crate::ForgeApp {
                 ui.small("Input is sent only to the active Jupyter kernel and is not persisted.");
             });
         if submit {
-            if self.remote_input_response.len() > 64 * 1024 {
+            if self.remote.input_response.len() > 64 * 1024 {
                 self.console = "Remote input is limited to 64 KiB.".into();
                 return;
             }
-            let reply = std::mem::take(&mut self.remote_input_response);
+            let reply = std::mem::take(&mut self.remote.input_response);
             match self
-                .remote_input_sender
+                .remote.input_sender
                 .as_ref()
                 .ok_or_else(|| "Remote input channel is no longer available.".to_owned())
                 .and_then(|sender| sender.send(reply).map_err(|error| error.to_string()))
             {
                 Ok(()) => {
-                    self.remote_input_prompt = None;
-                    self.remote_input_password = false;
+                    self.remote.input_prompt = None;
+                    self.remote.input_password = false;
                 }
                 Err(error) => {
-                    self.remote_input_sender = None;
-                    self.remote_input_prompt = None;
-                    self.remote_input_password = false;
+                    self.remote.input_sender = None;
+                    self.remote.input_prompt = None;
+                    self.remote.input_password = false;
                     self.console = error;
                 }
             }
         } else if cancel {
-            self.remote_input_sender = None;
-            self.remote_input_prompt = None;
-            self.remote_input_response.clear();
-            self.remote_input_password = false;
+            self.remote.input_sender = None;
+            self.remote.input_prompt = None;
+            self.remote.input_response.clear();
+            self.remote.input_password = false;
             self.stop_execution();
         }
     }

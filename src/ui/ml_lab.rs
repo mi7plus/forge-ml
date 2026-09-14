@@ -586,36 +586,36 @@ impl crate::ForgeApp {
         ui.separator();
         ui.strong("Remote execution");
         ui.horizontal_wrapped(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut self.remote_name).hint_text("profile name"));
-            ui.add(egui::TextEdit::singleline(&mut self.remote_url).hint_text("Jupyter URL"));
+            ui.add(egui::TextEdit::singleline(&mut self.remote.name).hint_text("profile name"));
+            ui.add(egui::TextEdit::singleline(&mut self.remote.url).hint_text("Jupyter URL"));
             ui.add(
-                egui::TextEdit::singleline(&mut self.remote_token)
+                egui::TextEdit::singleline(&mut self.remote.token)
                     .password(true)
                     .hint_text("token"),
             );
             if ui.button("Save remote").clicked() {
                 if let Some(root) = &root {
                     let profile = remote::RemoteProfile {
-                        name: self.remote_name.clone(),
-                        jupyter_url: self.remote_url.clone(),
-                        agent_command: self.remote_command.clone(),
-                        credential_key: format!("remote:{}:{}", root.display(), self.remote_name),
+                        name: self.remote.name.clone(),
+                        jupyter_url: self.remote.url.clone(),
+                        agent_command: self.remote.command.clone(),
+                        credential_key: format!("remote:{}:{}", root.display(), self.remote.name),
                     };
                     match remote::validate_profile(&profile) {
                         Ok(()) => {
-                            let token_result = if self.remote_token.is_empty() {
+                            let token_result = if self.remote.token.is_empty() {
                                 Ok(())
                             } else {
-                                remote::store_token(&profile, &self.remote_token)
+                                remote::store_token(&profile, &self.remote.token)
                             };
                             match token_result {
                                 Ok(()) => {
-                                    self.remote_token.clear();
-                                    self.remote_profiles
+                                    self.remote.token.clear();
+                                    self.remote.profiles
                                         .retain(|existing| existing.name != profile.name);
-                                    self.remote_profiles.push(profile);
+                                    self.remote.profiles.push(profile);
                                     if let Some(store) = &self.workspace_store {
-                                        let _ = store.save_remote_profiles(&self.remote_profiles);
+                                        let _ = store.save_remote_profiles(&self.remote.profiles);
                                     }
                                     self.sql_output = "Saved validated remote profile.".into();
                                 }
@@ -632,7 +632,7 @@ impl crate::ForgeApp {
         });
         ui.horizontal_wrapped(|ui| {
             ui.add(
-                egui::TextEdit::singleline(&mut self.remote_command)
+                egui::TextEdit::singleline(&mut self.remote.command)
                     .hint_text("remote training command"),
             );
             if ui.button("Generate Actions training").clicked() {
@@ -644,7 +644,7 @@ impl crate::ForgeApp {
             if ui.button("Dispatch Actions training").clicked() {
                 self.sql_output = root
                     .as_ref()
-                    .map(|root| github::dispatch_training(root, &self.remote_command).text())
+                    .map(|root| github::dispatch_training(root, &self.remote.command).text())
                     .unwrap_or_else(|| "Open a project first.".into());
             }
             if ui.button("Retrieve artifacts").clicked() {
@@ -657,21 +657,21 @@ impl crate::ForgeApp {
         ui.horizontal_wrapped(|ui| {
             ui.label("Remote kernelspec");
             ui.add(
-                egui::TextEdit::singleline(&mut self.remote_kernel_name)
+                egui::TextEdit::singleline(&mut self.remote.kernel_name)
                     .hint_text("for example: python3 or rust"),
             );
             // One-click fills from the last "Test Jupyter" probe. A `rust`
             // kernelspec here is a remote Evcxr (Rust) kernel.
-            for name in &self.remote_kernelspecs {
+            for name in &self.remote.kernelspecs {
                 if ui
                     .small_button(name)
                     .on_hover_text("Use this discovered kernelspec")
                     .clicked()
                 {
-                    self.remote_kernel_name = name.clone();
+                    self.remote.kernel_name = name.clone();
                 }
             }
-            if let Some(session) = &self.remote_kernel_session {
+            if let Some(session) = &self.remote.kernel_session {
                 ui.label(format!(
                     "Active: {} · {} · {}",
                     session.profile.name, session.name, session.id
@@ -694,7 +694,7 @@ impl crate::ForgeApp {
                         Err(error) => self.sql_output = error,
                     }
                 }
-                let can_interrupt = self.remote_execution_pending && !self.remote_interrupt_pending;
+                let can_interrupt = self.remote.execution_pending && !self.remote.interrupt_pending;
                 if ui
                     .add_enabled(can_interrupt, egui::Button::new("Interrupt execution"))
                     .clicked()
@@ -705,10 +705,10 @@ impl crate::ForgeApp {
                     {
                         Ok(()) => {
                             self.integration_pending += 1;
-                            self.remote_interrupt_pending = true;
-                            self.remote_input_sender = None;
-                            self.remote_input_prompt = None;
-                            self.remote_input_response.clear();
+                            self.remote.interrupt_pending = true;
+                            self.remote.input_sender = None;
+                            self.remote.input_prompt = None;
+                            self.remote.input_response.clear();
                             self.sql_output = "Interrupting remote execution…".into();
                         }
                         Err(error) => self.sql_output = error,
@@ -716,9 +716,9 @@ impl crate::ForgeApp {
                 }
             }
         });
-        ui.add_enabled_ui(self.remote_kernel_session.is_some(), |ui| {
+        ui.add_enabled_ui(self.remote.kernel_session.is_some(), |ui| {
             ui.checkbox(
-                &mut self.remote_notebook_execution,
+                &mut self.remote.notebook_execution,
                 "Run notebook cells on active remote kernel",
             )
             .on_hover_text(
@@ -726,39 +726,39 @@ impl crate::ForgeApp {
             );
         });
         ui.add(
-            egui::TextEdit::multiline(&mut self.remote_code)
+            egui::TextEdit::multiline(&mut self.remote.code)
                 .desired_rows(4)
                 .hint_text("Code for the active remote kernel"),
         );
         if ui
             .add_enabled(
-                self.integration_pending == 0 && self.remote_kernel_session.is_some(),
+                self.integration_pending == 0 && self.remote.kernel_session.is_some(),
                 egui::Button::new("Run on remote kernel"),
             )
             .clicked()
         {
-            if let Some(session) = self.remote_kernel_session.clone() {
+            if let Some(session) = self.remote.kernel_session.clone() {
                 let (input_tx, input_rx) = mpsc::channel();
                 match self
                     .integration_worker
                     .submit(IntegrationRequest::RemoteExecute {
                         session,
-                        code: self.remote_code.clone(),
+                        code: self.remote.code.clone(),
                         cell_id: None,
                         input: input_rx,
                     }) {
                     Ok(()) => {
-                        self.remote_input_sender = Some(input_tx);
+                        self.remote.input_sender = Some(input_tx);
                         self.integration_pending += 1;
-                        self.remote_execution_pending = true;
-                        self.remote_mime_outputs.clear();
+                        self.remote.execution_pending = true;
+                        self.remote.mime_outputs.clear();
                         self.sql_output = "Running code on remote kernel…".into();
                     }
                     Err(error) => self.sql_output = error,
                 }
             }
         }
-        for profile in self.remote_profiles.clone() {
+        for profile in self.remote.profiles.clone() {
             ui.horizontal_wrapped(|ui| {
                 ui.label(format!(
                     "{} · {} · {}",
@@ -784,7 +784,7 @@ impl crate::ForgeApp {
                 }
                 if ui
                     .add_enabled(
-                        self.integration_pending == 0 && self.remote_kernel_session.is_none(),
+                        self.integration_pending == 0 && self.remote.kernel_session.is_none(),
                         egui::Button::new("Start kernel"),
                     )
                     .clicked()
@@ -793,13 +793,13 @@ impl crate::ForgeApp {
                         .integration_worker
                         .submit(IntegrationRequest::RemoteKernelStart {
                             profile: profile.clone(),
-                            kernel_name: self.remote_kernel_name.trim().to_owned(),
+                            kernel_name: self.remote.kernel_name.trim().to_owned(),
                         }) {
                         Ok(()) => {
                             self.integration_pending += 1;
                             self.sql_output = format!(
                                 "Starting `{}` on remote `{}`…",
-                                self.remote_kernel_name.trim(),
+                                self.remote.kernel_name.trim(),
                                 profile.name
                             );
                         }
@@ -808,11 +808,11 @@ impl crate::ForgeApp {
                 }
             });
         }
-        if !self.remote_mime_outputs.is_empty() {
+        if !self.remote.mime_outputs.is_empty() {
             ui.collapsing(
-                format!("Remote rich output ({})", self.remote_mime_outputs.len()),
+                format!("Remote rich output ({})", self.remote.mime_outputs.len()),
                 |ui| {
-                    for output in &self.remote_mime_outputs {
+                    for output in &self.remote.mime_outputs {
                         ui.label(RichText::new(&output.mime).strong().color(accent()));
                         egui::ScrollArea::horizontal()
                             .max_height(160.0)

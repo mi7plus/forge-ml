@@ -724,6 +724,53 @@ enum PendingUnsavedAction {
     OpenProject(Option<PathBuf>),
 }
 
+/// Remote Jupyter / kernel execution state, grouped out of [`ForgeApp`].
+struct RemoteState {
+    profiles: Vec<remote::RemoteProfile>,
+    name: String,
+    url: String,
+    command: String,
+    token: String,
+    kernel_name: String,
+    /// Kernel names discovered by the last "Test Jupyter" probe, offered as
+    /// one-click fills for `kernel_name` (e.g. `rust` for remote Evcxr).
+    kernelspecs: Vec<String>,
+    kernel_session: Option<remote::RemoteKernelSession>,
+    code: String,
+    mime_outputs: Vec<RichOutput>,
+    execution_pending: bool,
+    interrupt_pending: bool,
+    notebook_execution: bool,
+    input_sender: Option<Sender<String>>,
+    input_prompt: Option<String>,
+    input_response: String,
+    input_password: bool,
+}
+
+impl Default for RemoteState {
+    fn default() -> Self {
+        Self {
+            profiles: Vec::new(),
+            name: "remote".into(),
+            url: String::new(),
+            command: "cargo run --release".into(),
+            token: String::new(),
+            kernel_name: "python3".into(),
+            kernelspecs: Vec::new(),
+            kernel_session: None,
+            code: "print(\"hello from Forge ML\")".into(),
+            mime_outputs: Vec::new(),
+            execution_pending: false,
+            interrupt_pending: false,
+            notebook_execution: false,
+            input_sender: None,
+            input_prompt: None,
+            input_response: String::new(),
+            input_password: false,
+        }
+    }
+}
+
 struct ForgeApp {
     tabs: Vec<EditorTab>,
     active_tab: usize,
@@ -929,25 +976,7 @@ struct ForgeApp {
     last_resource_poll: Instant,
     early_stopping_patience: usize,
     resume_checkpoint: String,
-    remote_profiles: Vec<remote::RemoteProfile>,
-    remote_name: String,
-    remote_url: String,
-    remote_command: String,
-    remote_token: String,
-    remote_kernel_name: String,
-    /// Kernel names discovered by the last "Test Jupyter" probe, offered as
-    /// one-click fills for `remote_kernel_name` (e.g. `rust` for remote Evcxr).
-    remote_kernelspecs: Vec<String>,
-    remote_kernel_session: Option<remote::RemoteKernelSession>,
-    remote_code: String,
-    remote_mime_outputs: Vec<RichOutput>,
-    remote_execution_pending: bool,
-    remote_interrupt_pending: bool,
-    remote_notebook_execution: bool,
-    remote_input_sender: Option<Sender<String>>,
-    remote_input_prompt: Option<String>,
-    remote_input_response: String,
-    remote_input_password: bool,
+    remote: RemoteState,
     registry_model: String,
     registry_version: String,
     registry_format: String,
@@ -1576,23 +1605,10 @@ impl ForgeApp {
             last_resource_poll: Instant::now(),
             early_stopping_patience: native_training_config.early_stopping_patience,
             resume_checkpoint: String::new(),
-            remote_profiles,
-            remote_name: "remote".into(),
-            remote_url: String::new(),
-            remote_command: "cargo run --release".into(),
-            remote_token: String::new(),
-            remote_kernel_name: "python3".into(),
-            remote_kernelspecs: Vec::new(),
-            remote_kernel_session: None,
-            remote_code: "print(\"hello from Forge ML\")".into(),
-            remote_mime_outputs: Vec::new(),
-            remote_execution_pending: false,
-            remote_interrupt_pending: false,
-            remote_notebook_execution: false,
-            remote_input_sender: None,
-            remote_input_prompt: None,
-            remote_input_response: String::new(),
-            remote_input_password: false,
+            remote: RemoteState {
+                profiles: remote_profiles,
+                ..Default::default()
+            },
             registry_model: "model".into(),
             registry_version: "0.1.0".into(),
             registry_format: "onnx".into(),
@@ -1897,7 +1913,7 @@ impl ForgeApp {
     }
 
     fn restart_and_run_all(&mut self) {
-        if self.remote_notebook_execution {
+        if self.remote.notebook_execution {
             self.console =
                 "Remote kernel restart is not available; running all cells in the active session."
                     .into();
@@ -1915,7 +1931,7 @@ impl ForgeApp {
     /// the "Restart runtime" command. Clears the pending queue and forgets all
     /// live variables/state.
     fn restart_runtime(&mut self) {
-        if self.remote_notebook_execution {
+        if self.remote.notebook_execution {
             self.console = "Remote kernel restart is not available.".into();
             return;
         }
@@ -2011,13 +2027,13 @@ impl ForgeApp {
     fn stop_execution(&mut self) {
         self.run_queue.clear();
         self.run_all_after_reset = false;
-        if self.remote_execution_pending {
-            let Some(session) = self.remote_kernel_session.clone() else {
+        if self.remote.execution_pending {
+            let Some(session) = self.remote.kernel_session.clone() else {
                 self.run_state = RunState::Failed;
                 self.console = "The active remote kernel is no longer available.".into();
                 return;
             };
-            if self.remote_interrupt_pending {
+            if self.remote.interrupt_pending {
                 self.console = "Remote interrupt already requested…".into();
                 return;
             }
@@ -2027,10 +2043,10 @@ impl ForgeApp {
             {
                 Ok(()) => {
                     self.integration_pending += 1;
-                    self.remote_interrupt_pending = true;
-                    self.remote_input_sender = None;
-                    self.remote_input_prompt = None;
-                    self.remote_input_response.clear();
+                    self.remote.interrupt_pending = true;
+                    self.remote.input_sender = None;
+                    self.remote.input_prompt = None;
+                    self.remote.input_response.clear();
                     self.console = "Interrupting remote notebook execution…".into();
                 }
                 Err(error) => {
@@ -2609,7 +2625,7 @@ impl ForgeApp {
                 ResultEvent::RemoteKernelspecs(result) => match result {
                     Ok((summary, names)) => {
                         self.sql_output = summary;
-                        self.remote_kernelspecs = names;
+                        self.remote.kernelspecs = names;
                     }
                     Err(error) => self.sql_output = error,
                 },
@@ -2619,20 +2635,20 @@ impl ForgeApp {
                             "Started remote kernel `{}` ({}) on `{}`.",
                             session.name, session.id, session.profile.name
                         );
-                        self.remote_kernel_session = Some(session);
+                        self.remote.kernel_session = Some(session);
                     }
                     Err(error) => self.sql_output = error,
                 },
                 ResultEvent::RemoteKernelStopped(result) => match result {
                     Ok(message) => {
-                        self.remote_kernel_session = None;
-                        self.remote_notebook_execution = false;
+                        self.remote.kernel_session = None;
+                        self.remote.notebook_execution = false;
                         self.sql_output = message;
                     }
                     Err(error) => self.sql_output = error,
                 },
                 ResultEvent::RemoteKernelInterrupted(result) => {
-                    self.remote_interrupt_pending = false;
+                    self.remote.interrupt_pending = false;
                     self.sql_output = result.unwrap_or_else(|error| error);
                 }
                 ResultEvent::RemoteInputRequested {
@@ -2640,20 +2656,20 @@ impl ForgeApp {
                     prompt,
                     password,
                 } => {
-                    self.remote_input_prompt = Some(if let Some(cell_id) = cell_id {
+                    self.remote.input_prompt = Some(if let Some(cell_id) = cell_id {
                         format!("Cell {}: {prompt}", cell_id + 1)
                     } else {
                         prompt
                     });
-                    self.remote_input_password = password;
-                    self.remote_input_response.clear();
+                    self.remote.input_password = password;
+                    self.remote.input_response.clear();
                 }
                 ResultEvent::RemoteExecuted { cell_id, result } => {
-                    self.remote_execution_pending = false;
-                    self.remote_input_sender = None;
-                    self.remote_input_prompt = None;
-                    self.remote_input_response.clear();
-                    self.remote_input_password = false;
+                    self.remote.execution_pending = false;
+                    self.remote.input_sender = None;
+                    self.remote.input_prompt = None;
+                    self.remote.input_response.clear();
+                    self.remote.input_password = false;
                     match result {
                         Ok(execution) => {
                             let message = format!(
@@ -2685,7 +2701,7 @@ impl ForgeApp {
                                     self.run_queue.clear();
                                 }
                             } else {
-                                self.remote_mime_outputs = execution.mime;
+                                self.remote.mime_outputs = execution.mime;
                                 self.sql_output = message;
                             }
                         }

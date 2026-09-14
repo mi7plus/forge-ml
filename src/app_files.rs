@@ -46,7 +46,7 @@ impl crate::ForgeApp {
                     self.sql_history = database::bounded_query_history(
                         store.load_query_history().unwrap_or_default(),
                     );
-                    self.remote_profiles = store.load_remote_profiles().unwrap_or_default();
+                    self.remote.profiles = store.load_remote_profiles().unwrap_or_default();
                     self.object_profiles = store.load_object_profiles().unwrap_or_default();
                     self.database_selected = 0;
                     if let Ok(runs) = store.load_experiments::<ExperimentRun>() {
