@@ -182,8 +182,21 @@ impl crate::ForgeApp {
     }
 
     pub(crate) fn deployment_inspector(&mut self, ui: &mut egui::Ui) {
-        let Some(root) = self.project_root() else {
+        if self.project_root().is_none() {
             ui.label("Open a project to use its local model registry.");
+            return;
+        }
+        self.deployment_registry(ui);
+        ui.separator();
+        self.deployment_monitoring(ui);
+        ui.separator();
+        ui.code(&self.registry.output);
+    }
+
+    /// The model-registry half of the deployment inspector: version listing,
+    /// promotion / rollback, and inference-service generation.
+    fn deployment_registry(&mut self, ui: &mut egui::Ui) {
+        let Some(root) = self.project_root() else {
             return;
         };
         ui.heading("Model registry & deployment");
@@ -288,7 +301,11 @@ impl crate::ForgeApp {
                     });
             }
         }
-        ui.separator();
+    }
+
+    /// The service-monitoring half: drift / latency telemetry and the native
+    /// multi-model health overview.
+    fn deployment_monitoring(&mut self, ui: &mut egui::Ui) {
         ui.strong("Service monitoring");
         ui.horizontal_wrapped(|ui| {
             ui.label(format!(
@@ -523,8 +540,6 @@ impl crate::ForgeApp {
                     });
             });
         }
-        ui.separator();
-        ui.code(&self.registry.output);
     }
 
     pub(crate) fn database_inspector(&mut self, ui: &mut egui::Ui) {

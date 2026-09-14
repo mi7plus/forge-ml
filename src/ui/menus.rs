@@ -29,367 +29,394 @@ impl crate::ForgeApp {
             }
             ui.label(RichText::new("FORGE ML").strong().color(RED));
             ui.separator();
-            top!("File", |ui| {
-                if ui.button("New file...   Ctrl+N").clicked() {
-                    self.create_new_file(None);
-                    ui.close();
-                }
-                if ui.button("Open project...").clicked() {
-                    self.open_project();
-                    ui.close();
-                }
-                ui.separator();
-                if ui
-                    .button("Save workspace as...")
-                    .on_hover_text(
-                        "Save the root folder, open files, dock layout, theme, keymap, and \
-                         connections to a shareable file",
-                    )
-                    .clicked()
-                {
-                    self.save_workspace_as();
-                    ui.close();
-                }
-                if ui
-                    .button("Open workspace...")
-                    .on_hover_text("Load a saved workspace file")
-                    .clicked()
-                {
-                    self.open_workspace(ui.ctx());
-                    ui.close();
-                }
-                ui.separator();
-                if ui.button("Import Jupyter notebook...").clicked() {
-                    self.import_ipynb();
-                    ui.close();
-                }
-                if ui.button("Export as .ipynb...").clicked() {
-                    self.export_ipynb();
-                    ui.close();
-                }
-                if ui.button("Export notebook as Markdown...").clicked() {
-                    self.export_notebook_document("md");
-                    ui.close();
-                }
-                if ui.button("Export notebook as HTML...").clicked() {
-                    self.export_notebook_document("html");
-                    ui.close();
-                }
-                if ui.button("Export reproducible project bundle...").clicked() {
-                    self.export_project_bundle();
-                    ui.close();
-                }
-                let recent = self.recent_projects.clone();
-                ui.menu_button("Open recent", |ui| {
-                    if recent.is_empty() {
-                        ui.label("No recent projects");
-                    }
-                    for path in recent {
-                        if ui.button(path.display().to_string()).clicked() {
-                            self.request_open_project_path(path);
-                            ui.close();
-                        }
-                    }
-                    if !self.recent_projects.is_empty() {
-                        ui.separator();
-                        if ui.button("Clear recent projects").clicked() {
-                            self.recent_projects.clear();
-                            ui.close();
-                        }
-                    }
-                });
-                if ui.button("Save   Ctrl+S").clicked() {
-                    self.save_active();
-                    ui.close();
-                }
-                if ui.button("Close editor tab").clicked() {
-                    self.close_tab(self.active_tab);
-                    ui.close();
-                }
-            });
-            top!("Edit", |ui| {
-                if ui.button("Undo   Ctrl+Z").clicked() {
-                    self.pending_editor_history = Some(EditorHistoryCommand::Undo);
-                    ui.close();
-                }
-                if ui.button("Redo   Ctrl+Y / Ctrl+Shift+Z").clicked() {
-                    self.pending_editor_history = Some(EditorHistoryCommand::Redo);
-                    ui.close();
-                }
-                ui.separator();
-                let has_selection = self.editor_selection.0 < self.editor_selection.1;
-                if ui
-                    .add_enabled(has_selection, egui::Button::new("Cut   Ctrl+X"))
-                    .clicked()
-                {
-                    let ctx = ui.ctx().clone();
-                    self.cut_selection(&ctx);
-                    ui.close();
-                }
-                if ui
-                    .add_enabled(has_selection, egui::Button::new("Copy   Ctrl+C"))
-                    .clicked()
-                {
-                    let ctx = ui.ctx().clone();
-                    self.copy_selection(&ctx);
-                    ui.close();
-                }
-                if ui.button("Paste   Ctrl+V").clicked() {
-                    self.paste_clipboard();
-                    ui.close();
-                }
-                ui.separator();
-                if ui.button("Format document (rustfmt)").clicked() {
-                    self.format_document();
-                    ui.close();
-                }
-                if ui.button("Run clippy").clicked() {
-                    self.run_clippy();
-                    ui.close();
-                }
-            });
-            top!("Search", |ui| {
-                if ui.button("Find in files   Ctrl+Shift+F").clicked() {
-                    self.inspector_tab = InspectorTab::Search;
-                    ui.close();
-                }
-            });
-            top!("Source", |ui| {
-                if ui.button("Find references").clicked() {
-                    self.request_lsp("references");
-                    ui.close();
-                }
-                if ui.button("Rename symbol…").clicked() {
-                    self.rename_open = true;
-                    self.rename_input.clear();
-                    ui.close();
-                }
-                if ui.button("Code actions / quick fixes").clicked() {
-                    self.request_lsp("codeactions");
-                    ui.close();
-                }
-                ui.separator();
-                if ui.button("Run code analysis (cargo check)").clicked() {
-                    self.run_diagnostics();
-                    ui.close();
-                }
-                if ui.button("Run clippy").clicked() {
-                    self.run_clippy();
-                    ui.close();
-                }
-                if ui.button("Format document (rustfmt)").clicked() {
-                    self.format_document();
-                    ui.close();
-                }
-                ui.separator();
-                ui.menu_button("Cargo", |ui| {
-                    for (label, args) in [
-                        ("Build", "build"),
-                        ("Test", "test"),
-                        ("Run", "run"),
-                        ("Run (release)", "run --release"),
-                        ("Bench", "bench"),
-                        ("Clean", "clean"),
-                    ] {
-                        if ui.button(label).clicked() {
-                            self.run_cargo_task(args);
-                            ui.close();
-                        }
-                    }
-                });
-            });
-            top!("Run", |ui| {
-                if ui.button("Run cell   Shift+Enter").clicked() {
-                    self.enqueue_cells([self.selected_cell]);
-                    ui.close();
-                }
-                if ui.button("Run cells above").clicked() {
-                    self.enqueue_cells(0..=self.selected_cell);
-                    ui.close();
-                }
-                if ui.button("Run all   Ctrl+Shift+Enter").clicked() {
-                    self.enqueue_cells(0..self.cells().len());
-                    ui.close();
-                }
-                if ui.button("Restart and run all").clicked() {
-                    self.restart_and_run_all();
-                    ui.close();
-                }
-                if ui
-                    .add_enabled(
-                        matches!(self.run_state, RunState::Running(_)),
-                        egui::Button::new("Stop execution"),
-                    )
-                    .clicked()
-                {
-                    self.stop_execution();
-                    ui.close();
-                }
-            });
-            top!("Debug", |ui| {
-                if ui.button("Run code analysis (cargo check)").clicked() {
-                    self.run_diagnostics();
-                    self.inspector_tab = InspectorTab::Problems;
-                    ui.close();
-                }
-                if ui.button("Show Problems pane").clicked() {
-                    self.inspector_tab = InspectorTab::Problems;
-                    ui.close();
-                }
-                if ui.button("Inspect variables").clicked() {
-                    self.inspector_tab = InspectorTab::Variables;
-                    ui.close();
-                }
-                if ui.button("Restart Rust console").clicked() {
-                    let _ = self.runtime.reset();
-                    self.run_state = RunState::Booting;
-                    ui.close();
-                }
-                ui.separator();
-                ui.label(
-                    RichText::new("Step debugging is not available yet.")
-                        .size(10.0)
-                        .color(MUTED),
-                );
-            });
-            top!("Tools", |ui| {
-                if ui
-                    .add_enabled(
-                        self.integration_pending == 0,
-                        egui::Button::new("Import dataset..."),
-                    )
-                    .clicked()
-                {
-                    self.import_dataset();
-                    ui.close();
-                }
-                if ui
-                    .add_enabled(
-                        self.integration_pending == 0,
-                        egui::Button::new("Import via Millwright..."),
-                    )
-                    .clicked()
-                {
-                    self.import_millwright_dataset();
-                    ui.close();
-                }
-                if ui.button("Git workbench").clicked() {
-                    self.inspector_tab = InspectorTab::Git;
-                    ui.close();
-                }
-                if ui.button("Rust packages").clicked() {
-                    self.inspector_tab = InspectorTab::Packages;
-                    ui.close();
-                }
-                if ui.button("Discover Jupyter kernels").clicked() {
-                    self.discover_jupyter();
-                    ui.close();
-                }
-                if ui.button("Install Evcxr Jupyter kernel").clicked() {
-                    self.jupyter_output = jupyter::install_evcxr().text();
-                    self.hover_text = self.jupyter_output.clone();
-                    self.inspector_tab = InspectorTab::Help;
-                    ui.close();
-                }
-                if ui.button("Settings...").clicked() {
-                    self.settings_open = true;
-                    ui.close();
-                }
-                if ui.button("Restart Rust console").clicked() {
-                    let _ = self.runtime.reset();
-                    self.run_state = RunState::Booting;
-                    ui.close();
-                }
-            });
-            top!("View", |ui| {
-                let label = if self.dark_mode {
-                    "Use light theme"
-                } else {
-                    "Use dark theme"
-                };
-                if ui.button(label).clicked() {
-                    self.dark_mode = !self.dark_mode;
-                    self.active_theme = None;
-                    self.apply_theme(ui.ctx());
-                    ui.close();
-                }
-                ui.separator();
-                ui.menu_button("Panes", |ui| {
-                    ui.label(
-                        RichText::new("Show or hide dock panes")
-                            .size(10.0)
-                            .color(MUTED),
-                    );
-                    // Fixed panes plus any live terminals and Rust kernels.
-                    let mut kinds = expected_panes();
-                    // Notebook is optional (kept out of `expected_panes` for
-                    // layout migration), but still toggleable here.
-                    kinds.push(PaneKind::Notebook);
-                    if let Some(tree) = self.dock_tree.as_ref() {
-                        let mut dynamic: Vec<PaneKind> = tree
-                            .tiles
-                            .iter()
-                            .filter_map(|(_, tile)| match tile {
-                                Tile::Pane(
-                                    k @ (PaneKind::Terminal(_) | PaneKind::RustConsole(_)),
-                                ) => Some(*k),
-                                _ => None,
-                            })
-                            .collect();
-                        dynamic.sort_by_key(|k| match k {
-                            PaneKind::Terminal(id) => (0, *id),
-                            PaneKind::RustConsole(id) => (1, *id),
-                            _ => (2, 0),
-                        });
-                        kinds.extend(dynamic);
-                    }
-                    for kind in kinds {
-                        let Some((mut visible, id)) = self.dock_tree.as_ref().and_then(|tree| {
-                            Self::dock_tile_of(tree, kind).map(|id| (tree.tiles.is_visible(id), id))
-                        }) else {
-                            continue;
-                        };
-                        let label = match kind {
-                            PaneKind::Terminal(n) => format!("Terminal {n}"),
-                            PaneKind::RustConsole(n) => format!("Rust {n}"),
-                            other => other.title().to_owned(),
-                        };
-                        if ui.checkbox(&mut visible, label).changed() {
-                            if let Some(tree) = self.dock_tree.as_mut() {
-                                tree.tiles.set_visible(id, visible);
-                            }
-                        }
-                    }
-                });
-                if ui.button("New terminal").clicked() {
-                    self.pending_new_terminal = Some(None);
-                    ui.close();
-                }
-                if ui.button("New Rust kernel").clicked() {
-                    self.pending_new_kernel = Some(None);
-                    ui.close();
-                }
-                if ui.button("Reset layout to default").clicked() {
-                    self.dock_tree = Some(build_dock_tree());
-                    ui.close();
-                }
-                ui.label(
-                    RichText::new("Drag a pane's tab to split, re-dock, or reorder it.")
-                        .size(10.0)
-                        .color(MUTED),
-                );
-            });
-            top!("Help", |ui| {
-                if ui.button("Welcome / start screen").clicked() {
-                    self.welcome_open = true;
-                    ui.close();
-                }
-                ui.separator();
-                ui.label(format!(
-                    "Forge ML {APP_VERSION} - interactive Rust scientific environment"
-                ));
-            });
+            top!("File", |ui| { self.file_menu(ui) });
+            top!("Edit", |ui| { self.edit_menu(ui) });
+            top!("Search", |ui| { self.search_menu(ui) });
+            top!("Source", |ui| { self.source_menu(ui) });
+            top!("Run", |ui| { self.run_menu(ui) });
+            top!("Debug", |ui| { self.debug_menu(ui) });
+            top!("Tools", |ui| { self.tools_menu(ui) });
+            top!("View", |ui| { self.view_menu(ui) });
+            top!("Help", |ui| { self.help_menu(ui) });
         });
+    }
+
+    /// The File menu.
+    fn file_menu(&mut self, ui: &mut egui::Ui) {
+        if ui.button("New file...   Ctrl+N").clicked() {
+            self.create_new_file(None);
+            ui.close();
+        }
+        if ui.button("Open project...").clicked() {
+            self.open_project();
+            ui.close();
+        }
+        ui.separator();
+        if ui
+            .button("Save workspace as...")
+            .on_hover_text(
+                "Save the root folder, open files, dock layout, theme, keymap, and \
+                         connections to a shareable file",
+            )
+            .clicked()
+        {
+            self.save_workspace_as();
+            ui.close();
+        }
+        if ui
+            .button("Open workspace...")
+            .on_hover_text("Load a saved workspace file")
+            .clicked()
+        {
+            self.open_workspace(ui.ctx());
+            ui.close();
+        }
+        ui.separator();
+        if ui.button("Import Jupyter notebook...").clicked() {
+            self.import_ipynb();
+            ui.close();
+        }
+        if ui.button("Export as .ipynb...").clicked() {
+            self.export_ipynb();
+            ui.close();
+        }
+        if ui.button("Export notebook as Markdown...").clicked() {
+            self.export_notebook_document("md");
+            ui.close();
+        }
+        if ui.button("Export notebook as HTML...").clicked() {
+            self.export_notebook_document("html");
+            ui.close();
+        }
+        if ui.button("Export reproducible project bundle...").clicked() {
+            self.export_project_bundle();
+            ui.close();
+        }
+        let recent = self.recent_projects.clone();
+        ui.menu_button("Open recent", |ui| {
+            if recent.is_empty() {
+                ui.label("No recent projects");
+            }
+            for path in recent {
+                if ui.button(path.display().to_string()).clicked() {
+                    self.request_open_project_path(path);
+                    ui.close();
+                }
+            }
+            if !self.recent_projects.is_empty() {
+                ui.separator();
+                if ui.button("Clear recent projects").clicked() {
+                    self.recent_projects.clear();
+                    ui.close();
+                }
+            }
+        });
+        if ui.button("Save   Ctrl+S").clicked() {
+            self.save_active();
+            ui.close();
+        }
+        if ui.button("Close editor tab").clicked() {
+            self.close_tab(self.active_tab);
+            ui.close();
+        }
+    }
+
+    /// The Edit menu.
+    fn edit_menu(&mut self, ui: &mut egui::Ui) {
+        if ui.button("Undo   Ctrl+Z").clicked() {
+            self.pending_editor_history = Some(EditorHistoryCommand::Undo);
+            ui.close();
+        }
+        if ui.button("Redo   Ctrl+Y / Ctrl+Shift+Z").clicked() {
+            self.pending_editor_history = Some(EditorHistoryCommand::Redo);
+            ui.close();
+        }
+        ui.separator();
+        let has_selection = self.editor_selection.0 < self.editor_selection.1;
+        if ui
+            .add_enabled(has_selection, egui::Button::new("Cut   Ctrl+X"))
+            .clicked()
+        {
+            let ctx = ui.ctx().clone();
+            self.cut_selection(&ctx);
+            ui.close();
+        }
+        if ui
+            .add_enabled(has_selection, egui::Button::new("Copy   Ctrl+C"))
+            .clicked()
+        {
+            let ctx = ui.ctx().clone();
+            self.copy_selection(&ctx);
+            ui.close();
+        }
+        if ui.button("Paste   Ctrl+V").clicked() {
+            self.paste_clipboard();
+            ui.close();
+        }
+        ui.separator();
+        if ui.button("Format document (rustfmt)").clicked() {
+            self.format_document();
+            ui.close();
+        }
+        if ui.button("Run clippy").clicked() {
+            self.run_clippy();
+            ui.close();
+        }
+    }
+
+    /// The Search menu.
+    fn search_menu(&mut self, ui: &mut egui::Ui) {
+        if ui.button("Find in files   Ctrl+Shift+F").clicked() {
+            self.inspector_tab = InspectorTab::Search;
+            ui.close();
+        }
+    }
+
+    /// The Source menu.
+    fn source_menu(&mut self, ui: &mut egui::Ui) {
+        if ui.button("Find references").clicked() {
+            self.request_lsp("references");
+            ui.close();
+        }
+        if ui.button("Rename symbol…").clicked() {
+            self.rename_open = true;
+            self.rename_input.clear();
+            ui.close();
+        }
+        if ui.button("Code actions / quick fixes").clicked() {
+            self.request_lsp("codeactions");
+            ui.close();
+        }
+        ui.separator();
+        if ui.button("Run code analysis (cargo check)").clicked() {
+            self.run_diagnostics();
+            ui.close();
+        }
+        if ui.button("Run clippy").clicked() {
+            self.run_clippy();
+            ui.close();
+        }
+        if ui.button("Format document (rustfmt)").clicked() {
+            self.format_document();
+            ui.close();
+        }
+        ui.separator();
+        ui.menu_button("Cargo", |ui| {
+            for (label, args) in [
+                ("Build", "build"),
+                ("Test", "test"),
+                ("Run", "run"),
+                ("Run (release)", "run --release"),
+                ("Bench", "bench"),
+                ("Clean", "clean"),
+            ] {
+                if ui.button(label).clicked() {
+                    self.run_cargo_task(args);
+                    ui.close();
+                }
+            }
+        });
+    }
+
+    /// The Run menu.
+    fn run_menu(&mut self, ui: &mut egui::Ui) {
+        if ui.button("Run cell   Shift+Enter").clicked() {
+            self.enqueue_cells([self.selected_cell]);
+            ui.close();
+        }
+        if ui.button("Run cells above").clicked() {
+            self.enqueue_cells(0..=self.selected_cell);
+            ui.close();
+        }
+        if ui.button("Run all   Ctrl+Shift+Enter").clicked() {
+            self.enqueue_cells(0..self.cells().len());
+            ui.close();
+        }
+        if ui.button("Restart and run all").clicked() {
+            self.restart_and_run_all();
+            ui.close();
+        }
+        if ui
+            .add_enabled(
+                matches!(self.run_state, RunState::Running(_)),
+                egui::Button::new("Stop execution"),
+            )
+            .clicked()
+        {
+            self.stop_execution();
+            ui.close();
+        }
+    }
+
+    /// The Debug menu.
+    fn debug_menu(&mut self, ui: &mut egui::Ui) {
+        if ui.button("Run code analysis (cargo check)").clicked() {
+            self.run_diagnostics();
+            self.inspector_tab = InspectorTab::Problems;
+            ui.close();
+        }
+        if ui.button("Show Problems pane").clicked() {
+            self.inspector_tab = InspectorTab::Problems;
+            ui.close();
+        }
+        if ui.button("Inspect variables").clicked() {
+            self.inspector_tab = InspectorTab::Variables;
+            ui.close();
+        }
+        if ui.button("Restart Rust console").clicked() {
+            let _ = self.runtime.reset();
+            self.run_state = RunState::Booting;
+            ui.close();
+        }
+        ui.separator();
+        ui.label(
+            RichText::new("Step debugging is not available yet.")
+                .size(10.0)
+                .color(MUTED),
+        );
+    }
+
+    /// The Tools menu.
+    fn tools_menu(&mut self, ui: &mut egui::Ui) {
+        if ui
+            .add_enabled(
+                self.integration_pending == 0,
+                egui::Button::new("Import dataset..."),
+            )
+            .clicked()
+        {
+            self.import_dataset();
+            ui.close();
+        }
+        if ui
+            .add_enabled(
+                self.integration_pending == 0,
+                egui::Button::new("Import via Millwright..."),
+            )
+            .clicked()
+        {
+            self.import_millwright_dataset();
+            ui.close();
+        }
+        if ui.button("Git workbench").clicked() {
+            self.inspector_tab = InspectorTab::Git;
+            ui.close();
+        }
+        if ui.button("Rust packages").clicked() {
+            self.inspector_tab = InspectorTab::Packages;
+            ui.close();
+        }
+        if ui.button("Discover Jupyter kernels").clicked() {
+            self.discover_jupyter();
+            ui.close();
+        }
+        if ui.button("Install Evcxr Jupyter kernel").clicked() {
+            self.jupyter_output = jupyter::install_evcxr().text();
+            self.hover_text = self.jupyter_output.clone();
+            self.inspector_tab = InspectorTab::Help;
+            ui.close();
+        }
+        if ui.button("Settings...").clicked() {
+            self.settings_open = true;
+            ui.close();
+        }
+        if ui.button("Restart Rust console").clicked() {
+            let _ = self.runtime.reset();
+            self.run_state = RunState::Booting;
+            ui.close();
+        }
+    }
+
+    /// The View menu.
+    fn view_menu(&mut self, ui: &mut egui::Ui) {
+        let label = if self.dark_mode {
+            "Use light theme"
+        } else {
+            "Use dark theme"
+        };
+        if ui.button(label).clicked() {
+            self.dark_mode = !self.dark_mode;
+            self.active_theme = None;
+            self.apply_theme(ui.ctx());
+            ui.close();
+        }
+        ui.separator();
+        ui.menu_button("Panes", |ui| {
+            ui.label(
+                RichText::new("Show or hide dock panes")
+                    .size(10.0)
+                    .color(MUTED),
+            );
+            // Fixed panes plus any live terminals and Rust kernels.
+            let mut kinds = expected_panes();
+            // Notebook is optional (kept out of `expected_panes` for
+            // layout migration), but still toggleable here.
+            kinds.push(PaneKind::Notebook);
+            if let Some(tree) = self.dock_tree.as_ref() {
+                let mut dynamic: Vec<PaneKind> = tree
+                    .tiles
+                    .iter()
+                    .filter_map(|(_, tile)| match tile {
+                        Tile::Pane(k @ (PaneKind::Terminal(_) | PaneKind::RustConsole(_))) => {
+                            Some(*k)
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                dynamic.sort_by_key(|k| match k {
+                    PaneKind::Terminal(id) => (0, *id),
+                    PaneKind::RustConsole(id) => (1, *id),
+                    _ => (2, 0),
+                });
+                kinds.extend(dynamic);
+            }
+            for kind in kinds {
+                let Some((mut visible, id)) = self.dock_tree.as_ref().and_then(|tree| {
+                    Self::dock_tile_of(tree, kind).map(|id| (tree.tiles.is_visible(id), id))
+                }) else {
+                    continue;
+                };
+                let label = match kind {
+                    PaneKind::Terminal(n) => format!("Terminal {n}"),
+                    PaneKind::RustConsole(n) => format!("Rust {n}"),
+                    other => other.title().to_owned(),
+                };
+                if ui.checkbox(&mut visible, label).changed() {
+                    if let Some(tree) = self.dock_tree.as_mut() {
+                        tree.tiles.set_visible(id, visible);
+                    }
+                }
+            }
+        });
+        if ui.button("New terminal").clicked() {
+            self.pending_new_terminal = Some(None);
+            ui.close();
+        }
+        if ui.button("New Rust kernel").clicked() {
+            self.pending_new_kernel = Some(None);
+            ui.close();
+        }
+        if ui.button("Reset layout to default").clicked() {
+            self.dock_tree = Some(build_dock_tree());
+            ui.close();
+        }
+        ui.label(
+            RichText::new("Drag a pane's tab to split, re-dock, or reorder it.")
+                .size(10.0)
+                .color(MUTED),
+        );
+    }
+
+    /// The Help menu.
+    fn help_menu(&mut self, ui: &mut egui::Ui) {
+        if ui.button("Welcome / start screen").clicked() {
+            self.welcome_open = true;
+            ui.close();
+        }
+        ui.separator();
+        ui.label(format!(
+            "Forge ML {APP_VERSION} - interactive Rust scientific environment"
+        ));
     }
 
     pub(crate) fn top_bar(&mut self, ui: &mut egui::Ui) {

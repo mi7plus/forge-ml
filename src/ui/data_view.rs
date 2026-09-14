@@ -7,6 +7,16 @@ use crate::*;
 use eframe::egui;
 use egui::RichText;
 
+/// The delayed actions a Data-inspector list pass records (applied after the
+/// scroll body releases its borrow of the dataset maps).
+#[derive(Default)]
+struct DataInspectorActions {
+    delete: Option<(bool, String)>,
+    export: Option<(String, export::DataFormat, &'static str)>,
+    report: Option<String>,
+    pdf_report: Option<String>,
+}
+
 impl crate::ForgeApp {
     pub(crate) fn data_inspector(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
@@ -52,6 +62,84 @@ impl crate::ForgeApp {
             self.console = "Cleared all live datasets.".to_owned();
             return;
         }
+        let DataInspectorActions {
+            delete: dataset_to_delete,
+            export: export_request,
+            report: report_request,
+            pdf_report: pdf_report_request,
+        } = self.data_inspector_datasets(ui);
+        if let Some((is_table, name)) = dataset_to_delete {
+            if is_table {
+                self.data.tables.remove(&name);
+            } else {
+                self.data.vectors.remove(&name);
+            }
+            self.console = format!("Deleted dataset `{name}`.");
+        }
+        if let Some((name, format, extension)) = export_request {
+            if let Some(path) = rfd::FileDialog::new()
+                .set_file_name(format!("{name}.{extension}"))
+                .save_file()
+            {
+                let request = self
+                    .data
+                    .tables
+                    .get(&name)
+                    .ok_or_else(|| "Dataset no longer exists".to_owned())
+                    .and_then(|dataset| {
+                        self.integration_worker
+                            .submit(IntegrationRequest::DataExport {
+                                name: name.clone(),
+                                batches: dataset.batches.clone(),
+                                path: path.clone(),
+                                format,
+                            })
+                    });
+                match request {
+                    Ok(()) => {
+                        self.integration_pending += 1;
+                        self.console = format!("Exporting `{name}` in the background…");
+                    }
+                    Err(error) => self.console = format!("Dataset export failed: {error}"),
+                }
+            }
+        }
+        if let Some(name) = report_request {
+            if let Some(path) = rfd::FileDialog::new()
+                .set_file_name(format!("{}-eda.html", safe_file_stem(&name)))
+                .save_file()
+            {
+                self.console = self
+                    .data
+                    .tables
+                    .get(&name)
+                    .map(|dataset| std::fs::write(&path, export::dataset_report(&name, dataset)))
+                    .transpose()
+                    .map(|_| format!("Exported EDA report to {}", path.display()))
+                    .unwrap_or_else(|e| format!("EDA report failed: {e}"));
+            }
+        }
+        if let Some(name) = pdf_report_request {
+            if let Some(path) = rfd::FileDialog::new()
+                .set_file_name(format!("{}-eda.pdf", safe_file_stem(&name)))
+                .save_file()
+            {
+                self.console = self
+                    .data
+                    .tables
+                    .get(&name)
+                    .ok_or_else(|| "Dataset no longer exists".to_owned())
+                    .and_then(|dataset| export::dataset_pdf(&name, dataset, &path))
+                    .map(|()| format!("Exported EDA PDF to {}", path.display()))
+                    .unwrap_or_else(|error| format!("EDA PDF failed: {error}"));
+            }
+        }
+    }
+
+    /// Render the scrollable dataset list (tables then vectors, each with its
+    /// profile / quality / correlation sections) and collect the delayed
+    /// delete/export/report actions the buttons request.
+    fn data_inspector_datasets(&mut self, ui: &mut egui::Ui) -> DataInspectorActions {
         let mut dataset_to_delete: Option<(bool, String)> = None;
         let mut export_request: Option<(String, export::DataFormat, &'static str)> = None;
         let mut report_request: Option<String> = None;
@@ -320,71 +408,11 @@ impl crate::ForgeApp {
                     ui.separator();
                 }
             });
-        if let Some((is_table, name)) = dataset_to_delete {
-            if is_table {
-                self.data.tables.remove(&name);
-            } else {
-                self.data.vectors.remove(&name);
-            }
-            self.console = format!("Deleted dataset `{name}`.");
-        }
-        if let Some((name, format, extension)) = export_request {
-            if let Some(path) = rfd::FileDialog::new()
-                .set_file_name(format!("{name}.{extension}"))
-                .save_file()
-            {
-                let request = self
-                    .data
-                    .tables
-                    .get(&name)
-                    .ok_or_else(|| "Dataset no longer exists".to_owned())
-                    .and_then(|dataset| {
-                        self.integration_worker
-                            .submit(IntegrationRequest::DataExport {
-                                name: name.clone(),
-                                batches: dataset.batches.clone(),
-                                path: path.clone(),
-                                format,
-                            })
-                    });
-                match request {
-                    Ok(()) => {
-                        self.integration_pending += 1;
-                        self.console = format!("Exporting `{name}` in the background…");
-                    }
-                    Err(error) => self.console = format!("Dataset export failed: {error}"),
-                }
-            }
-        }
-        if let Some(name) = report_request {
-            if let Some(path) = rfd::FileDialog::new()
-                .set_file_name(format!("{}-eda.html", safe_file_stem(&name)))
-                .save_file()
-            {
-                self.console = self
-                    .data
-                    .tables
-                    .get(&name)
-                    .map(|dataset| std::fs::write(&path, export::dataset_report(&name, dataset)))
-                    .transpose()
-                    .map(|_| format!("Exported EDA report to {}", path.display()))
-                    .unwrap_or_else(|e| format!("EDA report failed: {e}"));
-            }
-        }
-        if let Some(name) = pdf_report_request {
-            if let Some(path) = rfd::FileDialog::new()
-                .set_file_name(format!("{}-eda.pdf", safe_file_stem(&name)))
-                .save_file()
-            {
-                self.console = self
-                    .data
-                    .tables
-                    .get(&name)
-                    .ok_or_else(|| "Dataset no longer exists".to_owned())
-                    .and_then(|dataset| export::dataset_pdf(&name, dataset, &path))
-                    .map(|()| format!("Exported EDA PDF to {}", path.display()))
-                    .unwrap_or_else(|error| format!("EDA PDF failed: {error}"));
-            }
+        DataInspectorActions {
+            delete: dataset_to_delete,
+            export: export_request,
+            report: report_request,
+            pdf_report: pdf_report_request,
         }
     }
 

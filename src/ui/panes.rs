@@ -8,6 +8,21 @@ use crate::*;
 use eframe::egui;
 use egui::RichText;
 
+/// The deferred actions one Notebook-pane cell-list pass records, applied by the
+/// caller after the scroll body releases its borrows of the document/records.
+#[derive(Default)]
+struct NotebookActions {
+    run_cell: Option<usize>,
+    select: Option<usize>,
+    open_dataset: Option<String>,
+    edit: Option<(usize, String)>,
+    edit_request: Option<usize>,
+    save: Option<(usize, String)>,
+    cancel_edit: bool,
+    swap_first: Option<usize>,
+    toggle_collapse: Option<usize>,
+}
+
 impl crate::ForgeApp {
     pub(crate) fn project_search(&mut self, ui: &mut egui::Ui) {
         // rust-analyzer "Find references" results, when present.
@@ -684,23 +699,8 @@ impl crate::ForgeApp {
             );
             return;
         }
-        let mut run_cell: Option<usize> = None;
-        let mut run_all = false;
-        let mut select: Option<usize> = None;
-        let mut open_dataset: Option<String> = None;
-        // In-place editing works on each cell's raw byte range (marker + body),
-        // so a save round-trips exactly. Take the in-progress draft out of `self`
-        // for the render pass so the editable TextEdit doesn't clash with the
-        // immutable reads of `cell_records`/`data` inside the list. The raw cell
-        // text is fetched lazily only when Edit is pressed (via `edit_request`),
-        // so we don't clone the whole buffer on every repaint.
-        let mut edit = self.notebook_edit.take();
-        let mut edit_request: Option<usize> = None;
-        let mut save: Option<(usize, String)> = None;
-        let mut cancel_edit = false;
-        let mut swap_first: Option<usize> = None;
-        let mut toggle_collapse: Option<usize> = None;
         let cell_count = cells.len();
+        let mut run_all = false;
         ui.horizontal(|ui| {
             ui.label(RichText::new("NOTEBOOK").size(10.0).strong().color(MUTED));
             run_all = ui
@@ -714,6 +714,103 @@ impl crate::ForgeApp {
             );
         });
         ui.separator();
+        let NotebookActions {
+            run_cell,
+            select,
+            open_dataset,
+            edit,
+            edit_request,
+            save,
+            cancel_edit,
+            swap_first,
+            toggle_collapse,
+        } = self.notebook_cell_list(ui, &cells);
+        // Resolve the in-place edit: save writes the draft back over the cell's
+        // raw byte range; cancel discards; otherwise carry the draft forward.
+        if let Some((index, draft)) = save {
+            let current = self.active().content.clone();
+            let ranges = crate::notebook::cell_byte_ranges(&current);
+            if let Some(range) = ranges.get(index).cloned() {
+                let mut updated = current.clone();
+                updated.replace_range(range, &draft);
+                self.active_mut().content = updated;
+                self.active_mut().dirty = true;
+                self.cell_records.clear();
+                self.console = format!("Edited cell {} in the notebook.", index + 1);
+            }
+            self.notebook_edit = None;
+        } else if cancel_edit {
+            self.notebook_edit = None;
+        } else if let Some(index) = edit_request {
+            // Fetch the cell's raw text now (not every repaint).
+            let content = &self.active().content;
+            let draft = crate::notebook::cell_byte_ranges(content)
+                .get(index)
+                .and_then(|range| content.get(range.clone()))
+                .unwrap_or_default()
+                .to_owned();
+            self.notebook_edit = Some((index, draft));
+        } else {
+            self.notebook_edit = edit;
+        }
+        if let Some(index) = toggle_collapse {
+            if !self.notebook_collapsed.remove(&index) {
+                self.notebook_collapsed.insert(index);
+            }
+        }
+        // Reorder: swap cell `first` with the one below it in the buffer. Cell
+        // outputs are keyed by index, so clear them (and collapse state) rather
+        // than mis-attribute; keep the selection pointed at the moved cell.
+        if let Some(first) = swap_first {
+            if let Some(updated) =
+                crate::notebook::swap_adjacent_cells(&self.active().content, first)
+            {
+                self.active_mut().content = updated;
+                self.active_mut().dirty = true;
+                self.cell_records.clear();
+                self.notebook_collapsed.clear();
+                if self.selected_cell == first {
+                    self.selected_cell = first + 1;
+                } else if self.selected_cell == first + 1 {
+                    self.selected_cell = first;
+                }
+                self.console = "Reordered notebook cells.".to_owned();
+            }
+        }
+        if let Some(index) = select {
+            self.selected_cell = index;
+            self.focus_cell_in_editor(index);
+        }
+        if let Some(dataset_ref) = open_dataset {
+            self.open_dataset = Some(dataset_ref);
+            self.inspector_tab = InspectorTab::Data;
+        }
+        if run_all {
+            self.enqueue_cells(0..cell_count);
+        } else if let Some(index) = run_cell {
+            self.enqueue_cells([index]);
+        }
+    }
+
+    /// Render the scrollable notebook cell list and collect the pending
+    /// run / select / edit / reorder actions, applied by the caller once the
+    /// scroll body releases its borrows.
+    fn notebook_cell_list(
+        &mut self,
+        ui: &mut egui::Ui,
+        cells: &[(String, String)],
+    ) -> NotebookActions {
+        use egui_phosphor_icons::icons;
+        let cell_count = cells.len();
+        let mut run_cell: Option<usize> = None;
+        let mut select: Option<usize> = None;
+        let mut open_dataset: Option<String> = None;
+        let mut edit = self.notebook_edit.take();
+        let mut edit_request: Option<usize> = None;
+        let mut save: Option<(usize, String)> = None;
+        let mut cancel_edit = false;
+        let mut swap_first: Option<usize> = None;
+        let mut toggle_collapse: Option<usize> = None;
         egui::ScrollArea::vertical()
             .id_salt("notebook_view")
             .auto_shrink([false, false])
@@ -930,70 +1027,16 @@ impl crate::ForgeApp {
                     ui.add_space(6.0);
                 }
             });
-        // Resolve the in-place edit: save writes the draft back over the cell's
-        // raw byte range; cancel discards; otherwise carry the draft forward.
-        if let Some((index, draft)) = save {
-            let current = self.active().content.clone();
-            let ranges = crate::notebook::cell_byte_ranges(&current);
-            if let Some(range) = ranges.get(index).cloned() {
-                let mut updated = current.clone();
-                updated.replace_range(range, &draft);
-                self.active_mut().content = updated;
-                self.active_mut().dirty = true;
-                self.cell_records.clear();
-                self.console = format!("Edited cell {} in the notebook.", index + 1);
-            }
-            self.notebook_edit = None;
-        } else if cancel_edit {
-            self.notebook_edit = None;
-        } else if let Some(index) = edit_request {
-            // Fetch the cell's raw text now (not every repaint).
-            let content = &self.active().content;
-            let draft = crate::notebook::cell_byte_ranges(content)
-                .get(index)
-                .and_then(|range| content.get(range.clone()))
-                .unwrap_or_default()
-                .to_owned();
-            self.notebook_edit = Some((index, draft));
-        } else {
-            self.notebook_edit = edit;
-        }
-        if let Some(index) = toggle_collapse {
-            if !self.notebook_collapsed.remove(&index) {
-                self.notebook_collapsed.insert(index);
-            }
-        }
-        // Reorder: swap cell `first` with the one below it in the buffer. Cell
-        // outputs are keyed by index, so clear them (and collapse state) rather
-        // than mis-attribute; keep the selection pointed at the moved cell.
-        if let Some(first) = swap_first {
-            if let Some(updated) =
-                crate::notebook::swap_adjacent_cells(&self.active().content, first)
-            {
-                self.active_mut().content = updated;
-                self.active_mut().dirty = true;
-                self.cell_records.clear();
-                self.notebook_collapsed.clear();
-                if self.selected_cell == first {
-                    self.selected_cell = first + 1;
-                } else if self.selected_cell == first + 1 {
-                    self.selected_cell = first;
-                }
-                self.console = "Reordered notebook cells.".to_owned();
-            }
-        }
-        if let Some(index) = select {
-            self.selected_cell = index;
-            self.focus_cell_in_editor(index);
-        }
-        if let Some(dataset_ref) = open_dataset {
-            self.open_dataset = Some(dataset_ref);
-            self.inspector_tab = InspectorTab::Data;
-        }
-        if run_all {
-            self.enqueue_cells(0..cell_count);
-        } else if let Some(index) = run_cell {
-            self.enqueue_cells([index]);
+        NotebookActions {
+            run_cell,
+            select,
+            open_dataset,
+            edit,
+            edit_request,
+            save,
+            cancel_edit,
+            swap_first,
+            toggle_collapse,
         }
     }
 
