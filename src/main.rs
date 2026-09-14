@@ -175,12 +175,18 @@ fn tame_child_consoles() {
 fn tame_child_consoles() {}
 
 fn main() -> eframe::Result<()> {
+    // Give descendant processes a (hidden) console to inherit so they don't each
+    // pop up a window. Must run before anything is spawned (LSP, runtime, git) AND
+    // before `runtime_hook` below: evcxr relaunches this exe as its evaluation
+    // runtime, and that child returns from `runtime_hook` only to exit — so it
+    // would otherwise skip this and every per-cell cargo/rustc compile it spawns
+    // would flash a fresh console. Running it first attaches the child to the
+    // parent's hidden console instead. (No-op stdio impact: AttachConsole/
+    // AllocConsole leave already-redirected pipe handles alone.)
+    tame_child_consoles();
     // Evcxr relaunches the current executable as its isolated evaluation runtime.
     // This hook turns that child into a headless runtime before eframe can open a window.
     evcxr::runtime_hook();
-    // Give descendant processes a (hidden) console to inherit so they don't each
-    // pop up a window. Must run before anything is spawned (LSP, runtime, git).
-    tame_child_consoles();
     // Hidden headless self-test: exercise the notebook runtime path (kernel child,
     // env, a `:dep millwright` cell) without opening the GUI, for diagnosis.
     if std::env::args().any(|a| a == "--notebook-selftest") {
