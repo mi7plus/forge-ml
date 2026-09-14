@@ -300,3 +300,118 @@ impl Default for RemoteState {
         }
     }
 }
+
+// --- Constructors that build a sub-state from persisted session/workspace data,
+// keeping ForgeApp::new's initializer to grouped one-liners. ---
+
+impl LspState {
+    pub(crate) fn from_session(session: &SessionState) -> Self {
+        Self {
+            handle: LspHandle::spawn(),
+            status: "rust-analyzer waiting for a Rust file.".to_owned(),
+            diagnostics: HashMap::new(),
+            references: Vec::new(),
+            signature: String::new(),
+            ready: false,
+            enabled: session.lsp_enabled,
+        }
+    }
+}
+
+impl SqlState {
+    pub(crate) fn load(store: &Option<WorkspaceStore>) -> Self {
+        Self {
+            history: database::bounded_query_history(
+                store
+                    .as_ref()
+                    .and_then(|store| store.load_query_history().ok())
+                    .unwrap_or_default(),
+            ),
+            ..Default::default()
+        }
+    }
+}
+
+impl PythonState {
+    pub(crate) fn from_session(session: &SessionState) -> Self {
+        Self {
+            environment_fingerprint: session.python_environment_fingerprint.clone(),
+            ..Default::default()
+        }
+    }
+}
+
+impl DriftState {
+    pub(crate) fn from_session(session: &SessionState) -> Self {
+        let policy = session.validated_drift_policy();
+        Self {
+            mean_shift_threshold: policy.mean_shift_threshold,
+            scale_ratio_lower: policy.scale_ratio_lower,
+            scale_ratio_upper: policy.scale_ratio_upper,
+            events: Vec::new(),
+        }
+    }
+}
+
+impl BurnState {
+    pub(crate) fn new(
+        config: &deep_learning::NativeTrainingConfig,
+        session: &SessionState,
+    ) -> Self {
+        let (feature, target) = session.validated_training_columns();
+        Self {
+            training_cancel: None,
+            training_epochs: config.epochs,
+            training_learning_rate: config.learning_rate,
+            training_validation_fraction: config.validation_fraction,
+            training_use_dataset: session.native_training_use_dataset,
+            training_feature: feature,
+            training_target: target,
+        }
+    }
+}
+
+impl ObjectState {
+    pub(crate) fn load(store: &Option<WorkspaceStore>) -> Self {
+        Self {
+            profiles: store
+                .as_ref()
+                .and_then(|store| store.load_object_profiles().ok())
+                .unwrap_or_default(),
+            ..Default::default()
+        }
+    }
+}
+
+impl ExperimentState {
+    pub(crate) fn from_session(session: &SessionState) -> Self {
+        Self {
+            name: session.experiment_name.clone(),
+            ..Default::default()
+        }
+    }
+}
+
+impl DatabaseState {
+    pub(crate) fn load(store: &Option<WorkspaceStore>) -> Self {
+        Self {
+            profiles: store
+                .as_ref()
+                .and_then(|store| store.load_connections().ok())
+                .unwrap_or_default(),
+            ..Default::default()
+        }
+    }
+}
+
+impl RemoteState {
+    pub(crate) fn load(store: &Option<WorkspaceStore>) -> Self {
+        Self {
+            profiles: store
+                .as_ref()
+                .and_then(|store| store.load_remote_profiles().ok())
+                .unwrap_or_default(),
+            ..Default::default()
+        }
+    }
+}

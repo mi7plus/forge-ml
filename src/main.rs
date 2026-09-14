@@ -1246,28 +1246,10 @@ impl ForgeApp {
         } else {
             persisted_runs
         };
-        let database_profiles = workspace_store
-            .as_ref()
-            .and_then(|store| store.load_connections().ok())
-            .unwrap_or_default();
-        let sql_history = database::bounded_query_history(
-            workspace_store
-                .as_ref()
-                .and_then(|store| store.load_query_history().ok())
-                .unwrap_or_default(),
-        );
-        let remote_profiles = workspace_store
-            .as_ref()
-            .and_then(|store| store.load_remote_profiles().ok())
-            .unwrap_or_default();
         privacy_diagnostics::configure(
             session.diagnostics_opt_in,
             project.as_ref().map(|p| p.root.as_path()),
         );
-        let object_profiles = workspace_store
-            .as_ref()
-            .and_then(|store| store.load_object_profiles().ok())
-            .unwrap_or_default();
         if let Some(root) = project.as_ref().map(|project| project.root.clone()) {
             recent_projects.retain(|path| path != &root);
             recent_projects.insert(0, root);
@@ -1298,15 +1280,24 @@ impl ForgeApp {
             })
             .unwrap_or(0);
         let native_burn_artifact = session.validated_native_artifact();
-        let drift_policy = session.validated_drift_policy();
         let native_burn_inference_feature = if session.native_inference_feature.is_finite() {
             session.native_inference_feature
         } else {
             0.0
         };
         let native_training_config = session.validated_native_training_config();
-        let (native_training_feature, native_training_target) =
-            session.validated_training_columns();
+        // Sub-state structs, built from persisted session/workspace data. Kept as
+        // locals (not inline in `Self { … }`) so they borrow `workspace_store`
+        // before it is moved into the struct.
+        let lsp = LspState::from_session(&session);
+        let python = PythonState::from_session(&session);
+        let experiment = ExperimentState::from_session(&session);
+        let burn = BurnState::new(&native_training_config, &session);
+        let drift = DriftState::from_session(&session);
+        let database = DatabaseState::load(&workspace_store);
+        let sql = SqlState::load(&workspace_store);
+        let remote = RemoteState::load(&workspace_store);
+        let object = ObjectState::load(&workspace_store);
         let app = Self {
             tabs,
             active_tab,
@@ -1335,15 +1326,7 @@ impl ForgeApp {
             execution_count: 0,
             console_input: String::new(),
             history: Vec::new(),
-            lsp: LspState {
-                handle: LspHandle::spawn(),
-                status: "rust-analyzer waiting for a Rust file.".to_owned(),
-                diagnostics: HashMap::new(),
-                references: Vec::new(),
-                signature: String::new(),
-                ready: false,
-                enabled: session.lsp_enabled,
-            },
+            lsp,
             completions: Vec::new(),
             rename_open: false,
             rename_input: String::new(),
@@ -1380,10 +1363,7 @@ impl ForgeApp {
             pending_editor_selection: None,
             editor_selection: (0, 0),
             run_all_after_reset: false,
-            experiment: ExperimentState {
-                name: session.experiment_name,
-                ..Default::default()
-            },
+            experiment,
             saved_runs,
             comparison_metric: session.comparison_metric,
             project_search_query: String::new(),
@@ -1410,10 +1390,7 @@ impl ForgeApp {
             package_query: String::new(),
             package_output: String::new(),
             cargo_registry: String::new(),
-            python: PythonState {
-                environment_fingerprint: session.python_environment_fingerprint.clone(),
-                ..Default::default()
-            },
+            python,
             github: GithubState::default(),
             jupyter_output: String::new(),
             pipeline_design: PipelineDesign {
@@ -1432,35 +1409,16 @@ impl ForgeApp {
             integration_worker: IntegrationWorker::new(),
             integration_pending: 0,
             job_command: "cargo run --release".into(),
-            database: DatabaseState {
-                profiles: database_profiles,
-                ..Default::default()
-            },
-            sql: SqlState {
-                history: sql_history,
-                ..Default::default()
-            },
+            database,
+            sql,
             deep_backend: session.native_training_backend,
             compute_device: session.compute_device,
-            burn: BurnState {
-                training_cancel: None,
-                training_epochs: native_training_config.epochs,
-                training_learning_rate: native_training_config.learning_rate,
-                training_validation_fraction: native_training_config.validation_fraction,
-                training_use_dataset: session.native_training_use_dataset,
-                training_feature: native_training_feature,
-                training_target: native_training_target,
-            },
+            burn,
             class: ClassificationState::default(),
             prep: PrepState::default(),
             onnx: OnnxState::default(),
             native_burn_artifact,
-            drift: DriftState {
-                mean_shift_threshold: drift_policy.mean_shift_threshold,
-                scale_ratio_lower: drift_policy.scale_ratio_lower,
-                scale_ratio_upper: drift_policy.scale_ratio_upper,
-                events: Vec::new(),
-            },
+            drift,
             native_burn_inference_feature,
             deep_outputs: DeepOutputs::default(),
             resource_system: sysinfo::System::new_all(),
@@ -1468,16 +1426,10 @@ impl ForgeApp {
             last_resource_poll: Instant::now(),
             early_stopping_patience: native_training_config.early_stopping_patience,
             resume_checkpoint: String::new(),
-            remote: RemoteState {
-                profiles: remote_profiles,
-                ..Default::default()
-            },
+            remote,
             registry: RegistryState::default(),
             service_events: Vec::new(),
-            object: ObjectState {
-                profiles: object_profiles,
-                ..Default::default()
-            },
+            object,
             update_repository: "mi7plus/forge-ml".into(),
             update_channel: updater::Channel::Stable,
             last_file_poll: Instant::now(),
