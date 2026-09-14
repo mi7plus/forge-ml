@@ -26,7 +26,7 @@ impl crate::ForgeApp {
                     }
                 });
             if ui.button("Generate Burn project").clicked() {
-                self.sql_output = root
+                self.sql.output = root
                     .as_ref()
                     .map(|root| {
                         deep_learning::generate_burn_project(root, self.deep_backend).text()
@@ -34,7 +34,7 @@ impl crate::ForgeApp {
                     .unwrap_or_else(|| "Open a project first.".into());
             }
             if ui.button("Test embedded Burn").clicked() {
-                self.sql_output = deep_learning::native_burn_self_test();
+                self.sql.output = deep_learning::native_burn_self_test();
             }
             if ui
                 .button("Test GPU compute")
@@ -73,20 +73,20 @@ impl crate::ForgeApp {
                     Ok(()) => {
                         self.burn.training_cancel = Some(cancelled);
                         self.integration_pending += 1;
-                        self.sql_output = format!(
+                        self.sql.output = format!(
                             "Running embedded Burn training on {} in the background…",
                             self.deep_backend.label()
                         );
                     }
                     Err(error) => {
-                        self.sql_output = format!("Could not start Burn training: {error}")
+                        self.sql.output = format!("Could not start Burn training: {error}")
                     }
                 }
             }
             if let Some(cancelled) = &self.burn.training_cancel {
                 if ui.button("Cancel native training").clicked() {
                     cancelled.store(true, std::sync::atomic::Ordering::Relaxed);
-                    self.sql_output = "Cancelling embedded Burn training…".into();
+                    self.sql.output = "Cancelling embedded Burn training…".into();
                 }
             }
             ui.add(
@@ -142,7 +142,7 @@ impl crate::ForgeApp {
             "Notebook `:dep` cells for Millwright/Burn build offline when the bundled Rust \
                  runtime is present; otherwise they need a system toolchain and network.",
         );
-        ui.label(&self.sql_output);
+        ui.label(&self.sql.output);
 
         ui.separator();
         ui.strong("Dataset preparation");
@@ -365,7 +365,7 @@ impl crate::ForgeApp {
                         .prefix(format!("{} ", artifact.feature)),
                 );
                 if ui.button("Predict").clicked() {
-                    self.sql_output = artifact
+                    self.sql.output = artifact
                         .predict(self.native_burn_inference_feature)
                         .map(|prediction| format!("{} = {prediction:.8}", artifact.target))
                         .unwrap_or_else(|error| error);
@@ -376,7 +376,7 @@ impl crate::ForgeApp {
                         .add_filter("JSON", &["json"])
                         .save_file()
                     {
-                        self.sql_output = export::native_regression_artifact(&artifact, &path)
+                        self.sql.output = export::native_regression_artifact(&artifact, &path)
                             .map(|()| format!("Exported native model to {}", path.display()))
                             .unwrap_or_else(|error| format!("Model export failed: {error}"));
                     }
@@ -392,7 +392,7 @@ impl crate::ForgeApp {
                             scale_ratio_lower: self.drift.scale_ratio_lower,
                             scale_ratio_upper: self.drift.scale_ratio_upper,
                         };
-                        self.sql_output =
+                        self.sql.output =
                             export::native_regression_model_card(&artifact, policy, &path)
                                 .map(|()| {
                                     format!("Exported native model card to {}", path.display())
@@ -436,9 +436,9 @@ impl crate::ForgeApp {
                     }) {
                         Ok(()) => {
                             self.integration_pending += 1;
-                            self.sql_output = "Running native batch inference…".into();
+                            self.sql.output = "Running native batch inference…".into();
                         }
-                        Err(error) => self.sql_output = error,
+                        Err(error) => self.sql.output = error,
                     }
                 }
             });
@@ -450,13 +450,13 @@ impl crate::ForgeApp {
             {
                 match export::import_native_regression_artifact(&path) {
                     Ok(artifact) => {
-                        self.sql_output = format!(
+                        self.sql.output = format!(
                             "Imported native regression model for {} -> {}.",
                             artifact.feature, artifact.target
                         );
                         self.native_burn_artifact = Some(artifact);
                     }
-                    Err(error) => self.sql_output = format!("Model import failed: {error}"),
+                    Err(error) => self.sql.output = format!("Model import failed: {error}"),
                 }
             }
         }
@@ -479,7 +479,7 @@ impl crate::ForgeApp {
                 )
                 .clicked()
             {
-                self.sql_output = root
+                self.sql.output = root
                     .as_ref()
                     .ok_or_else(|| "Open a project first".to_owned())
                     .and_then(|root| model_registry::ModelRegistry::open(root))
@@ -510,13 +510,13 @@ impl crate::ForgeApp {
                             .load_native_regression(&self.registry.model, &self.registry.version)
                     }) {
                     Ok(artifact) => {
-                        self.sql_output = format!(
+                        self.sql.output = format!(
                             "Loaded integrity-verified native model {} {}.",
                             self.registry.model, self.registry.version
                         );
                         self.native_burn_artifact = Some(artifact);
                     }
-                    Err(error) => self.sql_output = format!("Native registry load failed: {error}"),
+                    Err(error) => self.sql.output = format!("Native registry load failed: {error}"),
                 }
             }
         });
@@ -618,15 +618,15 @@ impl crate::ForgeApp {
                                     if let Some(store) = &self.workspace_store {
                                         let _ = store.save_remote_profiles(&self.remote.profiles);
                                     }
-                                    self.sql_output = "Saved validated remote profile.".into();
+                                    self.sql.output = "Saved validated remote profile.".into();
                                 }
                                 Err(error) => {
-                                    self.sql_output =
+                                    self.sql.output =
                                         format!("Could not store remote credential: {error}");
                                 }
                             }
                         }
-                        Err(error) => self.sql_output = error,
+                        Err(error) => self.sql.output = error,
                     }
                 }
             }
@@ -637,19 +637,19 @@ impl crate::ForgeApp {
                     .hint_text("remote training command"),
             );
             if ui.button("Generate Actions training").clicked() {
-                self.sql_output = root
+                self.sql.output = root
                     .as_ref()
                     .map(|root| remote::generate_actions_workflow(root).text())
                     .unwrap_or_else(|| "Open a project first.".into());
             }
             if ui.button("Dispatch Actions training").clicked() {
-                self.sql_output = root
+                self.sql.output = root
                     .as_ref()
                     .map(|root| github::dispatch_training(root, &self.remote.command).text())
                     .unwrap_or_else(|| "Open a project first.".into());
             }
             if ui.button("Retrieve artifacts").clicked() {
-                self.sql_output = root
+                self.sql.output = root
                     .as_ref()
                     .map(|root| github::download_artifacts(root).text())
                     .unwrap_or_else(|| "Open a project first.".into());
@@ -690,9 +690,9 @@ impl crate::ForgeApp {
                     {
                         Ok(()) => {
                             self.integration_pending += 1;
-                            self.sql_output = "Stopping remote kernel…".into();
+                            self.sql.output = "Stopping remote kernel…".into();
                         }
-                        Err(error) => self.sql_output = error,
+                        Err(error) => self.sql.output = error,
                     }
                 }
                 let can_interrupt = self.remote.execution_pending && !self.remote.interrupt_pending;
@@ -710,9 +710,9 @@ impl crate::ForgeApp {
                             self.remote.input_sender = None;
                             self.remote.input_prompt = None;
                             self.remote.input_response.clear();
-                            self.sql_output = "Interrupting remote execution…".into();
+                            self.sql.output = "Interrupting remote execution…".into();
                         }
-                        Err(error) => self.sql_output = error,
+                        Err(error) => self.sql.output = error,
                     }
                 }
             }
@@ -753,9 +753,9 @@ impl crate::ForgeApp {
                         self.integration_pending += 1;
                         self.remote.execution_pending = true;
                         self.remote.mime_outputs.clear();
-                        self.sql_output = "Running code on remote kernel…".into();
+                        self.sql.output = "Running code on remote kernel…".into();
                     }
-                    Err(error) => self.sql_output = error,
+                    Err(error) => self.sql.output = error,
                 }
             }
         }
@@ -778,9 +778,9 @@ impl crate::ForgeApp {
                     {
                         Ok(()) => {
                             self.integration_pending += 1;
-                            self.sql_output = format!("Testing remote `{}`…", profile.name);
+                            self.sql.output = format!("Testing remote `{}`…", profile.name);
                         }
-                        Err(error) => self.sql_output = error,
+                        Err(error) => self.sql.output = error,
                     }
                 }
                 if ui
@@ -798,13 +798,13 @@ impl crate::ForgeApp {
                         }) {
                         Ok(()) => {
                             self.integration_pending += 1;
-                            self.sql_output = format!(
+                            self.sql.output = format!(
                                 "Starting `{}` on remote `{}`…",
                                 self.remote.kernel_name.trim(),
                                 profile.name
                             );
                         }
-                        Err(error) => self.sql_output = error,
+                        Err(error) => self.sql.output = error,
                     }
                 }
             });
@@ -1121,14 +1121,14 @@ impl crate::ForgeApp {
     fn gpu_compute_self_test(&mut self) {
         use millwright::gpu;
         if !gpu::is_available() {
-            self.sql_output =
+            self.sql.output =
                 "No wgpu GPU compute device found; Millwright uses the CPU path instead.".into();
             return;
         }
         // A (2×2) · I (2×2) must equal A.
         let a = [1.0_f32, 2.0, 3.0, 4.0];
         let identity = [1.0_f32, 0.0, 0.0, 1.0];
-        self.sql_output = match gpu::gemm(&a, 2, 2, &identity, 2) {
+        self.sql.output = match gpu::gemm(&a, 2, 2, &identity, 2) {
             Ok(result) => {
                 if result.len() == a.len()
                     && result

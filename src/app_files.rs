@@ -43,7 +43,7 @@ impl crate::ForgeApp {
                 privacy_diagnostics::configure(self.diagnostics_opt_in, Some(&root));
                 if let Some(store) = &self.workspace_store {
                     self.database.profiles = store.load_connections().unwrap_or_default();
-                    self.sql_history = database::bounded_query_history(
+                    self.sql.history = database::bounded_query_history(
                         store.load_query_history().unwrap_or_default(),
                     );
                     self.remote.profiles = store.load_remote_profiles().unwrap_or_default();

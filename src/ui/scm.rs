@@ -418,52 +418,52 @@ impl crate::ForgeApp {
         let root = self.project_root();
         ui.horizontal(|ui| {
             ui.add(
-                egui::TextEdit::singleline(&mut self.github_input).hint_text("owner/repo or title"),
+                egui::TextEdit::singleline(&mut self.github.input).hint_text("owner/repo or title"),
             );
             if ui.button("Auth status").clicked() {
-                self.github_output = github::auth_status().text();
+                self.github.output = github::auth_status().text();
             }
             if ui.button("Clone...").clicked() {
                 if let Some(destination) = rfd::FileDialog::new().pick_folder() {
-                    self.github_output = github::clone(&self.github_input, &destination).text();
+                    self.github.output = github::clone(&self.github.input, &destination).text();
                 }
             }
         });
         ui.horizontal_wrapped(|ui| {
             ui.add(
-                egui::TextEdit::singleline(&mut self.github_enterprise_host)
+                egui::TextEdit::singleline(&mut self.github.enterprise_host)
                     .hint_text("GitHub Enterprise hostname"),
             );
             if ui.button("Enterprise auth status").clicked() {
-                self.github_output =
-                    github::enterprise_auth_status(&self.github_enterprise_host).text();
+                self.github.output =
+                    github::enterprise_auth_status(&self.github.enterprise_host).text();
             }
         });
         if let Some(root) = root {
             ui.horizontal_wrapped(|ui| {
                 if ui.button("Repository").clicked() {
-                    self.github_output = github::repos(&root).text();
+                    self.github.output = github::repos(&root).text();
                 }
                 if ui.button("Fork").clicked() {
-                    self.github_output = github::fork(&root).text();
+                    self.github.output = github::fork(&root).text();
                 }
                 if ui.button("Publish").clicked() {
-                    self.github_output = github::publish(&root, &self.github_input).text();
+                    self.github.output = github::publish(&root, &self.github.input).text();
                 }
                 if ui.button("Pull requests").clicked() {
-                    self.github_output = github::prs(&root).text();
+                    self.github.output = github::prs(&root).text();
                 }
                 if ui.button("Create PR").clicked() {
-                    self.github_output = github::create_pr(&root, &self.github_input).text();
+                    self.github.output = github::create_pr(&root, &self.github.input).text();
                 }
                 if ui.button("Issues").clicked() {
-                    self.github_output = github::issues(&root).text();
+                    self.github.output = github::issues(&root).text();
                 }
                 if ui.button("Create issue").clicked() {
-                    self.github_output = github::create_issue(&root, &self.github_input).text();
+                    self.github.output = github::create_issue(&root, &self.github.input).text();
                 }
                 if ui.button("Actions").clicked() {
-                    self.github_output = github::actions(&root).text();
+                    self.github.output = github::actions(&root).text();
                 }
             });
         } else {
@@ -472,10 +472,10 @@ impl crate::ForgeApp {
         ui.label(RichText::new("Authentication is delegated to GitHub CLI's secure credential store (`gh auth login`).").size(9.0).color(MUTED));
         ui.separator();
         egui::ScrollArea::both().show(ui, |ui| {
-            ui.code(if self.github_output.is_empty() {
+            ui.code(if self.github.output.is_empty() {
                 "Check authentication or open a repository."
             } else {
-                &self.github_output
+                &self.github.output
             });
         });
     }

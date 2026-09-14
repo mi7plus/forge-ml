@@ -724,6 +724,32 @@ enum PendingUnsavedAction {
     OpenProject(Option<PathBuf>),
 }
 
+/// SQL workbench state (editor buffer, last output, query history), grouped out
+/// of [`ForgeApp`].
+struct SqlState {
+    editor: String,
+    output: String,
+    history: Vec<String>,
+}
+
+impl Default for SqlState {
+    fn default() -> Self {
+        Self {
+            editor: "SELECT 1 AS value;".into(),
+            output: String::new(),
+            history: Vec::new(),
+        }
+    }
+}
+
+/// GitHub integration form state, grouped out of [`ForgeApp`].
+#[derive(Default)]
+struct GithubState {
+    input: String,
+    output: String,
+    enterprise_host: String,
+}
+
 /// Classical classification (softmax) training form + fitted model, grouped out
 /// of [`ForgeApp`].
 struct ClassificationState {
@@ -1103,8 +1129,7 @@ struct ForgeApp {
     package_output: String,
     cargo_registry: String,
     python: PythonState,
-    github_input: String,
-    github_output: String,
+    github: GithubState,
     jupyter_output: String,
     pipeline_design: PipelineDesign,
     training_events: Vec<TrainingEvent>,
@@ -1119,9 +1144,7 @@ struct ForgeApp {
     integration_pending: usize,
     job_command: String,
     database: DatabaseState,
-    sql_editor: String,
-    sql_output: String,
-    sql_history: Vec<String>,
+    sql: SqlState,
     deep_backend: DeepBackend,
     /// App-wide preferred compute device (Settings → Compute). Drives the Burn
     /// training backend and the Millwright ONNX inference device.
@@ -1143,7 +1166,6 @@ struct ForgeApp {
     registry: RegistryState,
     service_events: Vec<ServiceEvent>,
     object: ObjectState,
-    github_enterprise_host: String,
     update_repository: String,
     update_channel: updater::Channel,
     last_file_poll: Instant,
@@ -1677,8 +1699,7 @@ impl ForgeApp {
                 environment_fingerprint: session.python_environment_fingerprint.clone(),
                 ..Default::default()
             },
-            github_input: String::new(),
-            github_output: String::new(),
+            github: GithubState::default(),
             jupyter_output: String::new(),
             pipeline_design: PipelineDesign {
                 name: "pipeline".into(),
@@ -1700,9 +1721,10 @@ impl ForgeApp {
                 profiles: database_profiles,
                 ..Default::default()
             },
-            sql_editor: "SELECT 1 AS value;".into(),
-            sql_output: String::new(),
-            sql_history,
+            sql: SqlState {
+                history: sql_history,
+                ..Default::default()
+            },
             deep_backend: session.native_training_backend,
             compute_device: session.compute_device,
             burn: BurnState {
@@ -1741,7 +1763,6 @@ impl ForgeApp {
                 profiles: object_profiles,
                 ..Default::default()
             },
-            github_enterprise_host: String::new(),
             update_repository: "mi7plus/forge-ml".into(),
             update_channel: updater::Channel::Stable,
             last_file_poll: Instant::now(),
@@ -2618,7 +2639,7 @@ impl ForgeApp {
                 }
                 ResultEvent::BurnTrainingFinished(result) => {
                     self.burn.training_cancel = None;
-                    self.sql_output = result
+                    self.sql.output = result
                         .map(|outcome| {
                             let count = outcome.events.len();
                             self.native_burn_artifact = Some(outcome.artifact);
@@ -2679,10 +2700,10 @@ impl ForgeApp {
                         } else {
                             self.inspector_tab = InspectorTab::Data;
                         }
-                        self.sql_output = message;
+                        self.sql.output = message;
                     }
                     Err(error) => {
-                        self.sql_output = format!("Native batch inference failed: {error}")
+                        self.sql.output = format!("Native batch inference failed: {error}")
                     }
                 },
                 ResultEvent::DataImportProgress { path, rows } => {
@@ -2710,7 +2731,7 @@ impl ForgeApp {
                         .unwrap_or_else(|error| format!("Dataset export failed: {error}"));
                 }
                 ResultEvent::DatabaseMessage(result) => {
-                    self.sql_output = result.unwrap_or_else(|error| error);
+                    self.sql.output = result.unwrap_or_else(|error| error);
                 }
                 ResultEvent::DatabaseTable {
                     dataset_name,
@@ -2722,16 +2743,16 @@ impl ForgeApp {
                         self.data.insert_dataset(dataset_name.clone(), dataset);
                         self.open_dataset = Some(format!("table:{dataset_name}"));
                         if let Some(query) = query {
-                            database::record_query(&mut self.sql_history, query);
+                            database::record_query(&mut self.sql.history, query);
                             if let Some(store) = &self.workspace_store {
-                                let _ = store.save_query_history(&self.sql_history);
+                                let _ = store.save_query_history(&self.sql.history);
                             }
                         }
-                        self.sql_output = format!(
+                        self.sql.output = format!(
                             "Loaded {rows} rows into Arrow-backed dataset `{dataset_name}`."
                         );
                     }
-                    Err(error) => self.sql_output = error,
+                    Err(error) => self.sql.output = error,
                 },
                 ResultEvent::ObjectMessage(result) => {
                     self.object.output = result.unwrap_or_else(|error| error);
@@ -2743,32 +2764,32 @@ impl ForgeApp {
                 }
                 ResultEvent::RemoteKernelspecs(result) => match result {
                     Ok((summary, names)) => {
-                        self.sql_output = summary;
+                        self.sql.output = summary;
                         self.remote.kernelspecs = names;
                     }
-                    Err(error) => self.sql_output = error,
+                    Err(error) => self.sql.output = error,
                 },
                 ResultEvent::RemoteKernelStarted(result) => match result {
                     Ok(session) => {
-                        self.sql_output = format!(
+                        self.sql.output = format!(
                             "Started remote kernel `{}` ({}) on `{}`.",
                             session.name, session.id, session.profile.name
                         );
                         self.remote.kernel_session = Some(session);
                     }
-                    Err(error) => self.sql_output = error,
+                    Err(error) => self.sql.output = error,
                 },
                 ResultEvent::RemoteKernelStopped(result) => match result {
                     Ok(message) => {
                         self.remote.kernel_session = None;
                         self.remote.notebook_execution = false;
-                        self.sql_output = message;
+                        self.sql.output = message;
                     }
-                    Err(error) => self.sql_output = error,
+                    Err(error) => self.sql.output = error,
                 },
                 ResultEvent::RemoteKernelInterrupted(result) => {
                     self.remote.interrupt_pending = false;
-                    self.sql_output = result.unwrap_or_else(|error| error);
+                    self.sql.output = result.unwrap_or_else(|error| error);
                 }
                 ResultEvent::RemoteInputRequested {
                     cell_id,
@@ -2821,7 +2842,7 @@ impl ForgeApp {
                                 }
                             } else {
                                 self.remote.mime_outputs = execution.mime;
-                                self.sql_output = message;
+                                self.sql.output = message;
                             }
                         }
                         Err(error) => {
@@ -2833,7 +2854,7 @@ impl ForgeApp {
                                 self.run_queue.clear();
                                 self.console = format!("Cell {} failed\n\n{error}", cell_id + 1);
                             } else {
-                                self.sql_output = error;
+                                self.sql.output = error;
                             }
                         }
                     }

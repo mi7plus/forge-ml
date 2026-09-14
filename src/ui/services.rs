@@ -568,14 +568,14 @@ impl crate::ForgeApp {
                     credential_key,
                 };
                 if let Err(error) = database::validate_profile(&profile) {
-                    self.sql_output = error;
+                    self.sql.output = error;
                     return;
                 }
                 if !self.database.secret.is_empty() {
                     if let Err(error) =
                         database::store_secret(&profile.credential_key, &self.database.secret)
                     {
-                        self.sql_output = format!("Credential store failed: {error}");
+                        self.sql.output = format!("Credential store failed: {error}");
                         return;
                     }
                     self.database.secret.clear();
@@ -591,7 +591,7 @@ impl crate::ForgeApp {
                     self.database.profiles.push(profile);
                 }
                 if let Some(store) = &self.workspace_store {
-                    self.sql_output = store
+                    self.sql.output = store
                         .save_connections(&self.database.profiles)
                         .map(|_| "Connection profile saved without plaintext credentials.".into())
                         .text();
@@ -623,7 +623,7 @@ impl crate::ForgeApp {
                 .clicked()
             {
                 if let Some(profile) = self.database.profiles.get(self.database.selected) {
-                    self.sql_output =
+                    self.sql.output =
                         match self
                             .integration_worker
                             .submit(IntegrationRequest::DatabaseTest {
@@ -643,7 +643,7 @@ impl crate::ForgeApp {
                 .clicked()
             {
                 if let Some(profile) = self.database.profiles.get(self.database.selected) {
-                    self.sql_output =
+                    self.sql.output =
                         match self
                             .integration_worker
                             .submit(IntegrationRequest::DatabaseSchema {
@@ -675,7 +675,7 @@ impl crate::ForgeApp {
             if let Some(profile) =
                 database::remove_profile(&mut self.database.profiles, &mut self.database.selected)
             {
-                self.sql_output = match self
+                self.sql.output = match self
                     .workspace_store
                     .as_ref()
                     .ok_or_else(|| "Workspace storage unavailable".to_owned())
@@ -700,7 +700,7 @@ impl crate::ForgeApp {
             }
         }
         ui.add(
-            egui::TextEdit::multiline(&mut self.sql_editor)
+            egui::TextEdit::multiline(&mut self.sql.editor)
                 .font(egui::TextStyle::Monospace)
                 .desired_rows(6)
                 .hint_text("SQL query"),
@@ -713,19 +713,19 @@ impl crate::ForgeApp {
             .clicked()
         {
             if let Some(profile) = self.database.profiles.get(self.database.selected) {
-                if let Err(error) = database::validate_query(&self.sql_editor) {
-                    self.sql_output = error;
+                if let Err(error) = database::validate_query(&self.sql.editor) {
+                    self.sql.output = error;
                     return;
                 }
-                let name = format!("{}_query_{}", profile.name, self.sql_history.len() + 1);
-                self.sql_output =
+                let name = format!("{}_query_{}", profile.name, self.sql.history.len() + 1);
+                self.sql.output =
                     match self
                         .integration_worker
                         .submit(IntegrationRequest::DatabaseQuery {
                             profile: profile.clone(),
                             root: root.clone(),
                             dataset_name: name,
-                            sql: self.sql_editor.clone(),
+                            sql: self.sql.editor.clone(),
                         }) {
                         Ok(()) => {
                             self.integration_pending += 1;
@@ -735,15 +735,15 @@ impl crate::ForgeApp {
                     };
             }
         }
-        ui.label(&self.sql_output);
+        ui.label(&self.sql.output);
         ui.horizontal(|ui| {
-            ui.strong(format!("Query history ({})", self.sql_history.len()));
-            if !self.sql_history.is_empty() && ui.button("Export JSON").clicked() {
+            ui.strong(format!("Query history ({})", self.sql.history.len()));
+            if !self.sql.history.is_empty() && ui.button("Export JSON").clicked() {
                 if let Some(path) = rfd::FileDialog::new()
                     .set_file_name("forge-query-history.json")
                     .save_file()
                 {
-                    self.sql_output = serde_json::to_vec_pretty(&self.sql_history)
+                    self.sql.output = serde_json::to_vec_pretty(&self.sql.history)
                         .map_err(|error| error.to_string())
                         .and_then(|bytes| {
                             std::fs::write(&path, bytes).map_err(|error| error.to_string())
@@ -752,24 +752,24 @@ impl crate::ForgeApp {
                         .unwrap_or_else(|error| format!("Query history export failed: {error}"));
                 }
             }
-            if !self.sql_history.is_empty() && ui.button("Clear").clicked() {
-                self.sql_history.clear();
-                self.sql_output = self
+            if !self.sql.history.is_empty() && ui.button("Clear").clicked() {
+                self.sql.history.clear();
+                self.sql.output = self
                     .workspace_store
                     .as_ref()
-                    .map(|store| store.save_query_history(&self.sql_history))
+                    .map(|store| store.save_query_history(&self.sql.history))
                     .transpose()
                     .map(|_| "Cleared project query history.".to_owned())
                     .unwrap_or_else(|error| format!("Could not clear query history: {error}"));
             }
         });
         ui.collapsing("Recall successful queries", |ui| {
-            for query in self.sql_history.iter().rev() {
+            for query in self.sql.history.iter().rev() {
                 if ui
                     .button(RichText::new(query).monospace().size(9.0))
                     .clicked()
                 {
-                    self.sql_editor = query.clone();
+                    self.sql.editor = query.clone();
                 }
             }
         });
