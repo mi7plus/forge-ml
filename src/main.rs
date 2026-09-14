@@ -757,13 +757,9 @@ struct ForgeApp {
     execution_count: usize,
     console_input: String,
     history: Vec<String>,
-    lsp: LspHandle,
-    lsp_status: String,
-    lsp_diagnostics: HashMap<PathBuf, Vec<LspDiagnostic>>,
+    lsp: LspState,
     completions: Vec<(String, String)>,
     hover_text: String,
-    lsp_references: Vec<lsp::Reference>,
-    lsp_signature: String,
     rename_open: bool,
     rename_input: String,
     go_to_line_open: bool,
@@ -801,8 +797,6 @@ struct ForgeApp {
     splash_start: Option<Instant>,
     /// The Forge mark, decoded once for the splash screen.
     splash_logo: Option<egui::TextureHandle>,
-    /// Set once rust-analyzer reports it has finished indexing.
-    lsp_ready: bool,
     editor_needs_initial_focus: bool,
     explorer_height: f32,
     pending_delete: Option<PathBuf>,
@@ -834,7 +828,6 @@ struct ForgeApp {
     /// Whether the welcome / start window is showing.
     welcome_open: bool,
     high_contrast: bool,
-    lsp_enabled: bool,
     reduced_motion: bool,
     command_palette_open: bool,
     command_query: String,
@@ -951,7 +944,7 @@ fn resolve_palette(
 impl ForgeApp {
     /// Whether the workspace/rust-analyzer for the active tab is still loading.
     fn workspace_indexing(&self) -> bool {
-        self.project.is_some() && self.active_plain_rust() && !self.lsp_ready
+        self.project.is_some() && self.active_plain_rust() && !self.lsp.ready
     }
 
     /// Whether the startup splash overlay should still be shown. It stays up for
@@ -1014,7 +1007,7 @@ impl ForgeApp {
             let status = if matches!(self.run_state, RunState::Booting) {
                 "Starting the Rust runtime…".to_owned()
             } else if self.workspace_indexing() {
-                let s = self.lsp_status.replace('\n', " ");
+                let s = self.lsp.status.replace('\n', " ");
                 if s.is_empty() {
                     "Initializing rust-analyzer…".to_owned()
                 } else {
@@ -1342,12 +1335,16 @@ impl ForgeApp {
             execution_count: 0,
             console_input: String::new(),
             history: Vec::new(),
-            lsp: LspHandle::spawn(),
-            lsp_status: "rust-analyzer waiting for a Rust file.".to_owned(),
-            lsp_diagnostics: HashMap::new(),
+            lsp: LspState {
+                handle: LspHandle::spawn(),
+                status: "rust-analyzer waiting for a Rust file.".to_owned(),
+                diagnostics: HashMap::new(),
+                references: Vec::new(),
+                signature: String::new(),
+                ready: false,
+                enabled: session.lsp_enabled,
+            },
             completions: Vec::new(),
-            lsp_references: Vec::new(),
-            lsp_signature: String::new(),
             rename_open: false,
             rename_input: String::new(),
             go_to_line_open: false,
@@ -1372,7 +1369,6 @@ impl ForgeApp {
             ui_scale,
             splash_start: Some(Instant::now()),
             splash_logo: load_splash_logo(&cc.egui_ctx),
-            lsp_ready: false,
             editor_needs_initial_focus: true,
             explorer_height,
             pending_delete: None,
@@ -1402,7 +1398,6 @@ impl ForgeApp {
             rebinding: None,
             welcome_open: session.show_welcome,
             high_contrast: session.high_contrast,
-            lsp_enabled: session.lsp_enabled,
             reduced_motion: session.reduced_motion,
             command_palette_open: false,
             command_query: String::new(),
@@ -1502,8 +1497,8 @@ impl ForgeApp {
             dock_pending_ctrl_definition: false,
         };
         // Honor the persisted rust-analyzer preference (default on).
-        if !app.lsp_enabled {
-            app.lsp.set_enabled(false);
+        if !app.lsp.enabled {
+            app.lsp.handle.set_enabled(false);
         }
         app
     }
@@ -1595,7 +1590,7 @@ impl ForgeApp {
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let full = self.lsp_status.replace('\n', " ");
+                let full = self.lsp.status.replace('\n', " ");
                 // egui truncates to the available width with an ellipsis; the
                 // full text is always available on hover. Click restarts the
                 // language server (forces a fresh sync).
@@ -1608,7 +1603,7 @@ impl ForgeApp {
                     .on_hover_text(format!("{full}\n(click to restart rust-analyzer)"));
                 if response.clicked() {
                     self.last_lsp_hash = 0;
-                    self.lsp_status = "Restarting rust-analyzer…".to_owned();
+                    self.lsp.status = "Restarting rust-analyzer…".to_owned();
                 }
 
                 ui.separator();
@@ -1994,7 +1989,7 @@ impl ForgeApp {
         self.pending_editor_selection = Some((offset, offset));
         self.completions.clear();
         self.completion_popup_open = false;
-        self.lsp_status = format!("Inserted {completion}.");
+        self.lsp.status = format!("Inserted {completion}.");
     }
 
     fn save_experiment_run(&mut self) {
@@ -2761,7 +2756,7 @@ impl ForgeApp {
 
     /// Drain rust-analyzer (LSP) events and apply them to editor state.
     fn drain_lsp_events(&mut self, ctx: &egui::Context) {
-        while let Some(event) = self.lsp.try_recv() {
+        while let Some(event) = self.lsp.handle.try_recv() {
             match event {
                 LspEvent::Status(status) => {
                     // Only the authoritative "rust-analyzer ready" marker
@@ -2769,9 +2764,9 @@ impl ForgeApp {
                     // post-install "Language services are ready", which is sent
                     // before indexing begins.
                     if status.contains("rust-analyzer ready") {
-                        self.lsp_ready = true;
+                        self.lsp.ready = true;
                     }
-                    self.lsp_status = status;
+                    self.lsp.status = status;
                 }
                 LspEvent::Diagnostics { path, mut items } => {
                     if self.tabs.iter().any(|tab| {
@@ -2781,17 +2776,17 @@ impl ForgeApp {
                             diagnostic.line = diagnostic.line.saturating_sub(1);
                         }
                     }
-                    self.lsp_diagnostics.insert(path, items);
+                    self.lsp.diagnostics.insert(path, items);
                 }
                 LspEvent::Completions(items) => {
                     self.completions = items;
                     self.completion_popup_open = !self.completions.is_empty();
-                    self.lsp_status = "Completion results ready.".to_owned();
+                    self.lsp.status = "Completion results ready.".to_owned();
                 }
                 LspEvent::Hover(text) => {
                     self.hover_text = text;
                     self.inspector_tab = InspectorTab::Help;
-                    self.lsp_status = "Hover information ready.".to_owned();
+                    self.lsp.status = "Hover information ready.".to_owned();
                 }
                 LspEvent::Definition { path, line } => {
                     let notebook = self
@@ -2829,25 +2824,25 @@ impl ForgeApp {
                 }
                 LspEvent::References(references) => {
                     let count = references.len();
-                    self.lsp_references = references;
+                    self.lsp.references = references;
                     self.inspector_tab = InspectorTab::Search;
-                    self.lsp_status = format!("{count} reference(s) found.");
+                    self.lsp.status = format!("{count} reference(s) found.");
                 }
                 LspEvent::Signature(signature) => {
-                    self.lsp_signature = signature;
+                    self.lsp.signature = signature;
                 }
                 LspEvent::WorkspaceEdit(files) => {
                     if files.is_empty() {
-                        self.lsp_status = "Nothing to rename here.".to_owned();
+                        self.lsp.status = "Nothing to rename here.".to_owned();
                     } else {
                         self.apply_file_edits(files);
                     }
                 }
                 LspEvent::CodeActions(actions) => {
                     if actions.is_empty() {
-                        self.lsp_status = "No code actions at the cursor.".to_owned();
+                        self.lsp.status = "No code actions at the cursor.".to_owned();
                     } else {
-                        self.lsp_status = format!("{} code action(s) available.", actions.len());
+                        self.lsp.status = format!("{} code action(s) available.", actions.len());
                     }
                     self.code_actions = actions;
                 }
@@ -2958,10 +2953,10 @@ impl ForgeApp {
             InspectorTab::Search => self.project_search(ui),
             InspectorTab::Help => {
                 ui.heading("Rust language help");
-                ui.label(RichText::new(&self.lsp_status).color(MUTED));
+                ui.label(RichText::new(&self.lsp.status).color(MUTED));
                 if ui.button("Install or repair language support").clicked() {
-                    self.lsp.install();
-                    self.lsp_status = "Installing rust-analyzer and rust-src...".to_owned();
+                    self.lsp.handle.install();
+                    self.lsp.status = "Installing rust-analyzer and rust-src...".to_owned();
                 }
                 if !self.hover_text.is_empty() {
                     ui.separator();
@@ -3012,7 +3007,7 @@ impl ForgeApp {
             }
             InspectorTab::Problems => {
                 let has_problems =
-                    !self.lsp_diagnostics.is_empty() || !self.diagnostic_lines.is_empty();
+                    !self.lsp.diagnostics.is_empty() || !self.diagnostic_lines.is_empty();
                 ui.horizontal(|ui| {
                     use egui_phosphor_icons::icons;
                     if compact_icon_button(ui, icons::CHECK_CIRCLE, "Re-run cargo check").clicked()
@@ -3030,7 +3025,7 @@ impl ForgeApp {
                     )
                     .clicked()
                     {
-                        self.lsp_diagnostics.clear();
+                        self.lsp.diagnostics.clear();
                         self.diagnostic_lines.clear();
                     }
                 });
@@ -3046,7 +3041,7 @@ impl ForgeApp {
                 egui::ScrollArea::vertical()
                     .id_salt("problems_diagnostic_list")
                     .show(ui, |ui| {
-                        for (path, diagnostics) in &self.lsp_diagnostics {
+                        for (path, diagnostics) in &self.lsp.diagnostics {
                             for diagnostic in diagnostics {
                                 let color = if diagnostic.severity == 1 {
                                     RED

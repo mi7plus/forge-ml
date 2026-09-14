@@ -11,16 +11,16 @@ use egui::RichText;
 impl crate::ForgeApp {
     pub(crate) fn project_search(&mut self, ui: &mut egui::Ui) {
         // rust-analyzer "Find references" results, when present.
-        if !self.lsp_references.is_empty() {
+        if !self.lsp.references.is_empty() {
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new(format!("REFERENCES ({})", self.lsp_references.len()))
+                    RichText::new(format!("REFERENCES ({})", self.lsp.references.len()))
                         .size(10.0)
                         .strong()
                         .color(MUTED),
                 );
                 if ui.small_button("Clear").clicked() {
-                    self.lsp_references.clear();
+                    self.lsp.references.clear();
                 }
             });
             let mut navigate = None;
@@ -28,7 +28,7 @@ impl crate::ForgeApp {
                 .id_salt("lsp_reference_list")
                 .max_height(160.0)
                 .show(ui, |ui| {
-                    for reference in &self.lsp_references {
+                    for reference in &self.lsp.references {
                         let label = format!(
                             "{}:{}:{}",
                             file_title(&reference.path),

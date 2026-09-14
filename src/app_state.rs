@@ -7,6 +7,18 @@
 
 use crate::*;
 
+/// rust-analyzer (LSP) client state: the handle plus the diagnostics, hover
+/// signature, references, and status it drives. Grouped out of [`crate::ForgeApp`].
+pub(crate) struct LspState {
+    pub(crate) handle: LspHandle,
+    pub(crate) status: String,
+    pub(crate) diagnostics: HashMap<PathBuf, Vec<LspDiagnostic>>,
+    pub(crate) references: Vec<lsp::Reference>,
+    pub(crate) signature: String,
+    pub(crate) ready: bool,
+    pub(crate) enabled: bool,
+}
+
 /// SQL workbench state (editor buffer, last output, query history), grouped out
 /// of [`ForgeApp`].
 pub(crate) struct SqlState {

@@ -25,7 +25,7 @@ impl crate::ForgeApp {
         self.last_lsp_hash = hash;
         self.document_version += 1;
         let (text, _) = lsp_document(&self.active().content);
-        self.lsp.send(LspCommand::Sync {
+        self.lsp.handle.send(LspCommand::Sync {
             root,
             path,
             text,
@@ -35,7 +35,7 @@ impl crate::ForgeApp {
 
     pub(crate) fn request_lsp(&mut self, action: &str) {
         let Some(path) = self.active().path.clone() else {
-            self.lsp_status = "Save this buffer before requesting language features.".to_owned();
+            self.lsp.status = "Save this buffer before requesting language features.".to_owned();
             return;
         };
         let (text, prefix_chars) = lsp_document(&self.active().content);
@@ -72,7 +72,7 @@ impl crate::ForgeApp {
                 char_offset,
             },
         };
-        self.lsp.send(command);
+        self.lsp.handle.send(command);
     }
 
     /// Whether the active buffer is a plain (non-notebook) Rust file, which is
@@ -88,15 +88,15 @@ impl crate::ForgeApp {
 
     pub(crate) fn send_rename(&mut self, new_name: String) {
         let Some(path) = self.active().path.clone() else {
-            self.lsp_status = "Save this buffer before renaming.".to_owned();
+            self.lsp.status = "Save this buffer before renaming.".to_owned();
             return;
         };
         if !self.active_plain_rust() {
-            self.lsp_status = "Rename is only available in plain Rust files.".to_owned();
+            self.lsp.status = "Rename is only available in plain Rust files.".to_owned();
             return;
         }
         let (text, _) = lsp_document(&self.active().content);
-        self.lsp.send(LspCommand::Rename {
+        self.lsp.handle.send(LspCommand::Rename {
             path,
             text,
             char_offset: self.cursor_offset,
@@ -142,7 +142,7 @@ impl crate::ForgeApp {
             return;
         }
         let (text, prefix_chars) = lsp_document(&self.active().content);
-        self.lsp.send(LspCommand::ProbeDefinition {
+        self.lsp.handle.send(LspCommand::ProbeDefinition {
             path,
             text,
             char_offset: char_offset + prefix_chars,

@@ -208,7 +208,7 @@ impl eframe::App for ForgeApp {
         }
         if complete {
             self.request_lsp("complete");
-            self.lsp_status = "Requesting completions...".to_owned();
+            self.lsp.status = "Requesting completions...".to_owned();
         }
         if self.completion_popup_open && ui.input(|input| input.key_pressed(egui::Key::Escape)) {
             self.completion_popup_open = false;
@@ -330,7 +330,7 @@ impl eframe::App for ForgeApp {
             show_welcome: self.welcome_open,
             keymap: self.keymap.to_dto(),
             high_contrast: self.high_contrast,
-            lsp_enabled: self.lsp_enabled,
+            lsp_enabled: self.lsp.enabled,
             reduced_motion: self.reduced_motion,
             diagnostics_opt_in: self.diagnostics_opt_in,
             saved_runs: self.saved_runs.clone(),

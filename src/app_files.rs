@@ -183,7 +183,7 @@ impl crate::ForgeApp {
                     self.tabs.push(blank_tab());
                 }
                 self.active_tab = self.active_tab.min(self.tabs.len() - 1);
-                self.lsp_diagnostics.remove(&path);
+                self.lsp.diagnostics.remove(&path);
                 if let Some(project) = &mut self.project {
                     let _ = project.refresh();
                 }

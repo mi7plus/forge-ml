@@ -972,7 +972,7 @@ impl crate::ForgeApp {
                     .on_hover_text("Requires rustfmt on PATH");
                 ui.heading("Language server");
                 let lsp_changed = ui
-                    .checkbox(&mut self.lsp_enabled, "Enable rust-analyzer")
+                    .checkbox(&mut self.lsp.enabled, "Enable rust-analyzer")
                     .on_hover_text(
                         "rust-analyzer powers completion, diagnostics, and go-to-definition, \
                          but can use several GB of memory and runs cargo in the background. \
@@ -981,8 +981,8 @@ impl crate::ForgeApp {
                     )
                     .changed();
                 if lsp_changed {
-                    self.lsp.set_enabled(self.lsp_enabled);
-                    if self.lsp_enabled {
+                    self.lsp.handle.set_enabled(self.lsp.enabled);
+                    if self.lsp.enabled {
                         self.sync_lsp();
                     }
                 }
@@ -1209,14 +1209,14 @@ impl crate::ForgeApp {
                 ui.separator();
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("rust-analyzer").strong());
-                    ui.label(RichText::new(&self.lsp_status).size(11.0).color(MUTED));
+                    ui.label(RichText::new(&self.lsp.status).size(11.0).color(MUTED));
                 });
                 if ui
                     .small_button("Install or repair language support")
                     .clicked()
                 {
-                    self.lsp.install();
-                    self.lsp_status = "Installing rust-analyzer and rust-src...".to_owned();
+                    self.lsp.handle.install();
+                    self.lsp.status = "Installing rust-analyzer and rust-src...".to_owned();
                 }
                 ui.add_space(6.0);
                 ui.label(

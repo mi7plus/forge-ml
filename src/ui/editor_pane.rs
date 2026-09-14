@@ -59,7 +59,7 @@ impl crate::ForgeApp {
         }
         if std::mem::take(&mut self.dock_pending_ctrl_definition) {
             self.request_lsp("definition");
-            self.lsp_status = "Looking up definition...".to_owned();
+            self.lsp.status = "Looking up definition...".to_owned();
         }
         self.delete_confirmation(ui.ctx());
         self.unsaved_confirmation(ui.ctx());
@@ -293,7 +293,7 @@ impl crate::ForgeApp {
                 .and_then(|i| self.tabs[self.active_tab].content.chars().nth(i));
             match before {
                 Some('(') | Some(',') => self.request_lsp("signature"),
-                Some(')') => self.lsp_signature.clear(),
+                Some(')') => self.lsp.signature.clear(),
                 _ => {}
             }
         }
@@ -301,7 +301,7 @@ impl crate::ForgeApp {
             .active()
             .path
             .as_ref()
-            .and_then(|path| self.lsp_diagnostics.get(path))
+            .and_then(|path| self.lsp.diagnostics.get(path))
         {
             paint_inline_diagnostics(
                 ui,
@@ -408,7 +408,7 @@ impl crate::ForgeApp {
             }
         });
         // Signature help popup above the caret.
-        if !self.lsp_signature.is_empty() {
+        if !self.lsp.signature.is_empty() {
             if let Some(range) = output.cursor_range {
                 let caret = output.galley.pos_from_cursor(range.primary);
                 let pos = output.galley_pos + egui::vec2(caret.min.x, caret.min.y - 24.0);
@@ -418,7 +418,7 @@ impl crate::ForgeApp {
                     .show(ui.ctx(), |ui| {
                         egui::Frame::popup(ui.style()).show(ui, |ui| {
                             ui.label(
-                                RichText::new(&self.lsp_signature)
+                                RichText::new(&self.lsp.signature)
                                     .monospace()
                                     .size(11.0)
                                     .color(accent()),
@@ -426,7 +426,7 @@ impl crate::ForgeApp {
                         });
                     });
                 if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                    self.lsp_signature.clear();
+                    self.lsp.signature.clear();
                 }
             }
         }
