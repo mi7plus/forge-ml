@@ -1,6 +1,6 @@
 //! An embedded, cross-platform system terminal pane.
 //!
-//! [`portable-pty`] provides the pseudo-terminal (ConPTY on Windows, `forkpty`
+//! [`portable_pty`] provides the pseudo-terminal (ConPTY on Windows, `forkpty`
 //! on Unix) and spawns the user's shell. [`alacritty_terminal`] parses the VT /
 //! ANSI byte stream into a grid model (colours, styles, scrollback, alt-screen),
 //! and this module renders that grid with egui and encodes keyboard input back
@@ -578,7 +578,7 @@ fn tilde_2(n: u8) -> Vec<u8> {
     vec![0x1b, b'[', b'0' + n / 10, b'0' + n % 10, b'~']
 }
 
-/// The C0 control byte for Ctrl+<key>, if any.
+/// The C0 control byte for `Ctrl+<key>`, if any.
 fn ctrl_byte(key: egui::Key) -> Option<u8> {
     use egui::Key;
     let c = match key {

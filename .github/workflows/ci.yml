@@ -59,6 +59,23 @@ jobs:
       - name: clippy
         run: cargo clippy --workspace --exclude forge-webview --exclude forge-cef --all-targets --all-features -- -D warnings
 
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.98.0
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+      # Builds rustdoc for the workspace (same forge-webview/forge-cef exclusion)
+      # with warnings denied, so broken intra-doc links and forge-protocol's
+      # `#![deny(missing_docs)]` gate fail CI instead of rotting silently.
+      - name: cargo doc
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --no-deps --workspace --exclude forge-webview --exclude forge-cef --all-features
+
   helper-crates:
     name: Helper crates (Windows)
     # forge-webview (system WebView) and forge-cef (CEF/Chromium) are excluded

@@ -12,11 +12,15 @@ cargo build                      # the default forge_ide binary (+ the `forge` C
 cargo run --bin forge_ide        # run the IDE (the package has two bins; name it)
 cargo test -p forge_ide          # unit tests (267+); most modules carry #[cfg(test)]
 cargo clippy --workspace --exclude forge-webview --exclude forge-cef --all-targets --all-features -- -D warnings
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace --exclude forge-webview --exclude forge-cef --all-features
 ```
 
-CI (`.github/workflows/ci.yml`) runs build/test/clippy `--workspace` **excluding
-`forge-webview` and `forge-cef`** — those need system WebKitGTK / the CEF SDK and
-can't build on the CI runners. Match that exclusion locally.
+`just ci` runs the whole gate (fmt, clippy, build, test, doc) with the right
+flags. CI (`.github/workflows/ci.yml`) runs build/test/clippy/doc `--workspace`
+**excluding `forge-webview` and `forge-cef`** — those need system WebKitGTK / the
+CEF SDK and can't build on the CI runners. Match that exclusion locally. The doc
+job denies warnings, so broken intra-doc links and `forge-protocol`'s
+`#![deny(missing_docs)]` fail CI.
 
 - `forge_ide` is the GUI, but it also handles a set of `--…` CLI flags early in
   `main()` before the egui viewport starts (e.g. `--env-doctor`, `--cargo-provide`).

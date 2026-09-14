@@ -33,8 +33,13 @@ lint:
 fmt:
     cargo fmt --all
 
-# The full local gate: format check, clippy, build, test. Run before pushing.
-ci: lint build test
+# Build the docs with warnings denied (broken links + missing_docs fail), as the
+# CI `docs` job does.
+doc:
+    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps {{workspace}} --all-features
+
+# The full local gate: format check, clippy, build, test, docs. Run before pushing.
+ci: lint build test doc
 
 # Clippy the helper crates that CI only lints on Windows (needs their SDKs).
 lint-helpers:
