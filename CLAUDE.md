@@ -10,7 +10,7 @@ Windows/macOS/Linux installers. See [ARCHITECTURE.md](ARCHITECTURE.md),
 ```bash
 cargo build                      # the default forge_ide binary (+ the `forge` CLI)
 cargo run --bin forge_ide        # run the IDE (the package has two bins; name it)
-cargo test -p forge_ide          # unit tests (267+); most modules carry #[cfg(test)]
+cargo test -p forge_ide          # unit tests (273+); most modules carry #[cfg(test)]
 cargo clippy --workspace --exclude forge-webview --exclude forge-cef --all-targets --all-features -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace --exclude forge-webview --exclude forge-cef --all-features
 ```
