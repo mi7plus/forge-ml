@@ -127,7 +127,8 @@ impl crate::ForgeApp {
             }
             let reply = std::mem::take(&mut self.remote.input_response);
             match self
-                .remote.input_sender
+                .remote
+                .input_sender
                 .as_ref()
                 .ok_or_else(|| "Remote input channel is no longer available.".to_owned())
                 .and_then(|sender| sender.send(reply).map_err(|error| error.to_string()))

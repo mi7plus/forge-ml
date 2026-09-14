@@ -17,60 +17,60 @@ impl crate::ForgeApp {
         ui.heading("Object storage");
         ui.label(RichText::new("AWS and rclone own authentication. Forge stores profile metadata only; commands and cache downloads are bounded.").color(MUTED));
         ui.horizontal_wrapped(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut self.object_name).hint_text("profile name"));
+            ui.add(egui::TextEdit::singleline(&mut self.object.name).hint_text("profile name"));
             egui::ComboBox::from_id_salt("object_provider")
-                .selected_text(self.object_provider.label())
+                .selected_text(self.object.provider.label())
                 .show_ui(ui, |ui| {
                     ui.selectable_value(
-                        &mut self.object_provider,
+                        &mut self.object.provider,
                         object_storage::Provider::S3,
                         "S3 / compatible",
                     );
                     ui.selectable_value(
-                        &mut self.object_provider,
+                        &mut self.object.provider,
                         object_storage::Provider::Rclone,
                         "rclone remote",
                     );
                 });
             ui.add(
-                egui::TextEdit::singleline(&mut self.object_bucket).hint_text("bucket or remote"),
+                egui::TextEdit::singleline(&mut self.object.bucket).hint_text("bucket or remote"),
             );
         });
         ui.horizontal_wrapped(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut self.object_prefix).hint_text("prefix"));
+            ui.add(egui::TextEdit::singleline(&mut self.object.prefix).hint_text("prefix"));
             ui.add(
-                egui::TextEdit::singleline(&mut self.object_endpoint)
+                egui::TextEdit::singleline(&mut self.object.endpoint)
                     .hint_text("optional HTTPS endpoint"),
             );
             if ui.button("Save profile").clicked() {
                 let profile = object_storage::ObjectProfile {
-                    name: self.object_name.clone(),
-                    provider: self.object_provider,
-                    bucket: self.object_bucket.clone(),
-                    prefix: self.object_prefix.clone(),
-                    endpoint: self.object_endpoint.clone(),
-                    credential_hint: if self.object_provider == object_storage::Provider::S3 {
+                    name: self.object.name.clone(),
+                    provider: self.object.provider,
+                    bucket: self.object.bucket.clone(),
+                    prefix: self.object.prefix.clone(),
+                    endpoint: self.object.endpoint.clone(),
+                    credential_hint: if self.object.provider == object_storage::Provider::S3 {
                         "AWS CLI credential chain".into()
                     } else {
                         "rclone configuration".into()
                     },
                 };
-                self.object_output = profile
+                self.object.output = profile
                     .validate()
                     .and_then(|()| {
-                        self.object_profiles.retain(|p| p.name != profile.name);
-                        self.object_profiles.push(profile);
+                        self.object.profiles.retain(|p| p.name != profile.name);
+                        self.object.profiles.push(profile);
                         self.workspace_store
                             .as_ref()
                             .ok_or_else(|| "Workspace storage unavailable".to_owned())?
-                            .save_object_profiles(&self.object_profiles)
+                            .save_object_profiles(&self.object.profiles)
                     })
                     .map(|()| "Saved object-storage profile without credentials.".into())
                     .text();
             }
         });
         let mut selected = None;
-        for (index, profile) in self.object_profiles.iter().enumerate() {
+        for (index, profile) in self.object.profiles.iter().enumerate() {
             ui.horizontal(|ui| {
                 ui.label(format!(
                     "{} · {} · {} / {}",
@@ -85,12 +85,12 @@ impl crate::ForgeApp {
             });
         }
         if let Some(index) = selected {
-            let profile = self.object_profiles[index].clone();
-            self.object_name = profile.name;
-            self.object_provider = profile.provider;
-            self.object_bucket = profile.bucket;
-            self.object_prefix = profile.prefix;
-            self.object_endpoint = profile.endpoint;
+            let profile = self.object.profiles[index].clone();
+            self.object.name = profile.name;
+            self.object.provider = profile.provider;
+            self.object.bucket = profile.bucket;
+            self.object.prefix = profile.prefix;
+            self.object.endpoint = profile.endpoint;
         }
         ui.horizontal_wrapped(|ui| {
             let available = self.integration_pending == 0;
@@ -99,14 +99,14 @@ impl crate::ForgeApp {
                 .clicked()
             {
                 let profile = object_storage::ObjectProfile {
-                    name: self.object_name.clone(),
-                    provider: self.object_provider,
-                    bucket: self.object_bucket.clone(),
-                    prefix: self.object_prefix.clone(),
-                    endpoint: self.object_endpoint.clone(),
+                    name: self.object.name.clone(),
+                    provider: self.object.provider,
+                    bucket: self.object.bucket.clone(),
+                    prefix: self.object.prefix.clone(),
+                    endpoint: self.object.endpoint.clone(),
                     credential_hint: String::new(),
                 };
-                self.object_output = match self
+                self.object.output = match self
                     .integration_worker
                     .submit(IntegrationRequest::ObjectTest(profile))
                 {
@@ -122,14 +122,14 @@ impl crate::ForgeApp {
                 .clicked()
             {
                 let profile = object_storage::ObjectProfile {
-                    name: self.object_name.clone(),
-                    provider: self.object_provider,
-                    bucket: self.object_bucket.clone(),
-                    prefix: self.object_prefix.clone(),
-                    endpoint: self.object_endpoint.clone(),
+                    name: self.object.name.clone(),
+                    provider: self.object.provider,
+                    bucket: self.object.bucket.clone(),
+                    prefix: self.object.prefix.clone(),
+                    endpoint: self.object.endpoint.clone(),
                     credential_hint: String::new(),
                 };
-                self.object_output =
+                self.object.output =
                     match self
                         .integration_worker
                         .submit(IntegrationRequest::ObjectList {
@@ -144,7 +144,7 @@ impl crate::ForgeApp {
                     };
             }
             ui.add(
-                egui::TextEdit::singleline(&mut self.object_key)
+                egui::TextEdit::singleline(&mut self.object.key)
                     .hint_text("key relative to prefix"),
             );
             if ui
@@ -152,19 +152,19 @@ impl crate::ForgeApp {
                 .clicked()
             {
                 let profile = object_storage::ObjectProfile {
-                    name: self.object_name.clone(),
-                    provider: self.object_provider,
-                    bucket: self.object_bucket.clone(),
-                    prefix: self.object_prefix.clone(),
-                    endpoint: self.object_endpoint.clone(),
+                    name: self.object.name.clone(),
+                    provider: self.object.provider,
+                    bucket: self.object.bucket.clone(),
+                    prefix: self.object.prefix.clone(),
+                    endpoint: self.object.endpoint.clone(),
                     credential_hint: String::new(),
                 };
-                self.object_output =
+                self.object.output =
                     match self
                         .integration_worker
                         .submit(IntegrationRequest::ObjectDownload {
                             profile,
-                            key: self.object_key.clone(),
+                            key: self.object.key.clone(),
                             root: root.clone(),
                         }) {
                         Ok(()) => {
@@ -177,7 +177,7 @@ impl crate::ForgeApp {
         });
         ui.separator();
         egui::ScrollArea::both().show(ui, |ui| {
-            ui.code(&self.object_output);
+            ui.code(&self.object.output);
         });
     }
 
@@ -189,27 +189,27 @@ impl crate::ForgeApp {
         ui.heading("Model registry & deployment");
         ui.label(RichText::new("Artifacts remain project-local under .forge/models. Promoting an older version provides rollback without deleting newer versions.").color(MUTED));
         ui.horizontal_wrapped(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut self.registry_model).hint_text("model"));
-            ui.add(egui::TextEdit::singleline(&mut self.registry_version).hint_text("version"));
-            ui.add(egui::TextEdit::singleline(&mut self.registry_format).hint_text("format"));
+            ui.add(egui::TextEdit::singleline(&mut self.registry.model).hint_text("model"));
+            ui.add(egui::TextEdit::singleline(&mut self.registry.version).hint_text("version"));
+            ui.add(egui::TextEdit::singleline(&mut self.registry.format).hint_text("format"));
         });
         ui.horizontal_wrapped(|ui| {
             ui.add(
-                egui::TextEdit::singleline(&mut self.registry_artifact).hint_text("artifact path"),
+                egui::TextEdit::singleline(&mut self.registry.artifact).hint_text("artifact path"),
             );
             if ui.button("Browse").clicked() {
                 if let Some(path) = rfd::FileDialog::new().pick_file() {
-                    self.registry_artifact = path.display().to_string();
+                    self.registry.artifact = path.display().to_string();
                 }
             }
             if ui.button("Register").clicked() {
-                self.registry_output = model_registry::ModelRegistry::open(&root)
+                self.registry.output = model_registry::ModelRegistry::open(&root)
                     .and_then(|registry| {
                         registry.register(
-                            &self.registry_model,
-                            &self.registry_version,
-                            &self.registry_format,
-                            Path::new(&self.registry_artifact),
+                            &self.registry.model,
+                            &self.registry.version,
+                            &self.registry.format,
+                            Path::new(&self.registry.artifact),
                             Vec::new(),
                         )
                     })
@@ -223,37 +223,37 @@ impl crate::ForgeApp {
             }
         });
         ui.horizontal_wrapped(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut self.registry_alias).hint_text("alias"));
+            ui.add(egui::TextEdit::singleline(&mut self.registry.alias).hint_text("alias"));
             if ui.button("Promote / rollback").clicked() {
-                self.registry_output = model_registry::ModelRegistry::open(&root)
+                self.registry.output = model_registry::ModelRegistry::open(&root)
                     .and_then(|registry| {
                         registry.promote(
-                            &self.registry_model,
-                            &self.registry_alias,
-                            &self.registry_version,
+                            &self.registry.model,
+                            &self.registry.alias,
+                            &self.registry.version,
                         )
                     })
                     .map(|()| {
                         format!(
                             "{}:{} now resolves to {}",
-                            self.registry_model, self.registry_alias, self.registry_version
+                            self.registry.model, self.registry.alias, self.registry.version
                         )
                     })
                     .text();
             }
             if ui.button("Generate Rust service").clicked() {
-                self.registry_output = model_registry::ModelRegistry::open(&root)
+                self.registry.output = model_registry::ModelRegistry::open(&root)
                     .and_then(|registry| {
                         let version =
-                            registry.resolve_version(&self.registry_model, &self.registry_alias)?;
+                            registry.resolve_version(&self.registry.model, &self.registry.alias)?;
                         let artifact =
-                            registry.resolve(&self.registry_model, &self.registry_alias)?;
+                            registry.resolve(&self.registry.model, &self.registry.alias)?;
                         Ok((version, artifact))
                     })
                     .and_then(|(version, artifact)| {
                         model_registry::generate_inference_service(
                             &root,
-                            &self.registry_model,
+                            &self.registry.model,
                             &version,
                             &artifact,
                         )
@@ -263,7 +263,7 @@ impl crate::ForgeApp {
             }
         });
         if let Ok(registry) = model_registry::ModelRegistry::open(&root) {
-            if let Ok(versions) = registry.versions(&self.registry_model) {
+            if let Ok(versions) = registry.versions(&self.registry.model) {
                 egui::Grid::new("model_versions")
                     .striped(true)
                     .show(ui, |ui| {
@@ -303,7 +303,7 @@ impl crate::ForgeApp {
                     .set_file_name("forge-monitoring-snapshot.json")
                     .save_file()
                 {
-                    self.registry_output =
+                    self.registry.output =
                         service_monitor::snapshot_json(&self.service_events, &self.drift_events)
                             .and_then(|bytes| {
                                 std::fs::write(&path, bytes).map_err(|error| error.to_string())
@@ -319,7 +319,7 @@ impl crate::ForgeApp {
                     .set_file_name("forge-deployment-monitoring.csv")
                     .save_file()
                 {
-                    self.registry_output =
+                    self.registry.output =
                         export::monitoring_csv(&self.service_events, &self.drift_events, &path)
                             .map(|()| {
                                 format!("Exported monitoring CSV to {}", path.display())
@@ -334,7 +334,7 @@ impl crate::ForgeApp {
                     .add_filter("Forge monitoring JSON", &["json"])
                     .pick_file()
                 {
-                    self.registry_output = std::fs::read(&path)
+                    self.registry.output = std::fs::read(&path)
                         .map_err(|error| error.to_string())
                         .and_then(|bytes| service_monitor::parse_snapshot(&bytes))
                         .map(|snapshot| {
@@ -372,7 +372,7 @@ impl crate::ForgeApp {
                     .set_file_name("forge-deployment-monitoring.html")
                     .save_file()
                 {
-                    self.registry_output = service_monitor::monitoring_report(
+                    self.registry.output = service_monitor::monitoring_report(
                         &self.service_events,
                         &self.drift_events,
                     )
@@ -390,7 +390,7 @@ impl crate::ForgeApp {
                     .set_file_name("forge-deployment-monitoring.pdf")
                     .save_file()
                 {
-                    self.registry_output = service_monitor::monitoring_pdf_lines(
+                    self.registry.output = service_monitor::monitoring_pdf_lines(
                         &self.service_events,
                         &self.drift_events,
                     )
@@ -406,7 +406,7 @@ impl crate::ForgeApp {
                     .set_file_name("forge-deployment-monitoring.zip")
                     .save_file()
                 {
-                    self.registry_output =
+                    self.registry.output =
                         export::monitoring_bundle(&self.service_events, &self.drift_events, &path)
                             .map(|()| format!("Exported monitoring bundle to {}", path.display()))
                             .unwrap_or_else(|error| format!("Monitoring bundle failed: {error}"));
@@ -417,7 +417,7 @@ impl crate::ForgeApp {
                     .add_filter("Forge monitoring bundle", &["zip"])
                     .pick_file()
                 {
-                    self.registry_output = export::import_monitoring_bundle(&path)
+                    self.registry.output = export::import_monitoring_bundle(&path)
                         .map(|bundle| {
                             let services = bundle.snapshot.service_events.len();
                             let drift = bundle.snapshot.drift_events.len();
@@ -450,7 +450,7 @@ impl crate::ForgeApp {
             {
                 self.service_events.clear();
                 self.drift_events.clear();
-                self.registry_output = "Cleared live monitoring events.".into();
+                self.registry.output = "Cleared live monitoring events.".into();
             }
         });
         let overview =
@@ -524,7 +524,7 @@ impl crate::ForgeApp {
             });
         }
         ui.separator();
-        ui.code(&self.registry_output);
+        ui.code(&self.registry.output);
     }
 
     pub(crate) fn database_inspector(&mut self, ui: &mut egui::Ui) {
@@ -534,9 +534,9 @@ impl crate::ForgeApp {
         };
         ui.heading("SQL workbench");
         ui.horizontal_wrapped(|ui| {
-            ui.text_edit_singleline(&mut self.database_name);
+            ui.text_edit_singleline(&mut self.database.name);
             egui::ComboBox::from_id_salt("database_kind")
-                .selected_text(self.database_kind.label())
+                .selected_text(self.database.kind.label())
                 .show_ui(ui, |ui| {
                     for kind in [
                         ConnectionKind::SQLite,
@@ -545,53 +545,54 @@ impl crate::ForgeApp {
                         ConnectionKind::MySql,
                         ConnectionKind::Adbc,
                     ] {
-                        ui.selectable_value(&mut self.database_kind, kind, kind.label());
+                        ui.selectable_value(&mut self.database.kind, kind, kind.label());
                     }
                 });
             ui.add(
-                egui::TextEdit::singleline(&mut self.database_location)
+                egui::TextEdit::singleline(&mut self.database.location)
                     .hint_text("file path, DSN, or ADBC driver"),
             );
-            ui.add(egui::TextEdit::singleline(&mut self.database_username).hint_text("username"));
+            ui.add(egui::TextEdit::singleline(&mut self.database.username).hint_text("username"));
             ui.add(
-                egui::TextEdit::singleline(&mut self.database_secret)
+                egui::TextEdit::singleline(&mut self.database.secret)
                     .password(true)
                     .hint_text("password (never saved in project)"),
             );
             if ui.button("Save profile").clicked() {
-                let credential_key = format!("{}:{}", root.display(), self.database_name.trim());
+                let credential_key = format!("{}:{}", root.display(), self.database.name.trim());
                 let profile = ConnectionProfile {
-                    name: self.database_name.trim().to_owned(),
-                    kind: self.database_kind,
-                    location: self.database_location.trim().to_owned(),
-                    username: self.database_username.trim().to_owned(),
+                    name: self.database.name.trim().to_owned(),
+                    kind: self.database.kind,
+                    location: self.database.location.trim().to_owned(),
+                    username: self.database.username.trim().to_owned(),
                     credential_key,
                 };
                 if let Err(error) = database::validate_profile(&profile) {
                     self.sql_output = error;
                     return;
                 }
-                if !self.database_secret.is_empty() {
+                if !self.database.secret.is_empty() {
                     if let Err(error) =
-                        database::store_secret(&profile.credential_key, &self.database_secret)
+                        database::store_secret(&profile.credential_key, &self.database.secret)
                     {
                         self.sql_output = format!("Credential store failed: {error}");
                         return;
                     }
-                    self.database_secret.clear();
+                    self.database.secret.clear();
                 }
                 if let Some(existing) = self
-                    .database_profiles
+                    .database
+                    .profiles
                     .iter_mut()
                     .find(|existing| existing.name == profile.name)
                 {
                     *existing = profile;
                 } else {
-                    self.database_profiles.push(profile);
+                    self.database.profiles.push(profile);
                 }
                 if let Some(store) = &self.workspace_store {
                     self.sql_output = store
-                        .save_connections(&self.database_profiles)
+                        .save_connections(&self.database.profiles)
                         .map(|_| "Connection profile saved without plaintext credentials.".into())
                         .text();
                 }
@@ -602,15 +603,16 @@ impl crate::ForgeApp {
             let available = self.integration_pending == 0;
             egui::ComboBox::from_id_salt("database_profile")
                 .selected_text(
-                    self.database_profiles
-                        .get(self.database_selected)
+                    self.database
+                        .profiles
+                        .get(self.database.selected)
                         .map(|profile| profile.name.as_str())
                         .unwrap_or("No profile"),
                 )
                 .show_ui(ui, |ui| {
-                    for (index, profile) in self.database_profiles.iter().enumerate() {
+                    for (index, profile) in self.database.profiles.iter().enumerate() {
                         ui.selectable_value(
-                            &mut self.database_selected,
+                            &mut self.database.selected,
                             index,
                             format!("{} · {}", profile.name, profile.kind.label()),
                         );
@@ -620,7 +622,7 @@ impl crate::ForgeApp {
                 .add_enabled(available, egui::Button::new("Test"))
                 .clicked()
             {
-                if let Some(profile) = self.database_profiles.get(self.database_selected) {
+                if let Some(profile) = self.database.profiles.get(self.database.selected) {
                     self.sql_output =
                         match self
                             .integration_worker
@@ -640,7 +642,7 @@ impl crate::ForgeApp {
                 .add_enabled(available, egui::Button::new("Schema"))
                 .clicked()
             {
-                if let Some(profile) = self.database_profiles.get(self.database_selected) {
+                if let Some(profile) = self.database.profiles.get(self.database.selected) {
                     self.sql_output =
                         match self
                             .integration_worker
@@ -659,7 +661,7 @@ impl crate::ForgeApp {
             }
             if ui
                 .add_enabled(
-                    available && !self.database_profiles.is_empty(),
+                    available && !self.database.profiles.is_empty(),
                     egui::Button::new("Remove profile"),
                 )
                 .on_hover_text("Remove this project profile and its stored OS credential")
@@ -671,13 +673,13 @@ impl crate::ForgeApp {
         });
         if remove_profile {
             if let Some(profile) =
-                database::remove_profile(&mut self.database_profiles, &mut self.database_selected)
+                database::remove_profile(&mut self.database.profiles, &mut self.database.selected)
             {
                 self.sql_output = match self
                     .workspace_store
                     .as_ref()
                     .ok_or_else(|| "Workspace storage unavailable".to_owned())
-                    .and_then(|store| store.save_connections(&self.database_profiles))
+                    .and_then(|store| store.save_connections(&self.database.profiles))
                 {
                     Ok(()) => match database::delete_secret(&profile.credential_key) {
                         Ok(()) => format!(
@@ -690,8 +692,8 @@ impl crate::ForgeApp {
                         ),
                     },
                     Err(error) => {
-                        self.database_profiles.push(profile);
-                        self.database_selected = self.database_profiles.len() - 1;
+                        self.database.profiles.push(profile);
+                        self.database.selected = self.database.profiles.len() - 1;
                         format!("Could not remove connection profile: {error}")
                     }
                 };
@@ -710,7 +712,7 @@ impl crate::ForgeApp {
             )
             .clicked()
         {
-            if let Some(profile) = self.database_profiles.get(self.database_selected) {
+            if let Some(profile) = self.database.profiles.get(self.database.selected) {
                 if let Err(error) = database::validate_query(&self.sql_editor) {
                     self.sql_output = error;
                     return;
@@ -1221,7 +1223,7 @@ impl crate::ForgeApp {
         });
         if ui.button("Discover Python runtimes").clicked() {
             let runtimes = python_runtime::discover();
-            self.python_runtime_output = if runtimes.is_empty() {
+            self.python.runtime_output = if runtimes.is_empty() {
                 "No Python runtime found.".into()
             } else {
                 runtimes
@@ -1231,9 +1233,9 @@ impl crate::ForgeApp {
                     .join("\n")
             };
         }
-        if !self.python_runtime_output.is_empty() {
+        if !self.python.runtime_output.is_empty() {
             ui.collapsing("Python runtime compatibility", |ui| {
-                ui.code(&self.python_runtime_output);
+                ui.code(&self.python.runtime_output);
                 ui.label(
                     "Packages remain user-managed; Forge does not bundle Python ML frameworks.",
                 );

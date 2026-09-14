@@ -20,74 +20,74 @@ impl crate::ForgeApp {
         };
         ui.horizontal_wrapped(|ui| {
             if ui.button("Refresh").clicked() {
-                self.git_output = git::snapshot(&root)
+                self.git.output = git::snapshot(&root)
                     .map(|s| format!("Branch: {}\n{}", s.branch, s.summary))
                     .text();
-                self.git_conflicts = git::conflicts(&root).unwrap_or_default();
-                self.git_branches = git::list_branches(&root).unwrap_or_default();
+                self.git.conflicts = git::conflicts(&root).unwrap_or_default();
+                self.git.branches = git::list_branches(&root).unwrap_or_default();
                 if let Some(p) = &mut self.project {
                     p.refresh_git_status();
                 }
             }
             if ui.button("History").clicked() {
-                self.git_output = git::log(&root, 50).text();
+                self.git.output = git::log(&root, 50).text();
             }
             if ui.button("Diff").clicked() {
-                self.git_output = git::diff(&root, false).text();
+                self.git.output = git::diff(&root, false).text();
             }
             if ui.button("Staged diff").clicked() {
-                self.git_output = git::diff(&root, true).text();
+                self.git.output = git::diff(&root, true).text();
             }
             if ui.button("Stage all").clicked() {
-                self.git_output = git::stage_all(&root).text();
+                self.git.output = git::stage_all(&root).text();
             }
             if ui.button("Unstage all").clicked() {
-                self.git_output = git::unstage_all(&root).text();
+                self.git.output = git::unstage_all(&root).text();
             }
             if ui.button("Branches").clicked() {
-                self.git_branches = git::list_branches(&root).unwrap_or_default();
-                self.git_output = git::branches(&root).text();
+                self.git.branches = git::list_branches(&root).unwrap_or_default();
+                self.git.output = git::branches(&root).text();
             }
             if ui.button("Pull").clicked() {
-                self.git_output = git::pull(&root).text();
+                self.git.output = git::pull(&root).text();
             }
             if ui.button("Push").clicked() {
-                self.git_output = git::push(&root).text();
+                self.git.output = git::push(&root).text();
             }
         });
         ui.horizontal(|ui| {
             ui.add(
-                egui::TextEdit::singleline(&mut self.git_commit_message)
+                egui::TextEdit::singleline(&mut self.git.commit_message)
                     .hint_text("Commit message"),
             );
             if ui.button("Commit").clicked() {
-                self.git_output = git::commit(&root, &self.git_commit_message).text();
+                self.git.output = git::commit(&root, &self.git.commit_message).text();
             }
         });
         ui.horizontal_wrapped(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut self.git_branch_name).hint_text("Branch name"));
+            ui.add(egui::TextEdit::singleline(&mut self.git.branch_name).hint_text("Branch name"));
             if ui.button("Switch").clicked() {
-                self.git_output = git::switch(&root, &self.git_branch_name, false).text();
+                self.git.output = git::switch(&root, &self.git.branch_name, false).text();
             }
             if ui.button("Create branch").clicked() {
-                self.git_output = git::switch(&root, &self.git_branch_name, true).text();
+                self.git.output = git::switch(&root, &self.git.branch_name, true).text();
             }
             if ui.button("Delete branch").clicked() {
-                self.git_output = git::delete_branch(&root, &self.git_branch_name, false).text();
+                self.git.output = git::delete_branch(&root, &self.git.branch_name, false).text();
             }
             if ui
                 .button("Force delete")
                 .on_hover_text("Delete even if the branch has unmerged commits (-D)")
                 .clicked()
             {
-                self.git_output = git::delete_branch(&root, &self.git_branch_name, true).text();
+                self.git.output = git::delete_branch(&root, &self.git.branch_name, true).text();
             }
         });
 
         // Selectable branch list with a right-click context menu. Populated by
         // "Refresh"/"Branches"; a left-click selects and mirrors the name into
         // the text field, a right-click offers checkout/merge/delete actions.
-        if !self.git_branches.is_empty() {
+        if !self.git.branches.is_empty() {
             /// One deferred action, applied after the borrow of `git_branches` ends.
             enum BranchAction {
                 Checkout(String),
@@ -106,9 +106,9 @@ impl crate::ForgeApp {
                 .id_salt("branch_list")
                 .max_height(140.0)
                 .show(ui, |ui| {
-                    for branch in &self.git_branches {
+                    for branch in &self.git.branches {
                         let selected =
-                            self.git_selected_branch.as_deref() == Some(branch.name.as_str());
+                            self.git.selected_branch.as_deref() == Some(branch.name.as_str());
                         let icon = if branch.current {
                             egui_phosphor_icons::icons::CHECK_CIRCLE
                         } else if branch.is_remote {
@@ -125,8 +125,8 @@ impl crate::ForgeApp {
                         }
                         let response = ui.selectable_label(selected, label);
                         if response.clicked() {
-                            self.git_selected_branch = Some(branch.name.clone());
-                            self.git_branch_name = branch.name.clone();
+                            self.git.selected_branch = Some(branch.name.clone());
+                            self.git.branch_name = branch.name.clone();
                         }
                         response.context_menu(|ui| {
                             ui.label(RichText::new(&branch.name).strong());
@@ -178,7 +178,7 @@ impl crate::ForgeApp {
                     }
                 });
             if let Some(action) = action {
-                self.git_output = match action {
+                self.git.output = match action {
                     BranchAction::Checkout(name) => git::switch(&root, &name, false),
                     BranchAction::Merge(name) => git::merge(&root, &name),
                     BranchAction::Delete(name) => git::delete_branch(&root, &name, false),
@@ -187,8 +187,8 @@ impl crate::ForgeApp {
                 .text();
                 // The action may have changed the current branch, the branch set,
                 // or (a conflicting merge) left the tree mid-merge.
-                self.git_branches = git::list_branches(&root).unwrap_or_default();
-                self.git_conflicts = git::conflicts(&root).unwrap_or_default();
+                self.git.branches = git::list_branches(&root).unwrap_or_default();
+                self.git.conflicts = git::conflicts(&root).unwrap_or_default();
                 if let Some(p) = &mut self.project {
                     p.refresh_git_status();
                 }
@@ -196,18 +196,18 @@ impl crate::ForgeApp {
         }
 
         // Merge-conflict mediation: shown only while a merge is in progress.
-        if !self.git_conflicts.is_empty() {
+        if !self.git.conflicts.is_empty() {
             ui.separator();
             ui.label(
                 RichText::new(format!(
                     "{} file(s) in conflict — resolve each, then continue the merge",
-                    self.git_conflicts.len()
+                    self.git.conflicts.len()
                 ))
                 .color(EMBER)
                 .strong(),
             );
             let mut action: Option<(String, &'static str)> = None;
-            for path in &self.git_conflicts {
+            for path in &self.git.conflicts {
                 ui.horizontal_wrapped(|ui| {
                     ui.code(path);
                     if ui
@@ -234,12 +234,12 @@ impl crate::ForgeApp {
                 });
             }
             if let Some((path, side)) = action {
-                self.git_output = match side {
+                self.git.output = match side {
                     "resolved" => git::mark_resolved(&root, &path),
                     other => git::resolve_conflict(&root, &path, other),
                 }
                 .text();
-                self.git_conflicts = git::conflicts(&root).unwrap_or_default();
+                self.git.conflicts = git::conflicts(&root).unwrap_or_default();
             }
             ui.horizontal(|ui| {
                 if ui
@@ -247,22 +247,22 @@ impl crate::ForgeApp {
                     .on_hover_text("Commit the resolved merge (--no-edit)")
                     .clicked()
                 {
-                    self.git_output = git::merge_continue(&root).text();
-                    self.git_conflicts = git::conflicts(&root).unwrap_or_default();
+                    self.git.output = git::merge_continue(&root).text();
+                    self.git.conflicts = git::conflicts(&root).unwrap_or_default();
                 }
                 if ui.button("Abort merge").clicked() {
-                    self.git_output = git::merge_abort(&root).text();
-                    self.git_conflicts = git::conflicts(&root).unwrap_or_default();
+                    self.git.output = git::merge_abort(&root).text();
+                    self.git.conflicts = git::conflicts(&root).unwrap_or_default();
                 }
             });
         }
 
         ui.separator();
         egui::ScrollArea::both().show(ui, |ui| {
-            ui.code(if self.git_output.is_empty() {
+            ui.code(if self.git.output.is_empty() {
                 "Refresh to inspect repository status, history, and diffs."
             } else {
-                &self.git_output
+                &self.git.output
             });
         });
     }
@@ -297,7 +297,7 @@ impl crate::ForgeApp {
                     .hint_text("Cargo registry name (blank = crates.io)"),
             );
             ui.add(
-                egui::TextEdit::singleline(&mut self.python_registry)
+                egui::TextEdit::singleline(&mut self.python.registry)
                     .hint_text("Python registry HTTPS base URL"),
             );
         });
@@ -332,17 +332,18 @@ impl crate::ForgeApp {
         });
         ui.horizontal_wrapped(|ui| {
             if ui.button("PyPI details").clicked() {
-                if self.python_runtimes.is_empty() {
+                if self.python.runtimes.is_empty() {
                     self.discover_python_runtimes();
                 }
                 self.package_output = self
-                    .python_runtimes
+                    .python
+                    .runtimes
                     .first()
                     .map(|runtime| {
                         python_runtime::pypi_index(
                             runtime,
                             &self.package_query,
-                            &self.python_registry,
+                            &self.python.registry,
                         )
                         .text()
                     })

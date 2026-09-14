@@ -337,7 +337,7 @@ impl crate::ForgeApp {
         // a vertical-only scroll area, so an overflowing row would be unreachable).
         ui.horizontal_wrapped(|ui| {
             ui.add(
-                egui::TextEdit::singleline(&mut self.experiment_name)
+                egui::TextEdit::singleline(&mut self.experiment.name)
                     .desired_width(110.0)
                     .hint_text("Run name"),
             );
@@ -414,29 +414,29 @@ impl crate::ForgeApp {
         // pane. Fixed widths let them sit together when wide and wrap when narrow.
         ui.horizontal_wrapped(|ui| {
             ui.add(
-                egui::TextEdit::singleline(&mut self.experiment_tags)
+                egui::TextEdit::singleline(&mut self.experiment.tags)
                     .desired_width(180.0)
                     .hint_text("tags, comma separated"),
             );
             ui.add(
-                egui::TextEdit::singleline(&mut self.experiment_notes)
+                egui::TextEdit::singleline(&mut self.experiment.notes)
                     .desired_width(220.0)
                     .hint_text("run notes"),
             );
         });
         ui.horizontal_wrapped(|ui| {
             ui.add(
-                egui::TextEdit::singleline(&mut self.experiment_github_issue)
+                egui::TextEdit::singleline(&mut self.experiment.github_issue)
                     .desired_width(180.0)
                     .hint_text("GitHub issue URL"),
             );
             ui.add(
-                egui::TextEdit::singleline(&mut self.experiment_github_pr)
+                egui::TextEdit::singleline(&mut self.experiment.github_pr)
                     .desired_width(160.0)
                     .hint_text("PR URL"),
             );
             ui.add(
-                egui::TextEdit::singleline(&mut self.experiment_github_action)
+                egui::TextEdit::singleline(&mut self.experiment.github_action)
                     .desired_width(180.0)
                     .hint_text("Actions run URL"),
             );
@@ -1029,8 +1029,8 @@ impl crate::ForgeApp {
                     }
                     ConsoleTab::History => self.history.clear(),
                     ConsoleTab::Python => {
-                        self.python_console_output.clear();
-                        self.python_mime_outputs.clear();
+                        self.python.console_output.clear();
+                        self.python.mime_outputs.clear();
                     }
                 }
             }
@@ -1130,7 +1130,7 @@ impl crate::ForgeApp {
                                 .unwrap_or_else(|| "No interpreter selected".into()),
                         )
                         .show_ui(ui, |ui| {
-                            for runtime in &self.python_runtimes {
+                            for runtime in &self.python.runtimes {
                                 ui.selectable_value(
                                     &mut self.selected_python,
                                     Some(runtime.executable.clone()),
@@ -1148,11 +1148,11 @@ impl crate::ForgeApp {
                     if ui.button("Create .venv").clicked() {
                         if let (Some(root), Some(runtime)) = (
                             self.project_root(),
-                            self.python_runtimes.iter().find(|runtime| {
+                            self.python.runtimes.iter().find(|runtime| {
                                 Some(&runtime.executable) == self.selected_python.as_ref()
                             }),
                         ) {
-                            self.python_console_output =
+                            self.python.console_output =
                                 python_runtime::create_venv(runtime, &root.join(".venv")).text();
                         }
                     }
@@ -1183,8 +1183,8 @@ impl crate::ForgeApp {
                     .max_height((ui.available_height() - 62.0).max(40.0))
                     .stick_to_bottom(true)
                     .show(ui, |ui| {
-                        ui.label(RichText::new(&self.python_console_output).monospace());
-                        for output in &self.python_mime_outputs {
+                        ui.label(RichText::new(&self.python.console_output).monospace());
+                        for output in &self.python.mime_outputs {
                             ui.label(
                                 RichText::new(format!("{}: {}", output.mime, output.data))
                                     .monospace()
@@ -1200,7 +1200,7 @@ impl crate::ForgeApp {
                             .color(accent()),
                     );
                     let response = ui.add(
-                        egui::TextEdit::singleline(&mut self.python_console_input)
+                        egui::TextEdit::singleline(&mut self.python.console_input)
                             .desired_width(f32::INFINITY)
                             .hint_text("Python code (persistent session)"),
                     );

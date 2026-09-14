@@ -132,17 +132,19 @@ impl crate::ForgeApp {
     }
 
     pub(crate) fn discover_python_runtimes(&mut self) {
-        self.python_runtimes = python_runtime::discover();
+        self.python.runtimes = python_runtime::discover();
         if self.selected_python.is_none() {
             self.selected_python = self
-                .python_runtimes
+                .python
+                .runtimes
                 .first()
                 .map(|runtime| runtime.executable.clone());
         }
-        self.python_runtime_output = if self.python_runtimes.is_empty() {
+        self.python.runtime_output = if self.python.runtimes.is_empty() {
             "No Python runtime found.".into()
         } else {
-            self.python_runtimes
+            self.python
+                .runtimes
                 .iter()
                 .flat_map(python_runtime::compatibility)
                 .collect::<Vec<_>>()
@@ -152,42 +154,43 @@ impl crate::ForgeApp {
 
     pub(crate) fn start_python_kernel(&mut self) {
         let Some(executable) = self.selected_python.clone() else {
-            self.python_console_output = "Discover and select a Python runtime first.".into();
+            self.python.console_output = "Discover and select a Python runtime first.".into();
             return;
         };
         if let Some(runtime) = self
-            .python_runtimes
+            .python
+            .runtimes
             .iter()
             .find(|runtime| runtime.executable == executable)
         {
-            self.python_environment_fingerprint =
+            self.python.environment_fingerprint =
                 experiment::stable_digest(runtime.packages.as_bytes());
         }
         match python_kernel::PythonKernel::spawn(&executable) {
             Ok(kernel) => {
-                self.python_kernel = Some(kernel);
-                self.python_console_output = format!(
+                self.python.kernel = Some(kernel);
+                self.python.console_output = format!(
                     "Python runtime ready: {}\nEnvironment: {}",
                     executable.display(),
-                    self.python_environment_fingerprint
+                    self.python.environment_fingerprint
                 );
             }
-            Err(error) => self.python_console_output = format!("Could not start Python: {error}"),
+            Err(error) => self.python.console_output = format!("Could not start Python: {error}"),
         }
     }
 
     pub(crate) fn run_python_input(&mut self) {
-        if self.python_kernel.is_none() {
+        if self.python.kernel.is_none() {
             self.start_python_kernel();
         }
-        let code = self.python_console_input.trim().to_owned();
+        let code = self.python.console_input.trim().to_owned();
         if code.is_empty() {
             return;
         }
-        self.python_execution_id += 1;
-        if let Some(kernel) = &self.python_kernel {
-            if kernel.execute(self.python_execution_id, code).is_ok() {
-                self.python_console_input.clear();
+        self.python.execution_id += 1;
+        if let Some(kernel) = &self.python.kernel {
+            if kernel.execute(self.python.execution_id, code).is_ok() {
+                self.python.console_input.clear();
             }
         }
         if self.last_resource_poll.elapsed() >= Duration::from_secs(1) {

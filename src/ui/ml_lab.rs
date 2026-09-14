@@ -463,12 +463,12 @@ impl crate::ForgeApp {
         ui.horizontal_wrapped(|ui| {
             ui.label("Registry");
             ui.add(
-                egui::TextEdit::singleline(&mut self.registry_model)
+                egui::TextEdit::singleline(&mut self.registry.model)
                     .desired_width(100.0)
                     .hint_text("model"),
             );
             ui.add(
-                egui::TextEdit::singleline(&mut self.registry_version)
+                egui::TextEdit::singleline(&mut self.registry.version)
                     .desired_width(80.0)
                     .hint_text("version"),
             );
@@ -485,14 +485,14 @@ impl crate::ForgeApp {
                     .and_then(|root| model_registry::ModelRegistry::open(root))
                     .and_then(|registry| {
                         registry.register_native_regression(
-                            &self.registry_model,
-                            &self.registry_version,
+                            &self.registry.model,
+                            &self.registry.version,
                             self.native_burn_artifact.as_ref().expect("button enabled"),
                             vec!["native-burn".into(), "regression".into()],
                         )
                     })
                     .map(|version| {
-                        self.registry_format = version.format.clone();
+                        self.registry.format = version.format.clone();
                         format!(
                             "Registered native model {} {} · {} bytes · SHA-256 {}",
                             version.model, version.version, version.size_bytes, version.sha256
@@ -507,12 +507,12 @@ impl crate::ForgeApp {
                     .and_then(|root| model_registry::ModelRegistry::open(root))
                     .and_then(|registry| {
                         registry
-                            .load_native_regression(&self.registry_model, &self.registry_version)
+                            .load_native_regression(&self.registry.model, &self.registry.version)
                     }) {
                     Ok(artifact) => {
                         self.sql_output = format!(
                             "Loaded integrity-verified native model {} {}.",
-                            self.registry_model, self.registry_version
+                            self.registry.model, self.registry.version
                         );
                         self.native_burn_artifact = Some(artifact);
                     }
@@ -611,7 +611,8 @@ impl crate::ForgeApp {
                             match token_result {
                                 Ok(()) => {
                                     self.remote.token.clear();
-                                    self.remote.profiles
+                                    self.remote
+                                        .profiles
                                         .retain(|existing| existing.name != profile.name);
                                     self.remote.profiles.push(profile);
                                     if let Some(store) = &self.workspace_store {

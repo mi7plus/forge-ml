@@ -724,6 +724,136 @@ enum PendingUnsavedAction {
     OpenProject(Option<PathBuf>),
 }
 
+/// Object-storage connection state (the connection form + saved profiles),
+/// grouped out of [`ForgeApp`].
+struct ObjectState {
+    profiles: Vec<object_storage::ObjectProfile>,
+    name: String,
+    provider: object_storage::Provider,
+    bucket: String,
+    prefix: String,
+    endpoint: String,
+    key: String,
+    output: String,
+}
+
+impl Default for ObjectState {
+    fn default() -> Self {
+        Self {
+            profiles: Vec::new(),
+            name: "datasets".into(),
+            provider: object_storage::Provider::S3,
+            bucket: String::new(),
+            prefix: String::new(),
+            endpoint: String::new(),
+            key: String::new(),
+            output: String::new(),
+        }
+    }
+}
+
+/// Model-registry form state, grouped out of [`ForgeApp`].
+struct RegistryState {
+    model: String,
+    version: String,
+    format: String,
+    alias: String,
+    artifact: String,
+    output: String,
+}
+
+impl Default for RegistryState {
+    fn default() -> Self {
+        Self {
+            model: "model".into(),
+            version: "0.1.0".into(),
+            format: "onnx".into(),
+            alias: "production".into(),
+            artifact: String::new(),
+            output: String::new(),
+        }
+    }
+}
+
+/// Local Git working state (staging/commit/branch UI), grouped out of
+/// [`ForgeApp`].
+#[derive(Default)]
+struct GitState {
+    output: String,
+    commit_message: String,
+    branch_name: String,
+    conflicts: Vec<String>,
+    branches: Vec<git::BranchInfo>,
+    selected_branch: Option<String>,
+}
+
+/// Experiment-run metadata form state, grouped out of [`ForgeApp`].
+#[derive(Default)]
+struct ExperimentState {
+    name: String,
+    tags: String,
+    notes: String,
+    github_issue: String,
+    github_pr: String,
+    github_action: String,
+}
+
+/// SQL database connection state (the connection form + saved profiles),
+/// grouped out of [`ForgeApp`].
+struct DatabaseState {
+    profiles: Vec<ConnectionProfile>,
+    selected: usize,
+    name: String,
+    kind: ConnectionKind,
+    location: String,
+    username: String,
+    secret: String,
+}
+
+impl Default for DatabaseState {
+    fn default() -> Self {
+        Self {
+            profiles: Vec::new(),
+            selected: 0,
+            name: "local".into(),
+            kind: ConnectionKind::SQLite,
+            location: "data.sqlite3".into(),
+            username: String::new(),
+            secret: String::new(),
+        }
+    }
+}
+
+/// Python bridge state (managed runtime discovery + the Python console/kernel),
+/// grouped out of [`ForgeApp`].
+struct PythonState {
+    registry: String,
+    runtime_output: String,
+    runtimes: Vec<python_runtime::PythonRuntime>,
+    kernel: Option<python_kernel::PythonKernel>,
+    console_input: String,
+    console_output: String,
+    execution_id: usize,
+    mime_outputs: Vec<RichOutput>,
+    environment_fingerprint: String,
+}
+
+impl Default for PythonState {
+    fn default() -> Self {
+        Self {
+            registry: "https://pypi.org".into(),
+            runtime_output: String::new(),
+            runtimes: Vec::new(),
+            kernel: None,
+            console_input: String::new(),
+            console_output: String::new(),
+            execution_id: 0,
+            mime_outputs: Vec::new(),
+            environment_fingerprint: String::new(),
+        }
+    }
+}
+
 /// Remote Jupyter / kernel execution state, grouped out of [`ForgeApp`].
 struct RemoteState {
     profiles: Vec<remote::RemoteProfile>,
@@ -862,12 +992,7 @@ struct ForgeApp {
     /// means just a caret). Captured each frame for copy/cut/paste menu actions.
     editor_selection: (usize, usize),
     run_all_after_reset: bool,
-    experiment_name: String,
-    experiment_tags: String,
-    experiment_notes: String,
-    experiment_github_issue: String,
-    experiment_github_pr: String,
-    experiment_github_action: String,
+    experiment: ExperimentState,
     saved_runs: Vec<ExperimentRun>,
     comparison_metric: String,
     project_search_query: String,
@@ -894,16 +1019,11 @@ struct ForgeApp {
     status_announcement: String,
     diagnostics_opt_in: bool,
     completion_popup_open: bool,
-    git_output: String,
-    git_commit_message: String,
-    git_branch_name: String,
-    git_conflicts: Vec<String>,
-    git_branches: Vec<git::BranchInfo>,
-    git_selected_branch: Option<String>,
+    git: GitState,
     package_query: String,
     package_output: String,
     cargo_registry: String,
-    python_registry: String,
+    python: PythonState,
     github_input: String,
     github_output: String,
     jupyter_output: String,
@@ -912,28 +1032,14 @@ struct ForgeApp {
     training_observer: ChannelObserver,
     evaluation_report: EvaluationReport,
     leaderboard: Vec<LeaderboardEntry>,
-    python_runtime_output: String,
-    python_runtimes: Vec<python_runtime::PythonRuntime>,
     selected_python: Option<PathBuf>,
-    python_kernel: Option<python_kernel::PythonKernel>,
-    python_console_input: String,
-    python_console_output: String,
-    python_execution_id: usize,
-    python_mime_outputs: Vec<RichOutput>,
     selected_jupyter_kernel: String,
     jupyter_kernels: Vec<jupyter::KernelSpec>,
-    python_environment_fingerprint: String,
     job_queue: JobQueue,
     integration_worker: IntegrationWorker,
     integration_pending: usize,
     job_command: String,
-    database_profiles: Vec<ConnectionProfile>,
-    database_selected: usize,
-    database_name: String,
-    database_kind: ConnectionKind,
-    database_location: String,
-    database_username: String,
-    database_secret: String,
+    database: DatabaseState,
     sql_editor: String,
     sql_output: String,
     sql_history: Vec<String>,
@@ -977,22 +1083,10 @@ struct ForgeApp {
     early_stopping_patience: usize,
     resume_checkpoint: String,
     remote: RemoteState,
-    registry_model: String,
-    registry_version: String,
-    registry_format: String,
-    registry_alias: String,
-    registry_artifact: String,
-    registry_output: String,
+    registry: RegistryState,
     service_events: Vec<ServiceEvent>,
     drift_events: Vec<DriftEvent>,
-    object_profiles: Vec<object_storage::ObjectProfile>,
-    object_name: String,
-    object_provider: object_storage::Provider,
-    object_bucket: String,
-    object_prefix: String,
-    object_endpoint: String,
-    object_key: String,
-    object_output: String,
+    object: ObjectState,
     github_enterprise_host: String,
     update_repository: String,
     update_channel: updater::Channel,
@@ -1181,7 +1275,7 @@ impl ForgeApp {
             active_theme: self.active_theme.clone(),
             custom_themes: self.custom_themes.clone(),
             keymap: self.keymap.to_dto(),
-            connections: self.database_profiles.clone(),
+            connections: self.database.profiles.clone(),
         }
     }
 
@@ -1206,10 +1300,10 @@ impl ForgeApp {
         // Snapshot connections take precedence over the project's stored set and
         // are persisted into the (now open) project's store.
         if !snap.connections.is_empty() {
-            self.database_profiles = snap.connections;
-            self.database_selected = 0;
+            self.database.profiles = snap.connections;
+            self.database.selected = 0;
             if let Some(store) = &self.workspace_store {
-                let _ = store.save_connections(&self.database_profiles);
+                let _ = store.save_connections(&self.database.profiles);
             }
         }
 
@@ -1492,12 +1586,10 @@ impl ForgeApp {
             pending_editor_selection: None,
             editor_selection: (0, 0),
             run_all_after_reset: false,
-            experiment_name: session.experiment_name,
-            experiment_tags: String::new(),
-            experiment_notes: String::new(),
-            experiment_github_issue: String::new(),
-            experiment_github_pr: String::new(),
-            experiment_github_action: String::new(),
+            experiment: ExperimentState {
+                name: session.experiment_name,
+                ..Default::default()
+            },
             saved_runs,
             comparison_metric: session.comparison_metric,
             project_search_query: String::new(),
@@ -1521,16 +1613,14 @@ impl ForgeApp {
             status_announcement: "Forge ML ready".into(),
             diagnostics_opt_in: session.diagnostics_opt_in,
             completion_popup_open: false,
-            git_output: String::new(),
-            git_conflicts: Vec::new(),
-            git_branches: Vec::new(),
-            git_selected_branch: None,
-            git_commit_message: String::new(),
-            git_branch_name: String::new(),
+            git: GitState::default(),
             package_query: String::new(),
             package_output: String::new(),
             cargo_registry: String::new(),
-            python_registry: "https://pypi.org".into(),
+            python: PythonState {
+                environment_fingerprint: session.python_environment_fingerprint.clone(),
+                ..Default::default()
+            },
             github_input: String::new(),
             github_output: String::new(),
             jupyter_output: String::new(),
@@ -1543,28 +1633,17 @@ impl ForgeApp {
             training_observer: ChannelObserver::default(),
             evaluation_report: EvaluationReport::default(),
             leaderboard: Vec::new(),
-            python_runtime_output: String::new(),
-            python_runtimes: Vec::new(),
             selected_python: session.selected_python.clone(),
-            python_kernel: None,
-            python_console_input: String::new(),
-            python_console_output: String::new(),
-            python_execution_id: 0,
-            python_mime_outputs: Vec::new(),
             selected_jupyter_kernel: session.selected_jupyter_kernel.clone(),
             jupyter_kernels: Vec::new(),
-            python_environment_fingerprint: session.python_environment_fingerprint.clone(),
             job_queue: JobQueue::new(),
             integration_worker: IntegrationWorker::new(),
             integration_pending: 0,
             job_command: "cargo run --release".into(),
-            database_profiles,
-            database_selected: 0,
-            database_name: "local".into(),
-            database_kind: ConnectionKind::SQLite,
-            database_location: "data.sqlite3".into(),
-            database_username: String::new(),
-            database_secret: String::new(),
+            database: DatabaseState {
+                profiles: database_profiles,
+                ..Default::default()
+            },
             sql_editor: "SELECT 1 AS value;".into(),
             sql_output: String::new(),
             sql_history,
@@ -1609,22 +1688,13 @@ impl ForgeApp {
                 profiles: remote_profiles,
                 ..Default::default()
             },
-            registry_model: "model".into(),
-            registry_version: "0.1.0".into(),
-            registry_format: "onnx".into(),
-            registry_alias: "production".into(),
-            registry_artifact: String::new(),
-            registry_output: String::new(),
+            registry: RegistryState::default(),
             service_events: Vec::new(),
             drift_events: Vec::new(),
-            object_profiles,
-            object_name: "datasets".into(),
-            object_provider: object_storage::Provider::S3,
-            object_bucket: String::new(),
-            object_prefix: String::new(),
-            object_endpoint: String::new(),
-            object_key: String::new(),
-            object_output: String::new(),
+            object: ObjectState {
+                profiles: object_profiles,
+                ..Default::default()
+            },
             github_enterprise_host: String::new(),
             update_repository: "mi7plus/forge-ml".into(),
             update_channel: updater::Channel::Stable,
@@ -2145,10 +2215,10 @@ impl ForgeApp {
             self.console = "Run telemetry-producing cells before saving an experiment.".to_owned();
             return;
         }
-        let name = if self.experiment_name.trim().is_empty() {
+        let name = if self.experiment.name.trim().is_empty() {
             format!("run_{}", self.saved_runs.len() + 1)
         } else {
-            self.experiment_name.trim().to_owned()
+            self.experiment.name.trim().to_owned()
         };
         let mut run = ExperimentRun::snapshot(
             name.clone(),
@@ -2157,19 +2227,20 @@ impl ForgeApp {
             self.execution_count,
         );
         run.tags = self
-            .experiment_tags
+            .experiment
+            .tags
             .split(',')
             .map(str::trim)
             .filter(|tag| !tag.is_empty())
             .map(str::to_owned)
             .collect();
-        run.notes = self.experiment_notes.trim().to_owned();
-        run.github.issue = (!self.experiment_github_issue.trim().is_empty())
-            .then(|| self.experiment_github_issue.trim().to_owned());
-        run.github.pull_request = (!self.experiment_github_pr.trim().is_empty())
-            .then(|| self.experiment_github_pr.trim().to_owned());
-        run.github.action_run = (!self.experiment_github_action.trim().is_empty())
-            .then(|| self.experiment_github_action.trim().to_owned());
+        run.notes = self.experiment.notes.trim().to_owned();
+        run.github.issue = (!self.experiment.github_issue.trim().is_empty())
+            .then(|| self.experiment.github_issue.trim().to_owned());
+        run.github.pull_request = (!self.experiment.github_pr.trim().is_empty())
+            .then(|| self.experiment.github_pr.trim().to_owned());
+        run.github.action_run = (!self.experiment.github_action.trim().is_empty())
+            .then(|| self.experiment.github_action.trim().to_owned());
         run.provenance = capture_provenance(
             self.project.as_ref().map(|project| project.root.as_path()),
             self.data.fingerprints(),
@@ -2190,7 +2261,7 @@ impl ForgeApp {
             }
         }
         self.saved_runs.push(run);
-        self.experiment_name = format!("run_{}", self.saved_runs.len() + 1);
+        self.experiment.name = format!("run_{}", self.saved_runs.len() + 1);
         self.inspector_tab = InspectorTab::Experiments;
         self.console = format!("Saved experiment snapshot {name}.");
     }
@@ -2451,12 +2522,14 @@ impl ForgeApp {
             self.job_queue.poll(root);
         }
         self.drain_integration_events();
-        if let Some(kernel) = &self.python_kernel {
+        if let Some(kernel) = &self.python.kernel {
             while let Some(result) = kernel.try_recv() {
-                self.python_mime_outputs = result.mime;
-                self.python_mime_outputs
+                self.python.mime_outputs = result.mime;
+                self.python
+                    .mime_outputs
                     .extend(python_kernel::mime_outputs(&result.output));
-                self.python_console_output
+                self.python
+                    .console_output
                     .push_str(&format!("\nOut [{}]:\n{}", result.id, result.output));
             }
         }
@@ -2615,10 +2688,10 @@ impl ForgeApp {
                     Err(error) => self.sql_output = error,
                 },
                 ResultEvent::ObjectMessage(result) => {
-                    self.object_output = result.unwrap_or_else(|error| error);
+                    self.object.output = result.unwrap_or_else(|error| error);
                 }
                 ResultEvent::ObjectDownload(result) => {
-                    self.object_output = result
+                    self.object.output = result
                         .map(|path| format!("Downloaded {}", path.display()))
                         .unwrap_or_else(|error| error);
                 }

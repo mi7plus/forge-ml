@@ -42,13 +42,13 @@ impl crate::ForgeApp {
                 self.workspace_store = WorkspaceStore::open(&root).ok();
                 privacy_diagnostics::configure(self.diagnostics_opt_in, Some(&root));
                 if let Some(store) = &self.workspace_store {
-                    self.database_profiles = store.load_connections().unwrap_or_default();
+                    self.database.profiles = store.load_connections().unwrap_or_default();
                     self.sql_history = database::bounded_query_history(
                         store.load_query_history().unwrap_or_default(),
                     );
                     self.remote.profiles = store.load_remote_profiles().unwrap_or_default();
-                    self.object_profiles = store.load_object_profiles().unwrap_or_default();
-                    self.database_selected = 0;
+                    self.object.profiles = store.load_object_profiles().unwrap_or_default();
+                    self.database.selected = 0;
                     if let Ok(runs) = store.load_experiments::<ExperimentRun>() {
                         self.saved_runs = runs;
                     }
