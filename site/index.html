@@ -212,7 +212,7 @@
     — and one command provisions the lot, then locks it into <code>forge.lock</code>. Forge doesn't
     reinvent Cargo or pip; it drives them, so the whole stack is declared in one place and rebuilds the
     same way anywhere.</p>
-    <div class="grid">
+    <div class="grid grid-2">
       <div class="card"><span class="ico">◱</span><h3>Declare &amp; lock</h3><p>One manifest declares the <code>[gpu]</code>, <code>[native]</code>, <code>[cargo]</code>, and <code>[python]</code> needs; <code>forge.lock</code> is the generated, fully-resolved environment — the reproducible source of truth.</p></div>
       <div class="card"><span class="ico">⊞</span><h3>Crates &amp; Python packages</h3><p><code>forge cargo provide</code> runs <code>cargo add</code> for each declared crate and fetches the graph; <code>forge python provide</code> installs the declared packages into the referenced env with <code>pip</code>/<code>pixi</code>.</p></div>
       <div class="card"><span class="ico">⇲</span><h3>Provisioned native tools</h3><p><code>forge native provide</code> fetches prebuilt <strong>CMake, protoc, and Ninja</strong> from a hash-pinned catalog, SHA-256-verified, into <code>.forge/native-env</code> — no system package manager needed.</p></div>
@@ -276,7 +276,7 @@ packages = ["pyarrow", "onnxruntime"]</code></pre>
     curve appear — all in native Rust.</p>
     <figure class="demo">
       <video src="forge-demo.mp4" width="1600" height="868" autoplay muted loop playsinline controls
-             preload="metadata"
+             preload="metadata" style="width:100%;height:auto;max-width:100%"
              aria-label="Screen recording of a Forge ML notebook: cells run to generate data, render a scatter plot and a data-plus-fit line, and show a descending training-loss curve.">
         <a href="forge-demo.mp4">Watch the demo (MP4)</a>
       </video>
@@ -331,7 +331,7 @@ println!(r#"forge_table:sample={"columns":["x","label"],"rows":[[0.2,"cat"],[0.7
     <h2>Embedded training and native deployment</h2>
     <p class="lede">Forge embeds <strong>Burn 0.22</strong> (Flex CPU + WGPU) and <strong>Millwright 2.3.1</strong>
     ONNX. Train, register, verify, and generate a standalone Rust service — no Python required.</p>
-    <div class="grid">
+    <div class="grid grid-2">
       <div class="card"><h3>Native regression</h3><p>Leakage-safe standardization, deterministic validation, patience-based early stopping, and original-unit loss. Predict inline or score a whole table.</p></div>
       <div class="card"><h3>Model registry</h3><p>Project-local versioning with promotion/rollback aliases, immutable bytes, and SHA-256 integrity checks before every load.</p></div>
       <div class="card"><h3>Generated services</h3><p>One click produces an Axum <code>POST /predict</code> service with health, readiness, metadata, Docker, Compose, and Kubernetes files.</p></div>

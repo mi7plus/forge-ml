@@ -128,6 +128,8 @@ h3 { font-size: 1.06rem; margin: 1.5em 0 .4em; }
 
 /* Feature grid */
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; margin-top: 28px; }
+/* Balanced 2-up grid for 4-card sections (avoids an orphan card in a 3-up auto-fit). */
+.grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .card {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 22px; box-shadow: var(--shadow-sm); transition: border-color .15s ease, transform .12s ease;
@@ -164,7 +166,7 @@ h3 { font-size: 1.06rem; margin: 1.5em 0 .4em; }
 /* Split feature rows */
 .rows { display: grid; gap: 18px; margin-top: 26px; }
 .row2 { display: grid; grid-template-columns: 200px 1fr; gap: 20px; align-items: start; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
-@media (max-width: 640px) { .row2 { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .row2 { grid-template-columns: 1fr; } .grid-2 { grid-template-columns: 1fr; } }
 .row2 .rk { font-weight: 700; font-size: 1rem; }
 .row2 .rk .tag { display: inline-block; margin-top: 8px; font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; color: var(--cyan); }
 .row2 p { margin: 0; color: var(--muted); font-size: .93rem; }
