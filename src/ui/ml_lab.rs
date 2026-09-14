@@ -9,7 +9,20 @@ use eframe::egui;
 use egui::RichText;
 
 impl crate::ForgeApp {
+    /// The Deep Learning inspector: a stack of sections (training setup, dataset
+    /// prep, native classification, ONNX inference, native training/monitoring,
+    /// and remote execution), each split into its own builder below.
     pub(crate) fn deep_learning_inspector(&mut self, ui: &mut egui::Ui) {
+        self.dl_training_config(ui);
+        self.dl_dataset_preparation(ui);
+        self.dl_classification(ui);
+        self.dl_onnx_inference(ui);
+        self.dl_native_training(ui);
+        self.dl_remote_execution(ui);
+    }
+
+    /// Deep-learning header + Burn project/backend setup and embedded self-test.
+    fn dl_training_config(&mut self, ui: &mut egui::Ui) {
         let root = self.project_root();
         ui.heading("Deep learning");
         ui.horizontal_wrapped(|ui| {
@@ -143,7 +156,10 @@ impl crate::ForgeApp {
                  runtime is present; otherwise they need a system toolchain and network.",
         );
         ui.label(&self.sql.output);
+    }
 
+    /// Dataset-preparation controls (encoding / imputation / scaling).
+    fn dl_dataset_preparation(&mut self, ui: &mut egui::Ui) {
         ui.separator();
         ui.strong("Dataset preparation");
         ui.label(
@@ -203,7 +219,10 @@ impl crate::ForgeApp {
         if !self.prep.result.is_empty() {
             ui.label(RichText::new(&self.prep.result).monospace().size(11.0));
         }
+    }
 
+    /// Native softmax classification training + playground.
+    fn dl_classification(&mut self, ui: &mut egui::Ui) {
         ui.separator();
         ui.strong("Native classification (softmax)");
         ui.label(
@@ -255,7 +274,10 @@ impl crate::ForgeApp {
             ui.label(RichText::new(&self.class.result).monospace().size(11.0));
         }
         self.classifier_playground(ui);
+    }
 
+    /// ONNX model load + inference form.
+    fn dl_onnx_inference(&mut self, ui: &mut egui::Ui) {
         ui.separator();
         ui.strong("ONNX inference");
         ui.label(
@@ -310,6 +332,12 @@ impl crate::ForgeApp {
         if !self.onnx.result.is_empty() {
             ui.label(RichText::new(&self.onnx.result).monospace().size(11.0));
         }
+    }
+
+    /// Native Burn training: artifact ops, live progress, resource monitor,
+    /// checkpoints, and the read-only output sections.
+    fn dl_native_training(&mut self, ui: &mut egui::Ui) {
+        let root = self.project_root();
         if let Some(artifact) = self.native_burn_artifact.clone() {
             ui.horizontal_wrapped(|ui| {
                 ui.label("Drift policy");
@@ -583,6 +611,12 @@ impl crate::ForgeApp {
             ui.label(format!("Checkpoint: {checkpoint}"));
         }
         self.deep_learning_outputs(ui);
+    }
+
+    /// Remote execution: Actions workflow generation, dispatch, and the remote
+    /// Jupyter kernel session + profiles.
+    fn dl_remote_execution(&mut self, ui: &mut egui::Ui) {
+        let root = self.project_root();
         ui.separator();
         ui.strong("Remote execution");
         ui.horizontal_wrapped(|ui| {
