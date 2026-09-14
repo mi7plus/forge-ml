@@ -2,13 +2,19 @@
 
 Use stable Rust and keep changes scoped to the roadmap. Preserve user files and project credentials. New integrations should prefer subprocess/protocol boundaries and remain optional when they add large native dependencies.
 
-Before submitting a change, run:
+Before submitting a change, run the same gate CI runs. With [`just`](https://github.com/casey/just):
 
-```powershell
+```bash
+just ci        # fmt --check, clippy -D warnings (--all-features), build, test
+```
+
+Or directly (note the `forge-webview`/`forge-cef` exclusion — those need system
+WebKitGTK / the CEF SDK and are linted separately on Windows):
+
+```bash
 cargo fmt --all --check
-cargo test --workspace --all-targets
-cargo clippy --workspace --all-targets -- -D warnings
-cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo clippy --workspace --exclude forge-webview --exclude forge-cef --all-targets --all-features -- -D warnings
+cargo test --workspace --exclude forge-webview --exclude forge-cef --locked
 git diff --check
 ```
 

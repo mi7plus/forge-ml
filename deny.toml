@@ -1,0 +1,62 @@
+# cargo-deny configuration (https://embarkstudios.github.io/cargo-deny/).
+#
+# Complements the weekly `cargo audit` (see .github/workflows/audit.yml) with
+# license, duplicate-dependency, and source-registry checking over the large
+# burn/wgpu/arrow/polars tree. Run locally with `just audit` (or
+# `cargo deny check`). The CI `cargo-deny` job runs `advisories bans sources`;
+# `licenses` is validated locally so the allow-list below can be tuned against
+# the real tree without gating pushes on an unforeseen transitive license.
+
+[graph]
+# Check all features so feature-gated dependencies are included, matching how
+# clippy runs `--all-features`.
+all-features = true
+
+[advisories]
+# Warn on yanked crates rather than fail (a transitive pin holds one), matching
+# the audit workflow's posture.
+yanked = "warn"
+# Mirror .cargo/audit.toml: all transitive, none fixable from this repo today.
+# Keep the two files in sync when an advisory is added or unblocked.
+ignore = [
+    "RUSTSEC-2026-0194", # quick-xml <0.41 DoS, via object_store under polars
+    "RUSTSEC-2026-0195", # quick-xml <0.41 DoS, via object_store under polars
+    "RUSTSEC-2025-0141", # bincode, unmaintained (advisory only)
+    "RUSTSEC-2024-0436", # paste, unmaintained (via burn/wgpu)
+    "RUSTSEC-2026-0192", # ttf-parser, unmaintained (via egui/epaint)
+]
+
+[bans]
+# A dependency tree this large legitimately carries duplicate versions of
+# low-level crates (syn, windows-sys, hashbrown, …); surface them as a warning
+# to review, not a hard failure.
+multiple-versions = "warn"
+# Path/workspace dependencies are intentional.
+wildcards = "allow"
+
+[licenses]
+# Permissive licenses acceptable for an offline, self-distributed desktop app.
+# Tune against the real tree with `cargo deny check licenses`.
+confidence-threshold = 0.8
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "0BSD",
+    "BSL-1.0",
+    "OpenSSL",
+]
+
+[sources]
+# Only crates.io and in-repo path/git deps; flag anything from an unexpected
+# registry or a stray git dependency.
+unknown-registry = "deny"
+unknown-git = "deny"

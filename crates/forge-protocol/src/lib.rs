@@ -1,19 +1,36 @@
+//! Wire types shared between the Forge IDE and the code it runs.
+//!
+//! A notebook or project prints telemetry to stdout using the `forge_*` line
+//! prefixes; the IDE parses those lines back into typed [`EventEnvelope`]s with
+//! [`parse_stdout_events`]. This crate is the single source of truth for that
+//! contract: the [`PROTOCOL_VERSION`], the opaque identifier types
+//! ([`DatasetId`], [`RunId`], [`PlotId`], [`KernelId`], [`ArtifactId`]), and the
+//! [`ForgeEvent`] payloads (metric, vector, table). It is deliberately tiny and
+//! dependency-light so every workspace crate can depend on it.
+
+#![deny(missing_docs)]
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Version stamped into every [`EventEnvelope`]; the IDE ignores events whose
+/// version it does not recognize, so this is bumped on any breaking change.
 pub const PROTOCOL_VERSION: u16 = 1;
 
 macro_rules! stable_id {
-    ($name:ident) => {
+    ($(#[$meta:meta])* $name:ident) => {
+        $(#[$meta])*
         #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
         #[serde(transparent)]
         pub struct $name(String);
 
         impl $name {
+            /// Generate a fresh, globally-unique identifier (a random UUIDv4).
             pub fn new() -> Self {
                 Self(Uuid::new_v4().to_string())
             }
 
+            /// Borrow the identifier's string form (as persisted and serialized).
             pub fn as_str(&self) -> &str {
                 &self.0
             }
@@ -27,32 +44,73 @@ macro_rules! stable_id {
     };
 }
 
-stable_id!(DatasetId);
-stable_id!(RunId);
-stable_id!(PlotId);
-stable_id!(KernelId);
-stable_id!(ArtifactId);
+stable_id!(
+    /// Identifies a dataset registered in the workspace.
+    DatasetId
+);
+stable_id!(
+    /// Identifies a single experiment run / execution.
+    RunId
+);
+stable_id!(
+    /// Identifies a structured plot produced by a run.
+    PlotId
+);
+stable_id!(
+    /// Identifies a language/execution kernel.
+    KernelId
+);
+stable_id!(
+    /// Identifies an exported or registered artifact.
+    ArtifactId
+);
 
+/// A rectangular table of stringified cells emitted by a `forge_table:` line.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TableData {
+    /// Column headers, left to right.
     pub columns: Vec<String>,
+    /// Row-major cell values; every row has `columns.len()` entries.
     pub rows: Vec<Vec<String>>,
 }
 
+/// One piece of telemetry decoded from a program's stdout.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ForgeEvent {
-    Metric { name: String, value: f64 },
-    Vector { name: String, values: Vec<f64> },
-    Table { name: String, data: TableData },
+    /// A single named scalar (e.g. a loss value at a step).
+    Metric {
+        /// Metric name.
+        name: String,
+        /// Metric value.
+        value: f64,
+    },
+    /// A named numeric vector (e.g. a weight row or an embedding).
+    Vector {
+        /// Vector name.
+        name: String,
+        /// Vector values.
+        values: Vec<f64>,
+    },
+    /// A named rectangular table.
+    Table {
+        /// Table name.
+        name: String,
+        /// Table contents.
+        data: TableData,
+    },
 }
 
+/// A [`ForgeEvent`] tagged with the [`PROTOCOL_VERSION`] it was produced under.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EventEnvelope {
+    /// Protocol version the event was serialized with.
     pub version: u16,
+    /// The wrapped event payload.
     pub event: ForgeEvent,
 }
 
 impl EventEnvelope {
+    /// Wrap `event` in an envelope stamped with the current [`PROTOCOL_VERSION`].
     pub fn new(event: ForgeEvent) -> Self {
         Self {
             version: PROTOCOL_VERSION,
@@ -61,6 +119,8 @@ impl EventEnvelope {
     }
 }
 
+/// Parse every recognized `forge_*` telemetry line out of a block of program
+/// stdout, discarding anything else and any event of an unknown version.
 pub fn parse_stdout_events(output: &str) -> Vec<EventEnvelope> {
     output.lines().filter_map(parse_legacy_line).collect()
 }

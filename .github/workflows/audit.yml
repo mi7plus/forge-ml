@@ -14,12 +14,14 @@ on:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
       - ".cargo/audit.toml"
+      - "deny.toml"
       - ".github/workflows/audit.yml"
   pull_request:
     paths:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
       - ".cargo/audit.toml"
+      - "deny.toml"
   workflow_dispatch:
 
 permissions:
@@ -42,3 +44,18 @@ jobs:
           tool: cargo-audit
       - name: cargo audit
         run: cargo audit
+
+  deny:
+    name: cargo deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      # `licenses` is intentionally omitted here and validated locally
+      # (`just audit`) so the deny.toml allow-list can be tuned against the real
+      # tree without a surprise transitive license gating pushes. advisories
+      # mirror .cargo/audit.toml; bans (duplicate versions) are warn-level.
+      - name: cargo deny
+        run: cargo deny check advisories bans sources

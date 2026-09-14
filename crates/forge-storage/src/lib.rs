@@ -1,3 +1,12 @@
+//! Per-project persistence for the Forge IDE.
+//!
+//! Everything a project needs to remember between launches lives under its
+//! `.forge/` directory, managed by [`WorkspaceStore`]: a SQLite database of
+//! experiment runs and artifacts, a content-addressed artifact directory, and
+//! the [`WorkspaceRecovery`] snapshot that restores open files and pane layout.
+//! The store owns the schema and the on-disk layout so the rest of the IDE deals
+//! only in typed records.
+
 use forge_protocol::RunId;
 use rusqlite::{params, Connection};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
