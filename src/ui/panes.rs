@@ -483,7 +483,12 @@ impl crate::ForgeApp {
             Plot::new(format!("metric_{name}"))
                 .height(175.0)
                 .allow_drag(false)
-                .show(ui, |plot| plot.line(metric_line(name, values, EMBER)));
+                .show(ui, |plot| {
+                    plot.line(metric_line(name, values, EMBER));
+                    // Markers so a single-value metric (a summary scalar) still
+                    // shows a clear point instead of an empty plot.
+                    plot.points(metric_points(name, values, EMBER));
+                });
         }
         if let Some(name) = metric_to_delete {
             self.data.metrics.remove(&name);

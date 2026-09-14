@@ -1,5 +1,5 @@
 use egui::Color32;
-use egui_plot::{Bar, BarChart, Line, PlotPoints};
+use egui_plot::{Bar, BarChart, Line, PlotPoints, Points};
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 
@@ -733,6 +733,16 @@ pub fn metric_line(name: &str, values: &[[f64; 2]], color: Color32) -> Line<'sta
     Line::new(name.to_owned(), points).color(color).width(2.0)
 }
 
+/// Markers for a metric series, drawn on top of [`metric_line`]. A single-value
+/// metric (e.g. a summary scalar) draws nothing as a line, so give it a larger
+/// dot that is clearly visible; longer series get subtle markers on the curve.
+pub fn metric_points(name: &str, values: &[[f64; 2]], color: Color32) -> Points<'static> {
+    let radius = if values.len() <= 1 { 4.0 } else { 2.0 };
+    Points::new(name.to_owned(), PlotPoints::from(values.to_vec()))
+        .color(color)
+        .radius(radius)
+}
+
 pub fn vector_bars(name: &str, values: &[f64], color: Color32) -> BarChart {
     let bars = values
         .iter()
@@ -750,6 +760,13 @@ mod tests {
     fn accepts_empty_and_populated_series() {
         let _ = metric_line("loss", &[], Color32::WHITE);
         let _ = vector_bars("weights", &[1.0, 2.0], Color32::WHITE);
+    }
+    #[test]
+    fn metric_points_enlarges_a_lone_marker() {
+        // A single-value metric gets a bigger dot so it is visible without a line.
+        let _ = metric_points("r_squared", &[], Color32::WHITE);
+        let _ = metric_points("r_squared", &[[0.0, 0.99]], Color32::WHITE);
+        let _ = metric_points("loss", &[[0.0, 1.0], [1.0, 0.5]], Color32::WHITE);
     }
     #[test]
     fn parses_and_exports_structured_plot() {

@@ -79,7 +79,7 @@ use notebook::{
     cell_byte_ranges, is_notebook_document, lsp_document, notebook_lsp_prefix_chars,
     prepare_runtime_code, CellKind, NotebookDocument, RichOutput,
 };
-use plot::{metric_line, vector_bars, PlotKind, PlotSpec};
+use plot::{metric_line, metric_points, vector_bars, PlotKind, PlotSpec};
 use project::Project;
 use runtime::{CellResult, RuntimeHandle, VariableMeta};
 use service_monitor::{DriftEvent, ServiceEvent};
