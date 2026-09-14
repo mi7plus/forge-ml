@@ -71,6 +71,14 @@ let ss_res: f64 = data.iter().map(|(x, y)| (w * x + b - y).powi(2)).sum();
 let ss_tot: f64 = data.iter().map(|(_, y)| (y - mean_y).powi(2)).sum();
 let final_loss = ss_res / m;
 let r_squared = 1.0 - ss_res / ss_tot;
+
+// Metrics feed the saved run (Experiments pane, after "Save snapshot").
 println!("forge_metric:final_loss={final_loss}");
 println!("forge_metric:r_squared={r_squared}");
+
+// A readable summary for the Data viewer — single scalars don't plot as lines.
+println!(
+    r#"forge_table:fit_summary={{"columns":["metric","value"],"rows":[["final_loss","{final_loss:.4}"],["r_squared","{r_squared:.4}"]]}}"#
+);
+
 format!("final loss {final_loss:.4}   R² {r_squared:.4}")
