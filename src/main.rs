@@ -724,6 +724,85 @@ enum PendingUnsavedAction {
     OpenProject(Option<PathBuf>),
 }
 
+/// Classical classification (softmax) training form + fitted model, grouped out
+/// of [`ForgeApp`].
+struct ClassificationState {
+    features: String,
+    target: String,
+    epochs: usize,
+    lr: f64,
+    test_fraction: f64,
+    result: String,
+    model: Option<classification::Classifier>,
+    playground: Vec<f64>,
+}
+
+impl Default for ClassificationState {
+    fn default() -> Self {
+        Self {
+            features: String::new(),
+            target: String::new(),
+            epochs: 300,
+            lr: 0.5,
+            test_fraction: 0.25,
+            result: String::new(),
+            model: None,
+            playground: Vec::new(),
+        }
+    }
+}
+
+/// Native Burn (deep-learning) training configuration + cancel handle, grouped
+/// out of [`ForgeApp`].
+struct BurnState {
+    training_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+    training_epochs: usize,
+    training_learning_rate: f64,
+    training_validation_fraction: f64,
+    training_use_dataset: bool,
+    training_feature: String,
+    training_target: String,
+}
+
+/// ONNX inference form + loaded model, grouped out of [`ForgeApp`].
+#[derive(Default)]
+struct OnnxState {
+    model: Option<millwright::onnx::InferenceModel>,
+    model_name: String,
+    input: String,
+    result: String,
+}
+
+/// Feature-drift monitoring policy + collected events, grouped out of
+/// [`ForgeApp`].
+struct DriftState {
+    mean_shift_threshold: f64,
+    scale_ratio_lower: f64,
+    scale_ratio_upper: f64,
+    events: Vec<DriftEvent>,
+}
+
+/// Dataset-preparation form state, grouped out of [`ForgeApp`].
+struct PrepState {
+    categorical: String,
+    encoding: prep::Encoding,
+    missing: prep::Missing,
+    scaling: prep::Scaling,
+    result: String,
+}
+
+impl Default for PrepState {
+    fn default() -> Self {
+        Self {
+            categorical: String::new(),
+            encoding: prep::Encoding::OneHot,
+            missing: prep::Missing::Mean,
+            scaling: prep::Scaling::None,
+            result: String::new(),
+        }
+    }
+}
+
 /// Object-storage connection state (the connection form + saved profiles),
 /// grouped out of [`ForgeApp`].
 struct ObjectState {
@@ -1047,35 +1126,13 @@ struct ForgeApp {
     /// App-wide preferred compute device (Settings → Compute). Drives the Burn
     /// training backend and the Millwright ONNX inference device.
     compute_device: deep_learning::ComputeDevice,
-    burn_training_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
-    burn_training_epochs: usize,
-    burn_training_learning_rate: f64,
-    burn_training_validation_fraction: f64,
-    burn_training_use_dataset: bool,
-    burn_training_feature: String,
-    burn_training_target: String,
-    class_features: String,
-    class_target: String,
-    class_epochs: usize,
-    class_lr: f64,
-    class_test_fraction: f64,
-    class_result: String,
-    class_model: Option<classification::Classifier>,
-    class_playground: Vec<f64>,
-    prep_categorical: String,
-    prep_encoding: prep::Encoding,
-    prep_missing: prep::Missing,
-    prep_scaling: prep::Scaling,
-    prep_result: String,
-    onnx_model: Option<millwright::onnx::InferenceModel>,
-    onnx_model_name: String,
-    onnx_input: String,
-    onnx_result: String,
+    burn: BurnState,
+    class: ClassificationState,
+    prep: PrepState,
+    onnx: OnnxState,
     native_burn_artifact: Option<deep_learning::NativeRegressionArtifact>,
     native_burn_inference_feature: f64,
-    drift_mean_shift_threshold: f64,
-    drift_scale_ratio_lower: f64,
-    drift_scale_ratio_upper: f64,
+    drift: DriftState,
     deep_outputs: DeepOutputs,
     resource_system: sysinfo::System,
     resource_snapshot: ResourceSnapshot,
@@ -1085,7 +1142,6 @@ struct ForgeApp {
     remote: RemoteState,
     registry: RegistryState,
     service_events: Vec<ServiceEvent>,
-    drift_events: Vec<DriftEvent>,
     object: ObjectState,
     github_enterprise_host: String,
     update_repository: String,
@@ -1649,34 +1705,25 @@ impl ForgeApp {
             sql_history,
             deep_backend: session.native_training_backend,
             compute_device: session.compute_device,
-            burn_training_cancel: None,
-            burn_training_epochs: native_training_config.epochs,
-            burn_training_learning_rate: native_training_config.learning_rate,
-            burn_training_validation_fraction: native_training_config.validation_fraction,
-            burn_training_use_dataset: session.native_training_use_dataset,
-            burn_training_feature: native_training_feature,
-            burn_training_target: native_training_target,
-            class_features: String::new(),
-            class_target: String::new(),
-            class_epochs: 300,
-            class_lr: 0.5,
-            class_test_fraction: 0.25,
-            class_result: String::new(),
-            class_model: None,
-            class_playground: Vec::new(),
-            prep_categorical: String::new(),
-            prep_encoding: prep::Encoding::OneHot,
-            prep_missing: prep::Missing::Mean,
-            prep_scaling: prep::Scaling::None,
-            prep_result: String::new(),
-            onnx_model: None,
-            onnx_model_name: String::new(),
-            onnx_input: String::new(),
-            onnx_result: String::new(),
+            burn: BurnState {
+                training_cancel: None,
+                training_epochs: native_training_config.epochs,
+                training_learning_rate: native_training_config.learning_rate,
+                training_validation_fraction: native_training_config.validation_fraction,
+                training_use_dataset: session.native_training_use_dataset,
+                training_feature: native_training_feature,
+                training_target: native_training_target,
+            },
+            class: ClassificationState::default(),
+            prep: PrepState::default(),
+            onnx: OnnxState::default(),
             native_burn_artifact,
-            drift_mean_shift_threshold: drift_policy.mean_shift_threshold,
-            drift_scale_ratio_lower: drift_policy.scale_ratio_lower,
-            drift_scale_ratio_upper: drift_policy.scale_ratio_upper,
+            drift: DriftState {
+                mean_shift_threshold: drift_policy.mean_shift_threshold,
+                scale_ratio_lower: drift_policy.scale_ratio_lower,
+                scale_ratio_upper: drift_policy.scale_ratio_upper,
+                events: Vec::new(),
+            },
             native_burn_inference_feature,
             deep_outputs: DeepOutputs::default(),
             resource_system: sysinfo::System::new_all(),
@@ -1690,7 +1737,6 @@ impl ForgeApp {
             },
             registry: RegistryState::default(),
             service_events: Vec::new(),
-            drift_events: Vec::new(),
             object: ObjectState {
                 profiles: object_profiles,
                 ..Default::default()
@@ -2571,7 +2617,7 @@ impl ForgeApp {
                     self.inspector_tab = InspectorTab::Studio;
                 }
                 ResultEvent::BurnTrainingFinished(result) => {
-                    self.burn_training_cancel = None;
+                    self.burn.training_cancel = None;
                     self.sql_output = result
                         .map(|outcome| {
                             let count = outcome.events.len();
@@ -2598,7 +2644,7 @@ impl ForgeApp {
                             if drift.breached { " (threshold breached)" } else { "" }
                         ));
                         service_monitor::record_drift(
-                            &mut self.drift_events,
+                            &mut self.drift.events,
                             DriftEvent {
                                 model: drift.model,
                                 version: drift.version,
@@ -2866,7 +2912,7 @@ impl ForgeApp {
                         service_monitor::record_service(&mut self.service_events, event);
                     }
                     for event in drift_events {
-                        service_monitor::record_drift(&mut self.drift_events, event);
+                        service_monitor::record_drift(&mut self.drift.events, event);
                     }
                     deep_learning::parse_output(&self.console, &mut self.deep_outputs);
                     for spec in plot::parse_output(&self.console) {

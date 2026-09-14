@@ -47,10 +47,10 @@ impl crate::ForgeApp {
             {
                 self.gpu_compute_self_test();
             }
-            if self.burn_training_cancel.is_none()
+            if self.burn.training_cancel.is_none()
                 && ui.button("Run native Burn training").clicked()
             {
-                let data = if self.burn_training_use_dataset {
+                let data = if self.burn.training_use_dataset {
                     self.selected_native_training_data().map(Some)
                 } else {
                     Ok(None)
@@ -61,9 +61,9 @@ impl crate::ForgeApp {
                         .submit(IntegrationRequest::BurnTraining {
                             backend: self.deep_backend,
                             config: NativeTrainingConfig {
-                                epochs: self.burn_training_epochs,
-                                learning_rate: self.burn_training_learning_rate,
-                                validation_fraction: self.burn_training_validation_fraction,
+                                epochs: self.burn.training_epochs,
+                                learning_rate: self.burn.training_learning_rate,
+                                validation_fraction: self.burn.training_validation_fraction,
                                 early_stopping_patience: self.early_stopping_patience,
                             },
                             data,
@@ -71,7 +71,7 @@ impl crate::ForgeApp {
                         })
                 }) {
                     Ok(()) => {
-                        self.burn_training_cancel = Some(cancelled);
+                        self.burn.training_cancel = Some(cancelled);
                         self.integration_pending += 1;
                         self.sql_output = format!(
                             "Running embedded Burn training on {} in the background…",
@@ -83,38 +83,38 @@ impl crate::ForgeApp {
                     }
                 }
             }
-            if let Some(cancelled) = &self.burn_training_cancel {
+            if let Some(cancelled) = &self.burn.training_cancel {
                 if ui.button("Cancel native training").clicked() {
                     cancelled.store(true, std::sync::atomic::Ordering::Relaxed);
                     self.sql_output = "Cancelling embedded Burn training…".into();
                 }
             }
             ui.add(
-                egui::DragValue::new(&mut self.burn_training_epochs)
+                egui::DragValue::new(&mut self.burn.training_epochs)
                     .range(1..=10_000)
                     .prefix("epochs "),
             );
             ui.add(
-                egui::DragValue::new(&mut self.burn_training_learning_rate)
+                egui::DragValue::new(&mut self.burn.training_learning_rate)
                     .range(0.000_001..=1.0)
                     .speed(0.001)
                     .prefix("lr "),
             );
             ui.add(
-                egui::DragValue::new(&mut self.burn_training_validation_fraction)
+                egui::DragValue::new(&mut self.burn.training_validation_fraction)
                     .range(0.0..=0.5)
                     .speed(0.01)
                     .prefix("validation "),
             );
-            ui.checkbox(&mut self.burn_training_use_dataset, "use selected dataset");
-            if self.burn_training_use_dataset {
+            ui.checkbox(&mut self.burn.training_use_dataset, "use selected dataset");
+            if self.burn.training_use_dataset {
                 ui.add(
-                    egui::TextEdit::singleline(&mut self.burn_training_feature)
+                    egui::TextEdit::singleline(&mut self.burn.training_feature)
                         .desired_width(110.0)
                         .hint_text("feature column"),
                 );
                 ui.add(
-                    egui::TextEdit::singleline(&mut self.burn_training_target)
+                    egui::TextEdit::singleline(&mut self.burn.training_target)
                         .desired_width(110.0)
                         .hint_text("target column"),
                 );
@@ -153,44 +153,44 @@ impl crate::ForgeApp {
         );
         ui.horizontal_wrapped(|ui| {
             ui.add(
-                egui::TextEdit::singleline(&mut self.prep_categorical)
+                egui::TextEdit::singleline(&mut self.prep.categorical)
                     .desired_width(200.0)
                     .hint_text("categorical columns (comma-separated)"),
             );
             egui::ComboBox::from_id_salt("prep_encoding")
-                .selected_text(match self.prep_encoding {
+                .selected_text(match self.prep.encoding {
                     prep::Encoding::OneHot => "one-hot",
                     prep::Encoding::Ordinal => "ordinal",
                 })
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut self.prep_encoding, prep::Encoding::OneHot, "one-hot");
-                    ui.selectable_value(&mut self.prep_encoding, prep::Encoding::Ordinal, "ordinal");
+                    ui.selectable_value(&mut self.prep.encoding, prep::Encoding::OneHot, "one-hot");
+                    ui.selectable_value(&mut self.prep.encoding, prep::Encoding::Ordinal, "ordinal");
                 });
             egui::ComboBox::from_id_salt("prep_missing")
-                .selected_text(match self.prep_missing {
+                .selected_text(match self.prep.missing {
                     prep::Missing::DropRows => "drop rows",
                     prep::Missing::Mean => "impute mean",
                     prep::Missing::Zero => "impute zero",
                 })
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut self.prep_missing, prep::Missing::DropRows, "drop rows");
-                    ui.selectable_value(&mut self.prep_missing, prep::Missing::Mean, "impute mean");
-                    ui.selectable_value(&mut self.prep_missing, prep::Missing::Zero, "impute zero");
+                    ui.selectable_value(&mut self.prep.missing, prep::Missing::DropRows, "drop rows");
+                    ui.selectable_value(&mut self.prep.missing, prep::Missing::Mean, "impute mean");
+                    ui.selectable_value(&mut self.prep.missing, prep::Missing::Zero, "impute zero");
                 });
             egui::ComboBox::from_id_salt("prep_scaling")
-                .selected_text(match self.prep_scaling {
+                .selected_text(match self.prep.scaling {
                     prep::Scaling::None => "no scaling",
                     prep::Scaling::Standardize => "standardize",
                     prep::Scaling::MinMax => "min-max",
                 })
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut self.prep_scaling, prep::Scaling::None, "no scaling");
+                    ui.selectable_value(&mut self.prep.scaling, prep::Scaling::None, "no scaling");
                     ui.selectable_value(
-                        &mut self.prep_scaling,
+                        &mut self.prep.scaling,
                         prep::Scaling::Standardize,
                         "standardize",
                     );
-                    ui.selectable_value(&mut self.prep_scaling, prep::Scaling::MinMax, "min-max");
+                    ui.selectable_value(&mut self.prep.scaling, prep::Scaling::MinMax, "min-max");
                 });
             if ui
                 .button("Prepare dataset")
@@ -200,8 +200,8 @@ impl crate::ForgeApp {
                 self.run_data_prep();
             }
         });
-        if !self.prep_result.is_empty() {
-            ui.label(RichText::new(&self.prep_result).monospace().size(11.0));
+        if !self.prep.result.is_empty() {
+            ui.label(RichText::new(&self.prep.result).monospace().size(11.0));
         }
 
         ui.separator();
@@ -213,28 +213,28 @@ impl crate::ForgeApp {
         );
         ui.horizontal_wrapped(|ui| {
             ui.add(
-                egui::TextEdit::singleline(&mut self.class_features)
+                egui::TextEdit::singleline(&mut self.class.features)
                     .desired_width(200.0)
                     .hint_text("feature columns (comma-separated)"),
             );
             ui.add(
-                egui::TextEdit::singleline(&mut self.class_target)
+                egui::TextEdit::singleline(&mut self.class.target)
                     .desired_width(110.0)
                     .hint_text("target column"),
             );
             ui.add(
-                egui::DragValue::new(&mut self.class_epochs)
+                egui::DragValue::new(&mut self.class.epochs)
                     .range(1..=100_000)
                     .prefix("epochs "),
             );
             ui.add(
-                egui::DragValue::new(&mut self.class_lr)
+                egui::DragValue::new(&mut self.class.lr)
                     .speed(0.05)
                     .range(0.001..=10.0)
                     .prefix("lr "),
             );
             ui.add(
-                egui::DragValue::new(&mut self.class_test_fraction)
+                egui::DragValue::new(&mut self.class.test_fraction)
                     .speed(0.01)
                     .range(0.0..=0.9)
                     .prefix("test ")
@@ -251,8 +251,8 @@ impl crate::ForgeApp {
                 self.run_classifier_sweep();
             }
         });
-        if !self.class_result.is_empty() {
-            ui.label(RichText::new(&self.class_result).monospace().size(11.0));
+        if !self.class.result.is_empty() {
+            ui.label(RichText::new(&self.class.result).monospace().size(11.0));
         }
         self.classifier_playground(ui);
 
@@ -278,18 +278,18 @@ impl crate::ForgeApp {
                 "ONNX inference uses the app-wide compute device. Change it in \
                  Settings → Compute; it applies on the next load.",
             );
-            if !self.onnx_model_name.is_empty() {
+            if !self.onnx.model_name.is_empty() {
                 ui.label(
-                    RichText::new(format!("model: {}", self.onnx_model_name))
+                    RichText::new(format!("model: {}", self.onnx.model_name))
                         .size(11.0)
                         .color(accent()),
                 );
             }
         });
-        if self.onnx_model.is_some() {
+        if self.onnx.model.is_some() {
             ui.horizontal_wrapped(|ui| {
                 ui.add(
-                    egui::TextEdit::singleline(&mut self.onnx_input)
+                    egui::TextEdit::singleline(&mut self.onnx.input)
                         .desired_width(220.0)
                         .hint_text("feature values (comma-separated)"),
                 );
@@ -307,24 +307,24 @@ impl crate::ForgeApp {
                 }
             });
         }
-        if !self.onnx_result.is_empty() {
-            ui.label(RichText::new(&self.onnx_result).monospace().size(11.0));
+        if !self.onnx.result.is_empty() {
+            ui.label(RichText::new(&self.onnx.result).monospace().size(11.0));
         }
         if let Some(artifact) = self.native_burn_artifact.clone() {
             ui.horizontal_wrapped(|ui| {
                 ui.label("Drift policy");
                 ui.add(
-                    egui::DragValue::new(&mut self.drift_mean_shift_threshold)
+                    egui::DragValue::new(&mut self.drift.mean_shift_threshold)
                         .speed(0.05)
                         .prefix("std "),
                 );
                 ui.add(
-                    egui::DragValue::new(&mut self.drift_scale_ratio_lower)
+                    egui::DragValue::new(&mut self.drift.scale_ratio_lower)
                         .speed(0.05)
                         .prefix("scale min "),
                 );
                 ui.add(
-                    egui::DragValue::new(&mut self.drift_scale_ratio_upper)
+                    egui::DragValue::new(&mut self.drift.scale_ratio_upper)
                         .speed(0.05)
                         .prefix("scale max "),
                 );
@@ -388,9 +388,9 @@ impl crate::ForgeApp {
                         .save_file()
                     {
                         let policy = deep_learning::DriftPolicy {
-                            mean_shift_threshold: self.drift_mean_shift_threshold,
-                            scale_ratio_lower: self.drift_scale_ratio_lower,
-                            scale_ratio_upper: self.drift_scale_ratio_upper,
+                            mean_shift_threshold: self.drift.mean_shift_threshold,
+                            scale_ratio_lower: self.drift.scale_ratio_lower,
+                            scale_ratio_upper: self.drift.scale_ratio_upper,
                         };
                         self.sql_output =
                             export::native_regression_model_card(&artifact, policy, &path)
@@ -420,9 +420,9 @@ impl crate::ForgeApp {
                         });
                     match selected.and_then(|(dataset_name, table)| {
                         let drift_policy = deep_learning::DriftPolicy {
-                            mean_shift_threshold: self.drift_mean_shift_threshold,
-                            scale_ratio_lower: self.drift_scale_ratio_lower,
-                            scale_ratio_upper: self.drift_scale_ratio_upper,
+                            mean_shift_threshold: self.drift.mean_shift_threshold,
+                            scale_ratio_lower: self.drift.scale_ratio_lower,
+                            scale_ratio_upper: self.drift.scale_ratio_upper,
                         }
                         .validate()?;
                         self.integration_worker.submit(
@@ -936,22 +936,23 @@ impl crate::ForgeApp {
                     .ok_or("The selected dataset no longer exists")?
                     .table;
                 let features: Vec<String> = self
-                    .class_features
+                    .class
+                    .features
                     .split(',')
                     .map(|s| s.trim().to_owned())
                     .filter(|s| !s.is_empty())
                     .collect();
-                let data = classification::prepare(table, &features, self.class_target.trim())?;
+                let data = classification::prepare(table, &features, self.class.target.trim())?;
                 let rows = data.features.len();
                 let classes = data.class_names.len();
-                let (train, test) = data.split(self.class_test_fraction);
+                let (train, test) = data.split(self.class.test_fraction);
                 let train = if train.features.len() >= 2 {
                     train
                 } else {
                     data.clone()
                 };
                 let model =
-                    classification::Classifier::train(&train, self.class_epochs, self.class_lr)?;
+                    classification::Classifier::train(&train, self.class.epochs, self.class.lr)?;
                 let (eval_set, eval_label) = if !test.features.is_empty() {
                     (
                         &test,
@@ -985,9 +986,9 @@ impl crate::ForgeApp {
             })();
         match result {
             Ok((summary, plot, model)) => {
-                self.class_result = summary;
-                self.class_playground = model.baseline();
-                self.class_model = Some(model);
+                self.class.result = summary;
+                self.class.playground = model.baseline();
+                self.class.model = Some(model);
                 if let Some(existing) = self
                     .structured_plots
                     .iter_mut()
@@ -999,21 +1000,21 @@ impl crate::ForgeApp {
                 }
                 self.inspector_tab = InspectorTab::Charts;
             }
-            Err(error) => self.class_result = error,
+            Err(error) => self.class.result = error,
         }
     }
 
     /// Interactive single-example prediction: one input per feature, with live
     /// per-class probabilities from the last-trained classifier.
     fn classifier_playground(&mut self, ui: &mut egui::Ui) {
-        let Some(model) = self.class_model.as_ref() else {
+        let Some(model) = self.class.model.as_ref() else {
             return;
         };
         let features = model.feature_names.clone();
-        if self.class_playground.len() != features.len() {
-            self.class_playground = model.baseline();
-            if self.class_playground.len() != features.len() {
-                self.class_playground = vec![0.0; features.len()];
+        if self.class.playground.len() != features.len() {
+            self.class.playground = model.baseline();
+            if self.class.playground.len() != features.len() {
+                self.class.playground = vec![0.0; features.len()];
             }
         }
         ui.separator();
@@ -1024,7 +1025,7 @@ impl crate::ForgeApp {
                 .on_hover_text("Restore each feature to its training mean")
                 .clicked()
             {
-                self.class_playground = model.baseline();
+                self.class.playground = model.baseline();
             }
         });
         ui.label(
@@ -1038,11 +1039,11 @@ impl crate::ForgeApp {
             .show(ui, |ui| {
                 for (i, name) in features.iter().enumerate() {
                     ui.label(RichText::new(name).size(11.0));
-                    ui.add(egui::DragValue::new(&mut self.class_playground[i]).speed(0.1));
+                    ui.add(egui::DragValue::new(&mut self.class.playground[i]).speed(0.1));
                     ui.end_row();
                 }
             });
-        let proba = model.predict_proba(&self.class_playground);
+        let proba = model.predict_proba(&self.class.playground);
         let best = proba
             .iter()
             .enumerate()
@@ -1089,13 +1090,13 @@ impl crate::ForgeApp {
                     .filter(|s| !s.is_empty())
                     .collect::<Vec<_>>()
             };
-            let passthrough = split(&self.class_target);
+            let passthrough = split(&self.class.target);
             let config = prep::PrepConfig {
-                feature_columns: split(&self.class_features),
-                categorical_columns: split(&self.prep_categorical),
-                encoding: self.prep_encoding,
-                missing: self.prep_missing,
-                scaling: self.prep_scaling,
+                feature_columns: split(&self.class.features),
+                categorical_columns: split(&self.prep.categorical),
+                encoding: self.prep.encoding,
+                missing: self.prep.missing,
+                scaling: self.prep.scaling,
                 passthrough,
             };
             let (prepared, report) = prep::transform(&table, &config)?;
@@ -1107,10 +1108,10 @@ impl crate::ForgeApp {
         })();
         match result {
             Ok((new_name, report)) => {
-                self.prep_result = format!("Saved `{new_name}`.\n{}", report.summary());
+                self.prep.result = format!("Saved `{new_name}`.\n{}", report.summary());
                 self.console = format!("Prepared dataset saved as `{new_name}`.");
             }
-            Err(error) => self.prep_result = error,
+            Err(error) => self.prep.result = error,
         }
     }
 
@@ -1167,37 +1168,38 @@ impl crate::ForgeApp {
         };
         match loaded {
             Ok(model) => {
-                self.onnx_model = Some(model);
-                self.onnx_model_name = file_title(&path);
-                self.onnx_result = format!(
+                self.onnx.model = Some(model);
+                self.onnx.model_name = file_title(&path);
+                self.onnx.result = format!(
                     "Loaded `{}`{device_label}. Ready for inference.",
-                    self.onnx_model_name
+                    self.onnx.model_name
                 );
             }
             Err(error) => {
-                self.onnx_model = None;
-                self.onnx_result = format!("Could not load ONNX model: {error}");
+                self.onnx.model = None;
+                self.onnx.result = format!("Could not load ONNX model: {error}");
             }
         }
     }
 
     /// Run the loaded ONNX model on one comma-separated feature row.
     fn predict_onnx_row(&mut self) {
-        let Some(model) = self.onnx_model.as_ref() else {
-            self.onnx_result = "Load an ONNX model first.".to_owned();
+        let Some(model) = self.onnx.model.as_ref() else {
+            self.onnx.result = "Load an ONNX model first.".to_owned();
             return;
         };
         let values: Vec<f64> = self
-            .onnx_input
+            .onnx
+            .input
             .split(',')
             .filter_map(|token| token.trim().parse::<f64>().ok())
             .collect();
         if values.is_empty() {
-            self.onnx_result = "Enter comma-separated numeric feature values.".to_owned();
+            self.onnx.result = "Enter comma-separated numeric feature values.".to_owned();
             return;
         }
         let columns: Vec<String> = (0..values.len()).map(|i| format!("f{i}")).collect();
-        self.onnx_result = match millwright::frame::Frame::from_rows(vec![values], columns)
+        self.onnx.result = match millwright::frame::Frame::from_rows(vec![values], columns)
             .and_then(|frame| model.predict(&frame))
         {
             Ok(prediction) => format!("ONNX prediction: {prediction:?}"),
@@ -1208,8 +1210,8 @@ impl crate::ForgeApp {
     /// Run the loaded ONNX model over the selected dataset's feature columns
     /// (reusing the classifier's feature-column list) and summarize predictions.
     fn predict_onnx_dataset(&mut self) {
-        let Some(model) = self.onnx_model.as_ref() else {
-            self.onnx_result = "Load an ONNX model first.".to_owned();
+        let Some(model) = self.onnx.model.as_ref() else {
+            self.onnx.result = "Load an ONNX model first.".to_owned();
             return;
         };
         let result = (|| -> Result<String, String> {
@@ -1226,7 +1228,8 @@ impl crate::ForgeApp {
                 .ok_or("The selected dataset no longer exists")?
                 .table;
             let features: Vec<String> = self
-                .class_features
+                .class
+                .features
                 .split(',')
                 .map(|s| s.trim().to_owned())
                 .filter(|s| !s.is_empty())
@@ -1275,12 +1278,12 @@ impl crate::ForgeApp {
                 .collect();
             Ok(format!(
                 "Scored {n} rows of `{name}` with `{}`.\nFirst {}: [{}]",
-                self.onnx_model_name,
+                self.onnx.model_name,
                 preview.len(),
                 preview.join(", ")
             ))
         })();
-        self.onnx_result = result.unwrap_or_else(|error| error);
+        self.onnx.result = result.unwrap_or_else(|error| error);
     }
 
     /// Grid-search learning rate × epochs for the classifier on the selected
@@ -1300,13 +1303,14 @@ impl crate::ForgeApp {
                 .ok_or("The selected dataset no longer exists")?
                 .table;
             let features: Vec<String> = self
-                .class_features
+                .class
+                .features
                 .split(',')
                 .map(|s| s.trim().to_owned())
                 .filter(|s| !s.is_empty())
                 .collect();
-            let data = classification::prepare(table, &features, self.class_target.trim())?;
-            let (train, test) = data.split(self.class_test_fraction);
+            let data = classification::prepare(table, &features, self.class.target.trim())?;
+            let (train, test) = data.split(self.class.test_fraction);
             let train = if train.features.len() >= 2 {
                 train
             } else {
@@ -1319,8 +1323,8 @@ impl crate::ForgeApp {
                 .first()
                 .cloned()
                 .ok_or("The sweep produced no results")?;
-            self.class_lr = best.learning_rate;
-            self.class_epochs = best.epochs;
+            self.class.lr = best.learning_rate;
+            self.class.epochs = best.epochs;
             let table_rows = results
                 .iter()
                 .take(8)
@@ -1340,7 +1344,7 @@ impl crate::ForgeApp {
                 best.macro_f1
             ))
         })();
-        self.class_result = result.unwrap_or_else(|error| error);
+        self.class.result = result.unwrap_or_else(|error| error);
     }
 
     fn selected_native_training_data(&self) -> Result<deep_learning::NativeTrainingData, String> {
@@ -1358,8 +1362,8 @@ impl crate::ForgeApp {
         deep_learning::native_training_data(
             &name,
             &dataset.table,
-            self.burn_training_feature.trim(),
-            self.burn_training_target.trim(),
+            self.burn.training_feature.trim(),
+            self.burn.training_target.trim(),
         )
     }
 }

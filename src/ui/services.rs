@@ -294,9 +294,9 @@ impl crate::ForgeApp {
             ui.label(format!(
                 "{} service · {} drift events",
                 self.service_events.len(),
-                self.drift_events.len()
+                self.drift.events.len()
             ));
-            if (!self.service_events.is_empty() || !self.drift_events.is_empty())
+            if (!self.service_events.is_empty() || !self.drift.events.is_empty())
                 && ui.button("Export snapshot").clicked()
             {
                 if let Some(path) = rfd::FileDialog::new()
@@ -304,7 +304,7 @@ impl crate::ForgeApp {
                     .save_file()
                 {
                     self.registry.output =
-                        service_monitor::snapshot_json(&self.service_events, &self.drift_events)
+                        service_monitor::snapshot_json(&self.service_events, &self.drift.events)
                             .and_then(|bytes| {
                                 std::fs::write(&path, bytes).map_err(|error| error.to_string())
                             })
@@ -312,7 +312,7 @@ impl crate::ForgeApp {
                             .unwrap_or_else(|error| format!("Monitoring export failed: {error}"));
                 }
             }
-            if (!self.service_events.is_empty() || !self.drift_events.is_empty())
+            if (!self.service_events.is_empty() || !self.drift.events.is_empty())
                 && ui.button("Export CSV").clicked()
             {
                 if let Some(path) = rfd::FileDialog::new()
@@ -320,7 +320,7 @@ impl crate::ForgeApp {
                     .save_file()
                 {
                     self.registry.output =
-                        export::monitoring_csv(&self.service_events, &self.drift_events, &path)
+                        export::monitoring_csv(&self.service_events, &self.drift.events, &path)
                             .map(|()| {
                                 format!("Exported monitoring CSV to {}", path.display())
                             })
@@ -339,17 +339,17 @@ impl crate::ForgeApp {
                         .and_then(|bytes| service_monitor::parse_snapshot(&bytes))
                         .map(|snapshot| {
                             self.service_events = snapshot.service_events;
-                            self.drift_events = snapshot.drift_events;
+                            self.drift.events = snapshot.drift_events;
                             format!("Imported monitoring snapshot from {}", path.display())
                         })
                         .unwrap_or_else(|error| format!("Monitoring import failed: {error}"));
                 }
             }
-            if (!self.service_events.is_empty() || !self.drift_events.is_empty())
+            if (!self.service_events.is_empty() || !self.drift.events.is_empty())
                 && ui.button("Open monitoring plots").clicked()
             {
                 let plots =
-                    service_monitor::monitoring_plots(&self.service_events, &self.drift_events);
+                    service_monitor::monitoring_plots(&self.service_events, &self.drift.events);
                 let count = plots.len();
                 for spec in plots {
                     if let Some(existing) = self
@@ -365,7 +365,7 @@ impl crate::ForgeApp {
                 self.inspector_tab = InspectorTab::Charts;
                 self.console = format!("Opened {count} native monitoring plot(s).");
             }
-            if (!self.service_events.is_empty() || !self.drift_events.is_empty())
+            if (!self.service_events.is_empty() || !self.drift.events.is_empty())
                 && ui.button("HTML report").clicked()
             {
                 if let Some(path) = rfd::FileDialog::new()
@@ -374,7 +374,7 @@ impl crate::ForgeApp {
                 {
                     self.registry.output = service_monitor::monitoring_report(
                         &self.service_events,
-                        &self.drift_events,
+                        &self.drift.events,
                     )
                     .and_then(|report| {
                         std::fs::write(&path, report).map_err(|error| error.to_string())
@@ -383,7 +383,7 @@ impl crate::ForgeApp {
                     .unwrap_or_else(|error| format!("Monitoring report failed: {error}"));
                 }
             }
-            if (!self.service_events.is_empty() || !self.drift_events.is_empty())
+            if (!self.service_events.is_empty() || !self.drift.events.is_empty())
                 && ui.button("PDF report").clicked()
             {
                 if let Some(path) = rfd::FileDialog::new()
@@ -392,14 +392,14 @@ impl crate::ForgeApp {
                 {
                     self.registry.output = service_monitor::monitoring_pdf_lines(
                         &self.service_events,
-                        &self.drift_events,
+                        &self.drift.events,
                     )
                     .and_then(|lines| export::write_text_pdf(&path, &lines))
                     .map(|()| format!("Exported monitoring PDF report to {}", path.display()))
                     .unwrap_or_else(|error| format!("Monitoring PDF report failed: {error}"));
                 }
             }
-            if (!self.service_events.is_empty() || !self.drift_events.is_empty())
+            if (!self.service_events.is_empty() || !self.drift.events.is_empty())
                 && ui.button("Monitoring bundle").clicked()
             {
                 if let Some(path) = rfd::FileDialog::new()
@@ -407,7 +407,7 @@ impl crate::ForgeApp {
                     .save_file()
                 {
                     self.registry.output =
-                        export::monitoring_bundle(&self.service_events, &self.drift_events, &path)
+                        export::monitoring_bundle(&self.service_events, &self.drift.events, &path)
                             .map(|()| format!("Exported monitoring bundle to {}", path.display()))
                             .unwrap_or_else(|error| format!("Monitoring bundle failed: {error}"));
                 }
@@ -423,7 +423,7 @@ impl crate::ForgeApp {
                             let drift = bundle.snapshot.drift_events.len();
                             let plots = bundle.plots.len();
                             self.service_events = bundle.snapshot.service_events;
-                            self.drift_events = bundle.snapshot.drift_events;
+                            self.drift.events = bundle.snapshot.drift_events;
                             for spec in bundle.plots {
                                 if let Some(existing) = self
                                     .structured_plots
@@ -445,16 +445,16 @@ impl crate::ForgeApp {
                         });
                 }
             }
-            if (!self.service_events.is_empty() || !self.drift_events.is_empty())
+            if (!self.service_events.is_empty() || !self.drift.events.is_empty())
                 && ui.button("Clear monitoring").clicked()
             {
                 self.service_events.clear();
-                self.drift_events.clear();
+                self.drift.events.clear();
                 self.registry.output = "Cleared live monitoring events.".into();
             }
         });
         let overview =
-            service_monitor::deployment_overview(&self.service_events, &self.drift_events);
+            service_monitor::deployment_overview(&self.service_events, &self.drift.events);
         if overview.is_empty() {
             ui.label(
                 RichText::new("Run or stream forge_service JSON lines to populate request health.")
