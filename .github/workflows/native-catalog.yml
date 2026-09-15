@@ -26,7 +26,7 @@ jobs:
   pin:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Regenerate the pinned catalog
         run: bash packaging/generate-native-catalog.sh > packaging/native-catalog.toml
