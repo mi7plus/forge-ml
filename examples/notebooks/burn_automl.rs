@@ -7,9 +7,9 @@
 // But the engine behind it, `automl-core`, is a normal crate on crates.io, so
 // you can run the same kind of search here by pairing it with `:dep burn`.
 //
-// Note: `automl-core` is fetched from crates.io on first build, so this cell
-// needs network the first time (Burn itself comes from the bundled offline
-// runtime). We model the Seaborn "tips" dataset:  tip ~ total_bill.
+// Both crates ship in the bundled offline runtime (`automl-core` is vendored
+// alongside Burn/Millwright), so this resolves with no network. We model the
+// Seaborn "tips" dataset:  tip ~ total_bill.
 :dep burn = { version = "0.22.0-pre.3", default-features = false, features = ["std", "train", "flex"] }
 :dep automl-core = "1.4.0"
 use burn::nn::LinearConfig;

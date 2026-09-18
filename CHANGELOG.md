@@ -11,6 +11,12 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+### Changed
+- **`automl-core` is vendored into the offline runtime bundle** (added to
+  `packaging/offline-deps`), so notebook `:dep automl-core` cells — e.g. the new
+  `examples/notebooks/burn_automl.rs` — resolve with no network, like Burn and
+  Millwright. Its deps were already vendored, so the cache grows by one crate.
+
 ## [1.16.0] — 2026-09-18
 
 ### Added
