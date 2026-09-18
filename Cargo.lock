@@ -1112,7 +1112,7 @@ dependencies = [
  "addr2line",
  "cfg-if",
  "libc",
- "miniz_oxide",
+ "miniz_oxide 0.8.9",
  "object 0.37.3",
  "rustc-demangle",
  "windows-link",
@@ -2100,9 +2100,9 @@ dependencies = [
 
 [[package]]
 name = "cef"
-version = "152.1.0+152.0.6"
+version = "152.3.0+152.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81207e518922dccc7ebc0c4480d0f2a4f23d58e0e682504712e2d9498bbb6212"
+checksum = "785012b485c1a2685876b1f924722a047309900b88f15fc3581869caabdce3d8"
 dependencies = [
  "anyhow",
  "cargo_metadata",
@@ -2120,11 +2120,12 @@ dependencies = [
 
 [[package]]
 name = "cef-dll-sys"
-version = "152.1.0+152.0.6"
+version = "152.3.0+152.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e9473ca242cc8690175838c7c15ce764f74daa96cc294430167a032f463992c8"
+checksum = "ced5c6a0f46744561b50e283f9134c21bdd95a2e991695b0fc7399ad79765bbd"
 dependencies = [
  "anyhow",
+ "cc",
  "cmake",
  "download-cef",
  "serde_json",
@@ -2899,7 +2900,7 @@ dependencies = [
  "serde_bytes",
  "serde_json",
  "spin 0.12.3",
- "toml 1.1.4+spec-1.1.0",
+ "toml 1.1.6+spec-1.1.0",
  "tracing",
  "wasm-bindgen-futures",
  "web-time",
@@ -3067,7 +3068,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.20",
- "toml 1.1.4+spec-1.1.0",
+ "toml 1.1.6+spec-1.1.0",
  "tracing",
  "wasm-bindgen-futures",
 ]
@@ -3680,9 +3681,9 @@ checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
 
 [[package]]
 name = "download-cef"
-version = "2.3.2"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c169adf067a787e1f1c58ed62906a557de85388bee4b54fb878b722ff606b113"
+checksum = "05ee509499d14dc47da5f824e4bb1bd558ceb259adc5475956265d48787a80da"
 dependencies = [
  "bzip2 0.6.1",
  "clap",
@@ -3778,9 +3779,9 @@ dependencies = [
 
 [[package]]
 name = "eframe"
-version = "0.36.0"
+version = "0.36.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a9f6000a8c01ca5b79bb914777c85902a5173d9f6c44278463aa0039bee4ca4"
+checksum = "55ad41fac6e3149abb4866e93df37dbd33baa95db525c3368c944584e95a5dc2"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -3837,9 +3838,9 @@ dependencies = [
 
 [[package]]
 name = "egui-wgpu"
-version = "0.36.0"
+version = "0.36.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a262a88482609aeda48457fa6f76f5b754b2965e88797c22ac8ab2709f397906"
+checksum = "5cef1f6d1bba40b09a4d0d62cb822b81030922cfbf65c5373398c3a3caafc5bd"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -3857,9 +3858,9 @@ dependencies = [
 
 [[package]]
 name = "egui-winit"
-version = "0.36.0"
+version = "0.36.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bcc5ff243c9d41a665caeeb1e2b18258904524eb9f7c6840e00e9055017f0ade"
+checksum = "98466000559d66ba4db786a30448b01483946add4188e7f10f522a27b4fb89cc"
 dependencies = [
  "accesskit_winit",
  "arboard",
@@ -3890,9 +3891,9 @@ dependencies = [
 
 [[package]]
 name = "egui_glow"
-version = "0.36.0"
+version = "0.36.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc088c86612837efb5a79a0cef947edc59db0bf52a2230785836d27005866b58"
+checksum = "606ed4167daf341e5753d703285c4c1d562324b2c07aa8f405cd7d066fe58f3b"
 dependencies = [
  "bytemuck",
  "egui",
@@ -4236,7 +4237,7 @@ dependencies = [
  "serde_json",
  "sig",
  "tempfile",
- "toml 1.1.4+spec-1.1.0",
+ "toml 1.1.6+spec-1.1.0",
  "triomphe",
  "unicode-segmentation",
  "which",
@@ -4279,7 +4280,7 @@ dependencies = [
  "bit_field",
  "half",
  "lebe",
- "miniz_oxide",
+ "miniz_oxide 0.8.9",
  "num-complex 0.4.6",
  "pulp",
  "rayon-core",
@@ -4387,12 +4388,12 @@ dependencies = [
 
 [[package]]
 name = "flate2"
-version = "1.1.9"
+version = "1.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "843fba2746e448b37e26a819579957415c8cef339bf08564fe8b7ddbd959573c"
+checksum = "6e634e2e0ebac1ee034020da1ca582e17ffe4e0f5e985823721e168928136dcb"
 dependencies = [
  "crc32fast",
- "miniz_oxide",
+ "miniz_oxide 0.9.1",
  "zlib-rs",
 ]
 
@@ -4563,7 +4564,7 @@ dependencies = [
  "sha2 0.11.0",
  "sysinfo 0.39.6",
  "tar",
- "toml 1.1.4+spec-1.1.0",
+ "toml 1.1.6+spec-1.1.0",
  "tungstenite",
  "ureq 2.12.1",
  "url",
@@ -6120,9 +6121,9 @@ dependencies = [
 
 [[package]]
 name = "keyring"
-version = "4.1.6"
+version = "4.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72585bb6cc9bc370d1d545b7e23fcce71dfd4461c5e15275e3cf51bdfd9a980a"
+checksum = "2270074a3d26bcac93c1dc5d2845eb4c089e8d761ccf6e0ea266a16004640627"
 dependencies = [
  "apple-native-keyring-store",
  "keyring-core",
@@ -6778,6 +6779,16 @@ name = "miniz_oxide"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fa76a2c86f704bdb222d66965fb3d63269ce38518b83cb0575fca855ebb6316"
+dependencies = [
+ "adler2",
+ "simd-adler32",
+]
+
+[[package]]
+name = "miniz_oxide"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b63fbc4a50860e98e7b2aa7804ded1db5cbc3aff9193adaff57a6931bf7c4b4c"
 dependencies = [
  "adler2",
  "simd-adler32",
@@ -8340,7 +8351,7 @@ dependencies = [
  "crc32fast",
  "fdeflate",
  "flate2",
- "miniz_oxide",
+ "miniz_oxide 0.8.9",
 ]
 
 [[package]]
@@ -9963,7 +9974,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "temp-dir",
- "toml 1.1.4+spec-1.1.0",
+ "toml 1.1.6+spec-1.1.0",
  "tracing",
  "triomphe",
 ]
@@ -12255,9 +12266,9 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "1.1.4+spec-1.1.0"
+version = "1.1.6+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3aace63f4bbcdfc2c965b059de67119c89c4017a70d633be6c104910f67056f5"
+checksum = "920602543f0911ab71da12c50d59701da54c196d1a2bf5cb4b75667f137a406a"
 dependencies = [
  "indexmap",
  "serde_core",
@@ -13027,9 +13038,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.25.0"
+version = "1.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f053576934f05a761a402421fbbe3d425d9366f75f978806a037b3ca481abecc"
+checksum = "2ef6dac1e96601b4fb3acccccff2139741fcb757cb9a36089bf5be91cfb285ce"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
@@ -14422,7 +14433,7 @@ version = "0.1.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0986a8b1d586b7d3e4fe3d9ea39fb451ae22869dcea4aa109d287a374d866087"
 dependencies = [
- "toml 1.1.4+spec-1.1.0",
+ "toml 1.1.6+spec-1.1.0",
  "version_check",
 ]
 

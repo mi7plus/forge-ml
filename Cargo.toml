@@ -69,7 +69,7 @@ members = [
 resolver = "3"
 
 [dependencies]
-eframe = { version = "=0.36.0", features = ["persistence"] }
+eframe = { version = "=0.36.2", features = ["persistence"] }
 egui = "=0.36.2"
 egui_plot = "=0.37.0"
 egui_code_editor = "=0.3.8"
