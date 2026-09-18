@@ -11,6 +11,13 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+## [1.17.0] — 2026-09-18
+
+### Added
+- **`examples/notebooks/burn_automl.rs`** — runs AutoML *in a script*:
+  `:dep automl-core` + `:dep burn` search Burn's learning rate + epochs on the
+  real Seaborn "tips" dataset, mirroring the IDE's built-in AutoML button.
+
 ### Changed
 - **`automl-core` is vendored into the offline runtime bundle** (added to
   `packaging/offline-deps`), so notebook `:dep automl-core` cells — e.g. the new
