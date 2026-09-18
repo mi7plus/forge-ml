@@ -1,6 +1,6 @@
 [package]
 name = "forge-cef"
-version = "1.15.0"
+version = "1.16.0"
 edition = "2024"
 description = "Forge's CEF (Chromium Embedded Framework) offscreen-render helper — renders a page windowless and streams the framebuffer to the IDE over shared memory."
 publish = false

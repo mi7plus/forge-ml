@@ -11,6 +11,8 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+## [1.16.0] — 2026-09-18
+
 ### Added
 - **AutoML hyperparameter search for embedded Burn training.** A new **AutoML**
   section in the Deep-learning inspector searches learning rate + epochs for the
