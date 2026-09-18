@@ -22,6 +22,13 @@ pub enum Request {
         data: Option<crate::deep_learning::NativeTrainingData>,
         cancelled: Arc<AtomicBool>,
     },
+    AutomlSearch {
+        backend: crate::deep_learning::Backend,
+        data: crate::deep_learning::NativeTrainingData,
+        trials: u64,
+        seed: u64,
+        cancelled: Arc<AtomicBool>,
+    },
     NativeRegressionPredict {
         artifact: crate::deep_learning::NativeRegressionArtifact,
         dataset_name: String,
@@ -79,6 +86,8 @@ pub enum Request {
 pub enum ResultEvent {
     BurnTrainingProgress(crate::millwright_studio::TrainingEvent),
     BurnTrainingFinished(Result<crate::deep_learning::NativeTrainingOutcome, String>),
+    AutomlProgress(crate::automl::AutomlTrial),
+    AutomlFinished(Result<crate::automl::AutomlOutcome, String>),
     NativeRegressionPredicted(
         Result<
             (
@@ -230,6 +239,25 @@ fn execute(request: Request, events: &Sender<ResultEvent>) -> ResultEvent {
                 },
             );
             ResultEvent::BurnTrainingFinished(result)
+        }
+        Request::AutomlSearch {
+            backend,
+            data,
+            trials,
+            seed,
+            cancelled,
+        } => {
+            let result = crate::automl::search(
+                &data,
+                backend,
+                trials,
+                seed,
+                || cancelled.load(Ordering::Relaxed),
+                |trial| {
+                    let _ = events.send(ResultEvent::AutomlProgress(trial));
+                },
+            );
+            ResultEvent::AutomlFinished(result)
         }
         Request::NativeRegressionPredict {
             artifact,

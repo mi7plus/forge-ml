@@ -7,6 +7,31 @@
 
 use crate::*;
 
+/// AutoML hyperparameter-search state: the search form, the live cancel handle
+/// and trial count while a search runs, and the last result. Grouped out of
+/// [`crate::ForgeApp`].
+pub(crate) struct AutomlState {
+    pub(crate) trials: u64,
+    pub(crate) seed: u64,
+    pub(crate) cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    pub(crate) progress: usize,
+    pub(crate) outcome: Option<automl::AutomlOutcome>,
+    pub(crate) status: String,
+}
+
+impl Default for AutomlState {
+    fn default() -> Self {
+        Self {
+            trials: 15,
+            seed: 42,
+            cancel: None,
+            progress: 0,
+            outcome: None,
+            status: String::new(),
+        }
+    }
+}
+
 /// rust-analyzer (LSP) client state: the handle plus the diagnostics, hover
 /// signature, references, and status it drives. Grouped out of [`crate::ForgeApp`].
 pub(crate) struct LspState {

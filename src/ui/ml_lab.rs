@@ -146,6 +146,7 @@ impl crate::ForgeApp {
             "Burn {} embedded · Flex CPU, WGPU, training, and metrics compiled into Forge",
             deep_learning::BURN_VERSION
         ));
+        self.dl_automl(ui);
         ui.label(
             RichText::new(crate::offline::status_line())
                 .size(10.0)
@@ -156,6 +157,104 @@ impl crate::ForgeApp {
                  runtime is present; otherwise they need a system toolchain and network.",
         );
         ui.label(&self.sql.output);
+    }
+
+    /// AutoML hyperparameter search: explore learning rate + epochs for the
+    /// embedded Burn regressor (via the `automl-core` engine), then adopt the
+    /// best configuration into the training form above.
+    fn dl_automl(&mut self, ui: &mut egui::Ui) {
+        ui.separator();
+        ui.strong("AutoML — hyperparameter search");
+        ui.label(
+            RichText::new(
+                "Searches learning rate and epochs for the embedded Burn regressor on the \
+                 selected dataset (feature/target above), then adopts the best into the form.",
+            )
+            .size(10.0)
+            .color(MUTED),
+        );
+        ui.horizontal_wrapped(|ui| {
+            if self.automl.cancel.is_none() && ui.button("Run AutoML search").clicked() {
+                match self.selected_native_training_data() {
+                    Ok(data) => {
+                        let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+                        match self
+                            .integration_worker
+                            .submit(IntegrationRequest::AutomlSearch {
+                                backend: self.deep_backend,
+                                data,
+                                trials: self.automl.trials.max(1),
+                                seed: self.automl.seed,
+                                cancelled: Arc::clone(&cancelled),
+                            }) {
+                            Ok(()) => {
+                                self.automl.cancel = Some(cancelled);
+                                self.automl.progress = 0;
+                                self.automl.outcome = None;
+                                self.integration_pending += 1;
+                                self.automl.status = format!(
+                                    "Running AutoML: {} trial(s) on {}…",
+                                    self.automl.trials.max(1),
+                                    self.deep_backend.label()
+                                );
+                            }
+                            Err(error) => {
+                                self.automl.status = format!("Could not start AutoML: {error}");
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        self.automl.status = format!("AutoML needs a dataset: {error}");
+                    }
+                }
+            }
+            if let Some(cancelled) = &self.automl.cancel
+                && ui.button("Cancel AutoML").clicked()
+            {
+                cancelled.store(true, std::sync::atomic::Ordering::Relaxed);
+                self.automl.status = "Cancelling AutoML…".into();
+            }
+            ui.add(
+                egui::DragValue::new(&mut self.automl.trials)
+                    .range(1..=200)
+                    .prefix("trials "),
+            );
+            ui.add(egui::DragValue::new(&mut self.automl.seed).prefix("seed "));
+        });
+        if self.automl.cancel.is_some() {
+            ui.label(format!(
+                "AutoML progress: {} / {} trials",
+                self.automl.progress,
+                self.automl.trials.max(1)
+            ));
+        }
+        if !self.automl.status.is_empty() {
+            ui.label(RichText::new(&self.automl.status).size(11.0));
+        }
+        if let Some(outcome) = &self.automl.outcome
+            && !outcome.history.is_empty()
+        {
+            egui::CollapsingHeader::new(format!("AutoML trials ({})", outcome.trials_completed))
+                .show(ui, |ui| {
+                    for trial in &outcome.history {
+                        let is_best = (trial.learning_rate - outcome.best_learning_rate).abs()
+                            < f64::EPSILON
+                            && trial.epochs == outcome.best_epochs;
+                        let suffix = if is_best { "  (best)" } else { "" };
+                        ui.label(
+                            RichText::new(format!(
+                                "#{:>2}  lr {:.4}  epochs {:>3}  score {:.4}{suffix}",
+                                trial.trial + 1,
+                                trial.learning_rate,
+                                trial.epochs,
+                                trial.score
+                            ))
+                            .monospace()
+                            .size(11.0),
+                        );
+                    }
+                });
+        }
     }
 
     /// Dataset-preparation controls (encoding / imputation / scaling).

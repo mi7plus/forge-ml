@@ -7,6 +7,7 @@ mod app_exec;
 mod app_files;
 mod app_lsp;
 mod app_state;
+mod automl;
 mod classification;
 mod cli;
 mod commands;
@@ -869,6 +870,7 @@ struct ForgeApp {
     /// training backend and the Millwright ONNX inference device.
     compute_device: deep_learning::ComputeDevice,
     burn: BurnState,
+    automl: AutomlState,
     class: ClassificationState,
     prep: PrepState,
     onnx: OnnxState,
@@ -1422,6 +1424,7 @@ impl ForgeApp {
             deep_backend: session.native_training_backend,
             compute_device: session.compute_device,
             burn,
+            automl: AutomlState::default(),
             class: ClassificationState::default(),
             prep: PrepState::default(),
             onnx: OnnxState::default(),
@@ -2304,6 +2307,7 @@ impl ForgeApp {
                 ResultEvent::RemoteInputRequested { .. }
                     | ResultEvent::DataImportProgress { .. }
                     | ResultEvent::BurnTrainingProgress(_)
+                    | ResultEvent::AutomlProgress(_)
             ) {
                 self.integration_pending = self.integration_pending.saturating_sub(1);
             }
@@ -2323,6 +2327,41 @@ impl ForgeApp {
                             )
                         })
                         .unwrap_or_else(|error| format!("Embedded Burn training failed: {error}"));
+                }
+                ResultEvent::AutomlProgress(trial) => {
+                    self.automl.progress = self.automl.progress.max(trial.trial + 1);
+                    self.automl.status = format!(
+                        "AutoML trial {} of {}: lr {:.4}, {} epochs -> score {:.4}",
+                        trial.trial + 1,
+                        self.automl.trials,
+                        trial.learning_rate,
+                        trial.epochs,
+                        trial.score
+                    );
+                    self.inspector_tab = InspectorTab::Studio;
+                }
+                ResultEvent::AutomlFinished(result) => {
+                    self.automl.cancel = None;
+                    match result {
+                        Ok(outcome) => {
+                            self.automl.status = format!(
+                                "AutoML finished {} trial(s). Best: lr {:.4}, {} epochs (score {:.4}).",
+                                outcome.trials_completed,
+                                outcome.best_learning_rate,
+                                outcome.best_epochs,
+                                outcome.best_score
+                            );
+                            // Adopt the best hyperparameters into the Burn training form.
+                            if outcome.trials_completed > 0 {
+                                self.burn.training_learning_rate = outcome.best_learning_rate;
+                                self.burn.training_epochs = outcome.best_epochs;
+                            }
+                            self.automl.outcome = Some(outcome);
+                        }
+                        Err(error) => {
+                            self.automl.status = format!("AutoML search failed: {error}");
+                        }
+                    }
                 }
                 ResultEvent::NativeRegressionPredicted(result) => match result {
                     Ok((name, dataset, predicted, diagnostics, drift)) => {

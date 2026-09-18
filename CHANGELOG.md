@@ -11,6 +11,19 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+### Added
+- **AutoML hyperparameter search for embedded Burn training.** A new **AutoML**
+  section in the Deep-learning inspector searches learning rate + epochs for the
+  embedded Burn regressor over the selected dataset and adopts the best
+  configuration into the training form. It runs off the UI thread with live
+  per-trial progress and cancellation, driven by the framework-agnostic
+  [`automl-core`](https://github.com/mi7plus/burn-automl) engine (`src/automl.rs`)
+  with Forge's own Burn 0.22 trainer as the objective — so trials run on the same
+  CPU/GPU backend as manual training. (The sibling `automl-burn` adapter is not
+  used: it pins `burn = 0.21`, whose ndarray backend now transitively pulls an
+  LLVM/MLIR toolchain incompatible with Forge's offline build; `automl-core`
+  carries none of that and adds a single crate.)
+
 ### Changed
 - **Upgraded all crates to Rust edition 2024** (workspace resolver `3`; toolchain
   stays pinned at 1.98.0). Mechanical migration via `cargo fix --edition` +
