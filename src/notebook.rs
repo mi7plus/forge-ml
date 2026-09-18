@@ -166,8 +166,8 @@ pub fn prepare_runtime_code(code: &str, source_path: Option<&Path>) -> String {
             explicit_path_attribute = true;
             continue;
         }
-        if !explicit_path_attribute {
-            if let Some(module_name) = trimmed
+        if !explicit_path_attribute
+            && let Some(module_name) = trimmed
                 .strip_prefix("mod ")
                 .and_then(|value| value.strip_suffix(';'))
                 .map(str::trim)
@@ -175,15 +175,13 @@ pub fn prepare_runtime_code(code: &str, source_path: Option<&Path>) -> String {
                     name.chars()
                         .all(|character| character == '_' || character.is_alphanumeric())
                 })
-            {
-                if let Some(directory) = source_directory {
-                    let flat = directory.join(format!("{module_name}.rs"));
-                    let nested = directory.join(module_name).join("mod.rs");
-                    let module_path = [flat, nested].into_iter().find(|path| path.is_file());
-                    if let Some(module_path) = module_path {
-                        output.push(format!("#[path = \"{}\"]", rust_path(&module_path)));
-                    }
-                }
+            && let Some(directory) = source_directory
+        {
+            let flat = directory.join(format!("{module_name}.rs"));
+            let nested = directory.join(module_name).join("mod.rs");
+            let module_path = [flat, nested].into_iter().find(|path| path.is_file());
+            if let Some(module_path) = module_path {
+                output.push(format!("#[path = \"{}\"]", rust_path(&module_path)));
             }
         }
         output.push(line.to_owned());

@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -253,13 +253,11 @@ fn worker(commands: Receiver<LspCommand>, events: Sender<LspEvent>) {
                 && active.progress_seen
                 && !active.announced_ready
                 && active.progress.is_empty()
+                && let Some(since) = active.idle_since
+                && since.elapsed() >= Duration::from_millis(8000)
             {
-                if let Some(since) = active.idle_since {
-                    if since.elapsed() >= Duration::from_millis(8000) {
-                        active.announced_ready = true;
-                        let _ = events.send(LspEvent::Status("rust-analyzer ready".to_owned()));
-                    }
-                }
+                active.announced_ready = true;
+                let _ = events.send(LspEvent::Status("rust-analyzer ready".to_owned()));
             }
         }
         match commands.recv_timeout(Duration::from_millis(30)) {
@@ -304,16 +302,17 @@ fn worker(commands: Receiver<LspCommand>, events: Sender<LspEvent>) {
                     LspCommand::Sync { root, .. } => Some(root.clone()),
                     _ => None,
                 };
-                if let Some(root) = root {
-                    if enabled && server.as_ref().is_none_or(|active| active.root != root) {
-                        server = start_server(root.clone(), &events).ok();
-                        // If it isn't installed, install it automatically (once)
-                        // and retry — no manual command needed.
-                        if server.is_none() && !auto_install_tried {
-                            auto_install_tried = true;
-                            if rustup_available() && install_components(&events) {
-                                server = start_server(root, &events).ok();
-                            }
+                if let Some(root) = root
+                    && enabled
+                    && server.as_ref().is_none_or(|active| active.root != root)
+                {
+                    server = start_server(root.clone(), &events).ok();
+                    // If it isn't installed, install it automatically (once)
+                    // and retry — no manual command needed.
+                    if server.is_none() && !auto_install_tried {
+                        auto_install_tried = true;
+                        if rustup_available() && install_components(&events) {
+                            server = start_server(root, &events).ok();
                         }
                     }
                 }
@@ -495,19 +494,19 @@ fn resolve_binary() -> PathBuf {
     } else {
         "rust-analyzer"
     };
-    if let Ok(executable) = std::env::current_exe() {
-        if let Some(parent) = executable.parent() {
-            for candidate in [
-                parent.join(name),
-                parent.join("resources").join(name),
-                parent.join("..").join("Resources").join(name),
-                PathBuf::from("/usr/lib").join(name),
-                PathBuf::from("/usr/lib/forge-ml").join(name),
-                PathBuf::from("/usr/lib/forge_ide").join(name),
-            ] {
-                if candidate.is_file() {
-                    return candidate;
-                }
+    if let Ok(executable) = std::env::current_exe()
+        && let Some(parent) = executable.parent()
+    {
+        for candidate in [
+            parent.join(name),
+            parent.join("resources").join(name),
+            parent.join("..").join("Resources").join(name),
+            PathBuf::from("/usr/lib").join(name),
+            PathBuf::from("/usr/lib/forge-ml").join(name),
+            PathBuf::from("/usr/lib/forge_ide").join(name),
+        ] {
+            if candidate.is_file() {
+                return candidate;
             }
         }
     }
@@ -516,12 +515,11 @@ fn resolve_binary() -> PathBuf {
     if let Ok(output) = Command::new("rustup")
         .args(["which", "rust-analyzer"])
         .output()
+        && output.status.success()
     {
-        if output.status.success() {
-            let path = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
-            if path.is_file() {
-                return path;
-            }
+        let path = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
+        if path.is_file() {
+            return path;
         }
     }
     PathBuf::from(name)
@@ -675,7 +673,7 @@ fn expand_snippet(snippet: &str) -> String {
             '$' => {
                 if chars.peek() == Some(&'{') {
                     chars.next(); // consume '{'
-                                  // Skip the tabstop number and optional ':'; keep default text.
+                    // Skip the tabstop number and optional ':'; keep default text.
                     let mut seen_colon = false;
                     let mut depth = 1;
                     let mut default = String::new();
@@ -880,13 +878,13 @@ fn handle_message(server: &mut Server, message: Value, events: &Sender<LspEvent>
             let _ = events.send(LspEvent::Hover(markup_text(&result)));
         }
         Pending::Definition => {
-            if let Some((uri, line)) = definition_location(&result) {
-                if let Some(path) = uri_path(uri) {
-                    let _ = events.send(LspEvent::Definition {
-                        path,
-                        line: line as usize,
-                    });
-                }
+            if let Some((uri, line)) = definition_location(&result)
+                && let Some(path) = uri_path(uri)
+            {
+                let _ = events.send(LspEvent::Definition {
+                    path,
+                    line: line as usize,
+                });
             }
         }
         Pending::ProbeDefinition(char_offset) => {

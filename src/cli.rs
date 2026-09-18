@@ -88,7 +88,9 @@ pub fn dispatch(cli: &[String]) -> bool {
                 "{}",
                 environment::native_pin(url, flag("--archive").unwrap_or("zip"), flag("--name"))
             ),
-            None => eprintln!("forge native pin: usage: forge native pin <https-url> --archive <zip|tar-gz> [--name <n>]"),
+            None => eprintln!(
+                "forge native pin: usage: forge native pin <https-url> --archive <zip|tar-gz> [--name <n>]"
+            ),
         }
         return true;
     }

@@ -335,7 +335,9 @@ pub fn generate_inference_service(
     let (service_sha256, service_size_bytes) = artifact_identity(&bundled_model)?;
     let onnx = version.format.eq_ignore_ascii_case("onnx");
     let cargo = if onnx {
-        format!("[package]\nname = \"{crate_name}-service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\naxum = \"0.8\"\ntokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\", \"net\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nsha2 = \"0.10\"\nmillwright = {{ version = \"2.3.1\", default-features = false, features = [\"serve\"] }}\n")
+        format!(
+            "[package]\nname = \"{crate_name}-service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\naxum = \"0.8\"\ntokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\", \"net\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nsha2 = \"0.10\"\nmillwright = {{ version = \"2.3.1\", default-features = false, features = [\"serve\"] }}\n"
+        )
     } else if native_regression {
         format!(
             r#"use axum::{{extract::{{DefaultBodyLimit, State}}, http::StatusCode, routing::{{get, post}}, Json, Router}};
@@ -402,13 +404,19 @@ async fn predict(State(model): State<Arc<NativeModel>>, Json(input): Json<Reques
             size_bytes = service_size_bytes,
         )
     } else {
-        format!("[package]\nname = \"{crate_name}-service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\naxum = \"0.8\"\ntokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\", \"net\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nserde_json = \"1\"\nsha2 = \"0.10\"\n")
+        format!(
+            "[package]\nname = \"{crate_name}-service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\naxum = \"0.8\"\ntokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\", \"net\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nserde_json = \"1\"\nsha2 = \"0.10\"\n"
+        )
     };
     let native_main = native_regression.then(|| cargo.clone());
     let cargo = if onnx {
-        format!("[package]\nname = \"{crate_name}-service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\naxum = \"0.8\"\ntokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\", \"net\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nsha2 = \"0.10\"\nmillwright = {{ version = \"2.3.1\", default-features = false, features = [\"serve\"] }}\n")
+        format!(
+            "[package]\nname = \"{crate_name}-service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\naxum = \"0.8\"\ntokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\", \"net\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nsha2 = \"0.10\"\nmillwright = {{ version = \"2.3.1\", default-features = false, features = [\"serve\"] }}\n"
+        )
     } else {
-        format!("[package]\nname = \"{crate_name}-service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\naxum = \"0.8\"\ntokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\", \"net\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nserde_json = \"1\"\nsha2 = \"0.10\"\n")
+        format!(
+            "[package]\nname = \"{crate_name}-service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\naxum = \"0.8\"\ntokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\", \"net\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nserde_json = \"1\"\nsha2 = \"0.10\"\n"
+        )
     };
     let main = if onnx {
         format!(
@@ -582,10 +590,12 @@ mod tests {
                 .unwrap(),
             artifact
         );
-        assert!(registry
-            .register_native_regression("linear", "1.0.0", &native_artifact(3.0), vec![])
-            .unwrap_err()
-            .contains("immutable"));
+        assert!(
+            registry
+                .register_native_regression("linear", "1.0.0", &native_artifact(3.0), vec![])
+                .unwrap_err()
+                .contains("immutable")
+        );
         let _ = fs::remove_dir_all(root);
     }
 
@@ -629,10 +639,12 @@ mod tests {
             .register("iris", "1", "onnx", &same, vec![])
             .unwrap();
         assert_eq!(registered.sha256, repeated.sha256);
-        assert!(registry
-            .register("iris", "1", "onnx", &changed, vec![])
-            .unwrap_err()
-            .contains("immutable"));
+        assert!(
+            registry
+                .register("iris", "1", "onnx", &changed, vec![])
+                .unwrap_err()
+                .contains("immutable")
+        );
         let _ = fs::remove_dir_all(root);
     }
 
@@ -648,10 +660,12 @@ mod tests {
             .unwrap();
         let registered = registry.resolve("iris", "1").unwrap();
         fs::write(&registered, b"tampered").unwrap();
-        assert!(registry
-            .resolve("iris", "1")
-            .unwrap_err()
-            .contains("Integrity check failed"));
+        assert!(
+            registry
+                .resolve("iris", "1")
+                .unwrap_err()
+                .contains("Integrity check failed")
+        );
         let _ = fs::remove_dir_all(root);
     }
 

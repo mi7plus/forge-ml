@@ -248,10 +248,10 @@ impl crate::ForgeApp {
         }
         for kind in dock_back {
             self.floating_panes.retain(|k| *k != kind);
-            if let Some(tree) = self.dock_tree.as_mut() {
-                if let Some(id) = Self::dock_tile_of(tree, kind) {
-                    tree.tiles.set_visible(id, true);
-                }
+            if let Some(tree) = self.dock_tree.as_mut()
+                && let Some(id) = Self::dock_tile_of(tree, kind)
+            {
+                tree.tiles.set_visible(id, true);
             }
         }
     }
@@ -295,17 +295,16 @@ impl crate::ForgeApp {
     }
 
     pub(crate) fn apply_dataset_view_result(&mut self, name: &str, result: DatasetViewResult) {
-        if let Some(table) = result.committed {
-            if let Some(existing) = self.data.tables.get(name) {
-                let source = existing.source.clone();
-                match data::Dataset::from_table(table, source) {
-                    Ok(dataset) => {
-                        self.data.tables.insert(name.to_owned(), dataset);
-                        self.console =
-                            format!("Saved edits to `{name}` and rebuilt its Arrow batch.");
-                    }
-                    Err(error) => self.console = format!("Could not save dataset edits: {error}"),
+        if let Some(table) = result.committed
+            && let Some(existing) = self.data.tables.get(name)
+        {
+            let source = existing.source.clone();
+            match data::Dataset::from_table(table, source) {
+                Ok(dataset) => {
+                    self.data.tables.insert(name.to_owned(), dataset);
+                    self.console = format!("Saved edits to `{name}` and rebuilt its Arrow batch.");
                 }
+                Err(error) => self.console = format!("Could not save dataset edits: {error}"),
             }
         }
         if let Some(spec) = result.linked_plot {

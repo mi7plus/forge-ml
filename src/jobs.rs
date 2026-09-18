@@ -138,13 +138,13 @@ impl JobQueue {
                 let _ = self.start(job.id, job.command.clone(), root.clone());
             }
         }
-        if let Some(id) = self.active {
-            if let Some(job) = self.jobs.iter_mut().find(|job| job.id == id) {
-                job.elapsed = job
-                    .started_at
-                    .map(|started| started.elapsed())
-                    .unwrap_or_default();
-            }
+        if let Some(id) = self.active
+            && let Some(job) = self.jobs.iter_mut().find(|job| job.id == id)
+        {
+            job.elapsed = job
+                .started_at
+                .map(|started| started.elapsed())
+                .unwrap_or_default();
         }
     }
     pub fn eta(&self) -> Option<Duration> {

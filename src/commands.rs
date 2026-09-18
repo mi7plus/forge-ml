@@ -137,7 +137,7 @@ pub fn matches(query: &str) -> Vec<(Command, &'static str, &'static str)> {
             fuzzy_score(query, &haystack).map(|score| (score, *entry))
         })
         .collect();
-    scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1 .1.cmp(b.1 .1)));
+    scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.1.cmp(b.1.1)));
     scored.into_iter().map(|(_, entry)| entry).collect()
 }
 
@@ -146,12 +146,16 @@ mod tests {
     use super::*;
     #[test]
     fn searches_labels_and_shortcuts() {
-        assert!(matches("import data")
-            .iter()
-            .any(|v| v.0 == Command::ImportData));
-        assert!(matches("ctrl shift f")
-            .iter()
-            .any(|v| v.0 == Command::FindProject));
+        assert!(
+            matches("import data")
+                .iter()
+                .any(|v| v.0 == Command::ImportData)
+        );
+        assert!(
+            matches("ctrl shift f")
+                .iter()
+                .any(|v| v.0 == Command::FindProject)
+        );
     }
 
     #[test]
@@ -161,9 +165,11 @@ mod tests {
         // An exact prefix ranks its command first.
         assert_eq!(matches("save").first().map(|v| v.0), Some(Command::Save));
         // Non-contiguous subsequence still matches.
-        assert!(matches("frmt")
-            .iter()
-            .any(|v| v.0 == Command::FormatDocument));
+        assert!(
+            matches("frmt")
+                .iter()
+                .any(|v| v.0 == Command::FormatDocument)
+        );
         // Nonsense yields nothing.
         assert!(matches("zzqx").is_empty());
     }

@@ -96,11 +96,11 @@ impl crate::ForgeApp {
                     }
                 }
             }
-            if let Some(cancelled) = &self.burn.training_cancel {
-                if ui.button("Cancel native training").clicked() {
-                    cancelled.store(true, std::sync::atomic::Ordering::Relaxed);
-                    self.sql.output = "Cancelling embedded Burn training…".into();
-                }
+            if let Some(cancelled) = &self.burn.training_cancel
+                && ui.button("Cancel native training").clicked()
+            {
+                cancelled.store(true, std::sync::atomic::Ordering::Relaxed);
+                self.sql.output = "Cancelling embedded Burn training…".into();
             }
             ui.add(
                 egui::DragValue::new(&mut self.burn.training_epochs)
@@ -398,37 +398,31 @@ impl crate::ForgeApp {
                         .map(|prediction| format!("{} = {prediction:.8}", artifact.target))
                         .unwrap_or_else(|error| error);
                 }
-                if ui.button("Export model JSON…").clicked() {
-                    if let Some(path) = rfd::FileDialog::new()
+                if ui.button("Export model JSON…").clicked()
+                    && let Some(path) = rfd::FileDialog::new()
                         .set_file_name("native-burn-regression.json")
                         .add_filter("JSON", &["json"])
                         .save_file()
-                    {
-                        self.sql.output = export::native_regression_artifact(&artifact, &path)
-                            .map(|()| format!("Exported native model to {}", path.display()))
-                            .unwrap_or_else(|error| format!("Model export failed: {error}"));
-                    }
+                {
+                    self.sql.output = export::native_regression_artifact(&artifact, &path)
+                        .map(|()| format!("Exported native model to {}", path.display()))
+                        .unwrap_or_else(|error| format!("Model export failed: {error}"));
                 }
-                if ui.button("Export model card…").clicked() {
-                    if let Some(path) = rfd::FileDialog::new()
+                if ui.button("Export model card…").clicked()
+                    && let Some(path) = rfd::FileDialog::new()
                         .set_file_name("native-burn-model-card.html")
                         .add_filter("HTML", &["html"])
                         .save_file()
-                    {
-                        let policy = deep_learning::DriftPolicy {
-                            mean_shift_threshold: self.drift.mean_shift_threshold,
-                            scale_ratio_lower: self.drift.scale_ratio_lower,
-                            scale_ratio_upper: self.drift.scale_ratio_upper,
-                        };
-                        self.sql.output =
-                            export::native_regression_model_card(&artifact, policy, &path)
-                                .map(|()| {
-                                    format!("Exported native model card to {}", path.display())
-                                })
-                                .unwrap_or_else(|error| {
-                                    format!("Model-card export failed: {error}")
-                                });
-                    }
+                {
+                    let policy = deep_learning::DriftPolicy {
+                        mean_shift_threshold: self.drift.mean_shift_threshold,
+                        scale_ratio_lower: self.drift.scale_ratio_lower,
+                        scale_ratio_upper: self.drift.scale_ratio_upper,
+                    };
+                    self.sql.output =
+                        export::native_regression_model_card(&artifact, policy, &path)
+                            .map(|()| format!("Exported native model card to {}", path.display()))
+                            .unwrap_or_else(|error| format!("Model-card export failed: {error}"));
                 }
                 if ui.button("Predict selected dataset").clicked() {
                     let selected = self
@@ -471,21 +465,20 @@ impl crate::ForgeApp {
                 }
             });
         }
-        if ui.button("Import native model JSON…").clicked() {
-            if let Some(path) = rfd::FileDialog::new()
+        if ui.button("Import native model JSON…").clicked()
+            && let Some(path) = rfd::FileDialog::new()
                 .add_filter("JSON", &["json"])
                 .pick_file()
-            {
-                match export::import_native_regression_artifact(&path) {
-                    Ok(artifact) => {
-                        self.sql.output = format!(
-                            "Imported native regression model for {} -> {}.",
-                            artifact.feature, artifact.target
-                        );
-                        self.native_burn_artifact = Some(artifact);
-                    }
-                    Err(error) => self.sql.output = format!("Model import failed: {error}"),
+        {
+            match export::import_native_regression_artifact(&path) {
+                Ok(artifact) => {
+                    self.sql.output = format!(
+                        "Imported native regression model for {} -> {}.",
+                        artifact.feature, artifact.target
+                    );
+                    self.native_burn_artifact = Some(artifact);
                 }
+                Err(error) => self.sql.output = format!("Model import failed: {error}"),
             }
         }
         ui.horizontal_wrapped(|ui| {
@@ -627,41 +620,41 @@ impl crate::ForgeApp {
                     .password(true)
                     .hint_text("token"),
             );
-            if ui.button("Save remote").clicked() {
-                if let Some(root) = &root {
-                    let profile = remote::RemoteProfile {
-                        name: self.remote.name.clone(),
-                        jupyter_url: self.remote.url.clone(),
-                        agent_command: self.remote.command.clone(),
-                        credential_key: format!("remote:{}:{}", root.display(), self.remote.name),
-                    };
-                    match remote::validate_profile(&profile) {
-                        Ok(()) => {
-                            let token_result = if self.remote.token.is_empty() {
-                                Ok(())
-                            } else {
-                                remote::store_token(&profile, &self.remote.token)
-                            };
-                            match token_result {
-                                Ok(()) => {
-                                    self.remote.token.clear();
-                                    self.remote
-                                        .profiles
-                                        .retain(|existing| existing.name != profile.name);
-                                    self.remote.profiles.push(profile);
-                                    if let Some(store) = &self.workspace_store {
-                                        let _ = store.save_remote_profiles(&self.remote.profiles);
-                                    }
-                                    self.sql.output = "Saved validated remote profile.".into();
+            if ui.button("Save remote").clicked()
+                && let Some(root) = &root
+            {
+                let profile = remote::RemoteProfile {
+                    name: self.remote.name.clone(),
+                    jupyter_url: self.remote.url.clone(),
+                    agent_command: self.remote.command.clone(),
+                    credential_key: format!("remote:{}:{}", root.display(), self.remote.name),
+                };
+                match remote::validate_profile(&profile) {
+                    Ok(()) => {
+                        let token_result = if self.remote.token.is_empty() {
+                            Ok(())
+                        } else {
+                            remote::store_token(&profile, &self.remote.token)
+                        };
+                        match token_result {
+                            Ok(()) => {
+                                self.remote.token.clear();
+                                self.remote
+                                    .profiles
+                                    .retain(|existing| existing.name != profile.name);
+                                self.remote.profiles.push(profile);
+                                if let Some(store) = &self.workspace_store {
+                                    let _ = store.save_remote_profiles(&self.remote.profiles);
                                 }
-                                Err(error) => {
-                                    self.sql.output =
-                                        format!("Could not store remote credential: {error}");
-                                }
+                                self.sql.output = "Saved validated remote profile.".into();
+                            }
+                            Err(error) => {
+                                self.sql.output =
+                                    format!("Could not store remote credential: {error}");
                             }
                         }
-                        Err(error) => self.sql.output = error,
                     }
+                    Err(error) => self.sql.output = error,
                 }
             }
         });
@@ -771,26 +764,25 @@ impl crate::ForgeApp {
                 egui::Button::new("Run on remote kernel"),
             )
             .clicked()
+            && let Some(session) = self.remote.kernel_session.clone()
         {
-            if let Some(session) = self.remote.kernel_session.clone() {
-                let (input_tx, input_rx) = mpsc::channel();
-                match self
-                    .integration_worker
-                    .submit(IntegrationRequest::RemoteExecute {
-                        session,
-                        code: self.remote.code.clone(),
-                        cell_id: None,
-                        input: input_rx,
-                    }) {
-                    Ok(()) => {
-                        self.remote.input_sender = Some(input_tx);
-                        self.integration_pending += 1;
-                        self.remote.execution_pending = true;
-                        self.remote.mime_outputs.clear();
-                        self.sql.output = "Running code on remote kernel…".into();
-                    }
-                    Err(error) => self.sql.output = error,
+            let (input_tx, input_rx) = mpsc::channel();
+            match self
+                .integration_worker
+                .submit(IntegrationRequest::RemoteExecute {
+                    session,
+                    code: self.remote.code.clone(),
+                    cell_id: None,
+                    input: input_rx,
+                }) {
+                Ok(()) => {
+                    self.remote.input_sender = Some(input_tx);
+                    self.integration_pending += 1;
+                    self.remote.execution_pending = true;
+                    self.remote.mime_outputs.clear();
+                    self.sql.output = "Running code on remote kernel…".into();
                 }
+                Err(error) => self.sql.output = error,
             }
         }
         for profile in self.remote.profiles.clone() {
@@ -1009,11 +1001,11 @@ impl crate::ForgeApp {
                     .collect::<Vec<_>>()
                     .join("\n");
                 let summary = format!(
-                "Softmax classifier on `{name}` — {rows} rows, {classes} classes, {} features.\nEvaluated on {eval_label}: accuracy {:.3} · macro-F1 {:.3}\n{per_class}",
-                data.feature_names.len(),
-                metrics.accuracy,
-                metrics.macro_f1
-            );
+                    "Softmax classifier on `{name}` — {rows} rows, {classes} classes, {} features.\nEvaluated on {eval_label}: accuracy {:.3} · macro-F1 {:.3}\n{per_class}",
+                    data.feature_names.len(),
+                    metrics.accuracy,
+                    metrics.macro_f1
+                );
                 let plot = classification::confusion_plot(&metrics, &format!("{name} confusion"));
                 plot.validate()?;
                 Ok((summary, plot, model))

@@ -8,9 +8,9 @@ use forge_protocol::TableData;
 use std::{
     path::PathBuf,
     sync::{
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, Sender},
-        Arc, Mutex,
     },
     thread,
 };
@@ -153,22 +153,24 @@ impl IntegrationWorker {
         for _ in 0..pool {
             let rx = Arc::clone(&shared_rx);
             let tx = result_tx.clone();
-            thread::spawn(move || loop {
-                let request = {
-                    let guard = match rx.lock() {
-                        Ok(guard) => guard,
-                        Err(_) => break, // a panicked peer poisoned the lock
+            thread::spawn(move || {
+                loop {
+                    let request = {
+                        let guard = match rx.lock() {
+                            Ok(guard) => guard,
+                            Err(_) => break, // a panicked peer poisoned the lock
+                        };
+                        guard.recv()
                     };
-                    guard.recv()
-                };
-                match request {
-                    Ok(request) => {
-                        let result = execute(request, &tx);
-                        if tx.send(result).is_err() {
-                            break;
+                    match request {
+                        Ok(request) => {
+                            let result = execute(request, &tx);
+                            if tx.send(result).is_err() {
+                                break;
+                            }
                         }
+                        Err(_) => break, // all senders dropped
                     }
-                    Err(_) => break, // all senders dropped
                 }
             });
         }
@@ -556,11 +558,13 @@ mod tests {
                 let (name, dataset) = result.unwrap();
                 assert_eq!(name, "native");
                 assert_eq!(dataset.rows, [vec!["42"]]);
-                assert!(dataset
-                    .source
-                    .as_deref()
-                    .unwrap()
-                    .contains("published Millwright 2.3.1"));
+                assert!(
+                    dataset
+                        .source
+                        .as_deref()
+                        .unwrap()
+                        .contains("published Millwright 2.3.1")
+                );
                 assert_eq!(dataset.profile()[0].numeric_count, 1);
             }
             _ => panic!("unexpected integration result"),

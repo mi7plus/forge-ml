@@ -5,7 +5,7 @@
 //! floatable pane — without sharing state with the notebook or one another.
 
 use crate::runtime::{CellResult, RuntimeHandle};
-use crate::{accent, EMBER, GREEN, RED, TEXT};
+use crate::{EMBER, GREEN, RED, TEXT, accent};
 use eframe::egui;
 use egui::RichText;
 

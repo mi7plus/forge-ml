@@ -1,4 +1,4 @@
-use crate::plot::{PlotKind, PlotSeries, PlotSpec, PLOT_SPEC_VERSION};
+use crate::plot::{PLOT_SPEC_VERSION, PlotKind, PlotSeries, PlotSpec};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_MONITOR_EVENTS: usize = 10_000;
@@ -496,7 +496,9 @@ pub fn monitoring_report(
         service_events.len(),
         drift_events.len(),
         latest.map_or(0, |event| event.requests),
-        latest.and_then(|event| event.p95_ms).map_or_else(|| "—".into(), |value| format!("{value:.3} ms")),
+        latest
+            .and_then(|event| event.p95_ms)
+            .map_or_else(|| "—".into(), |value| format!("{value:.3} ms")),
         service_events.len().min(MAX_REPORT_EVENTS_PER_STREAM),
         drift_events.len().min(MAX_REPORT_EVENTS_PER_STREAM),
     ))
@@ -650,15 +652,15 @@ pub fn parse_runtime_output(output: &str) -> (Vec<ServiceEvent>, Vec<DriftEvent>
     let mut services = Vec::new();
     let mut drift = Vec::new();
     for line in output.lines() {
-        if let Some(json) = line.strip_prefix("forge_service:") {
-            if let Ok(event) = serde_json::from_str(json.trim()) {
-                record_service(&mut services, event);
-            }
+        if let Some(json) = line.strip_prefix("forge_service:")
+            && let Ok(event) = serde_json::from_str(json.trim())
+        {
+            record_service(&mut services, event);
         }
-        if let Some(json) = line.strip_prefix("forge_drift:") {
-            if let Ok(event) = serde_json::from_str(json.trim()) {
-                record_drift(&mut drift, event);
-            }
+        if let Some(json) = line.strip_prefix("forge_drift:")
+            && let Ok(event) = serde_json::from_str(json.trim())
+        {
+            record_drift(&mut drift, event);
         }
     }
     (services, drift)
@@ -946,9 +948,12 @@ mod tests {
         let lines = monitoring_pdf_lines(&services, &drift).unwrap();
         assert!(lines.iter().any(|line| line == "Latest error rate: 5.000%"));
         assert!(lines.iter().any(|line| line == "Drift breaches: 1"));
-        assert!(lines
-            .iter()
-            .any(|line| line.contains("observed 42 | mean shift 1.250000 | scale ratio 2.500000")));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line
+                    .contains("observed 42 | mean shift 1.250000 | scale ratio 2.500000"))
+        );
         assert!(lines.iter().any(|line| line.contains("newest 500 of 501")));
         assert!(!lines.iter().any(|line| line.contains("model-0 ")));
         assert!(monitoring_pdf_lines(&[], &[]).is_err());

@@ -13,8 +13,8 @@
 
 use eframe::egui;
 use egui::{
-    pos2, vec2, Align, Color32, CornerRadius, Frame, Layout, Margin, Rect, RichText, Stroke,
-    UiBuilder,
+    Align, Color32, CornerRadius, Frame, Layout, Margin, Rect, RichText, Stroke, UiBuilder, pos2,
+    vec2,
 };
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -110,12 +110,11 @@ fn forge_ide_path() -> PathBuf {
     } else {
         "forge_ide"
     };
-    if let Ok(here) = std::env::current_exe() {
-        if let Some(sibling) = here.parent().map(|dir| dir.join(exe)) {
-            if sibling.is_file() {
-                return sibling;
-            }
-        }
+    if let Ok(here) = std::env::current_exe()
+        && let Some(sibling) = here.parent().map(|dir| dir.join(exe))
+        && sibling.is_file()
+    {
+        return sibling;
     }
     PathBuf::from(exe)
 }

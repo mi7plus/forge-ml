@@ -199,17 +199,16 @@ impl CefPreview {
                     if let egui::Event::PointerButton {
                         button, pressed, ..
                     } = ev
+                        && let Some(b) = map_button(*button)
                     {
-                        if let Some(b) = map_button(*button) {
-                            self.send(Command::MouseClick {
-                                x,
-                                y,
-                                modifiers: 0,
-                                button: b,
-                                up: !*pressed,
-                                click_count: 1,
-                            });
-                        }
+                        self.send(Command::MouseClick {
+                            x,
+                            y,
+                            modifiers: 0,
+                            button: b,
+                            up: !*pressed,
+                            click_count: 1,
+                        });
                     }
                 }
             });

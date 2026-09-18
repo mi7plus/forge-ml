@@ -13,7 +13,7 @@
 //! taking on the resolver.
 
 use super::diagnostics::tool_version;
-use super::lock::{sha256_hex, LockEntry};
+use super::lock::{LockEntry, sha256_hex};
 use super::manifest::{Manifest, NativeRequest};
 use super::provider::{Activation, Capabilities, EnvironmentProvider, Probe};
 use super::provision::{self, Catalog, Fetcher, HttpFetcher};
@@ -211,10 +211,10 @@ pub fn provide(root: &Path, only: &[String]) -> String {
             if selected.iter().any(|artifact| &artifact.name == pkg) {
                 continue;
             }
-            if !on_system(pkg) {
-                if let Some(artifact) = default.find(pkg) {
-                    selected.push(artifact);
-                }
+            if !on_system(pkg)
+                && let Some(artifact) = default.find(pkg)
+            {
+                selected.push(artifact);
             }
         }
     } else {

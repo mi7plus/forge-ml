@@ -7,7 +7,7 @@
 //! consumes a stable, serialized view of what `doctor`, `gpu detect`,
 //! `native check`, and `python check` already compute.
 
-use super::{diagnostics, gpu, native, python, Manifest, Probe, Resolver};
+use super::{Manifest, Probe, Resolver, diagnostics, gpu, native, python};
 use serde::Serialize;
 use std::path::Path;
 

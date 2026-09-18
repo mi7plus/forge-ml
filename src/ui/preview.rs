@@ -6,7 +6,7 @@
 //! can't be rendered inside egui without a browser engine, so its preview opens
 //! the file in the system browser (full fidelity) and shows the source.
 
-use crate::ui::theme::{accent, MUTED, TEXT};
+use crate::ui::theme::{MUTED, TEXT, accent};
 use eframe::egui;
 use egui::{Color32, RichText};
 use egui_phosphor_icons::icons;
@@ -123,10 +123,10 @@ fn markdown(ui: &mut egui::Ui, source: &str) {
 
 fn heading(line: &str) -> Option<(usize, &str)> {
     let hashes = line.chars().take_while(|&c| c == '#').count();
-    if (1..=6).contains(&hashes) {
-        if let Some(rest) = line[hashes..].strip_prefix(' ') {
-            return Some((hashes, rest.trim_start()));
-        }
+    if (1..=6).contains(&hashes)
+        && let Some(rest) = line[hashes..].strip_prefix(' ')
+    {
+        return Some((hashes, rest.trim_start()));
     }
     None
 }
@@ -139,10 +139,10 @@ fn list_item(line: &str) -> Option<(&'static str, &str)> {
         }
     }
     let digits = line.chars().take_while(|c| c.is_ascii_digit()).count();
-    if digits > 0 {
-        if let Some(rest) = line[digits..].strip_prefix(". ") {
-            return Some(("–", rest.trim_start()));
-        }
+    if digits > 0
+        && let Some(rest) = line[digits..].strip_prefix(". ")
+    {
+        return Some(("–", rest.trim_start()));
     }
     None
 }
@@ -233,13 +233,13 @@ fn parse_inline(text: &str) -> Vec<Span> {
                 i += 2;
             }
         } else if let Some(after) = rest.strip_prefix('[') {
-            if let Some((label, tail)) = after.split_once("](") {
-                if let Some((url, _)) = tail.split_once(')') {
-                    flush(&mut plain, &mut spans);
-                    spans.push(Span::Link(label.to_owned(), url.to_owned()));
-                    i += 1 + label.len() + 2 + url.len() + 1;
-                    continue;
-                }
+            if let Some((label, tail)) = after.split_once("](")
+                && let Some((url, _)) = tail.split_once(')')
+            {
+                flush(&mut plain, &mut spans);
+                spans.push(Span::Link(label.to_owned(), url.to_owned()));
+                i += 1 + label.len() + 2 + url.len() + 1;
+                continue;
             }
             plain.push('[');
             i += 1;
@@ -271,20 +271,19 @@ fn html(ui: &mut egui::Ui, source: &str, path: Option<&Path>) {
                 .strong(),
         )
         .fill(accent());
-        if ui.add_enabled(on_disk.is_some(), rendered).clicked() {
-            if let Some(path) = on_disk {
-                open_in_forge_webview(path);
-            }
+        if ui.add_enabled(on_disk.is_some(), rendered).clicked()
+            && let Some(path) = on_disk
+        {
+            open_in_forge_webview(path);
         }
         // Secondary: the external system browser.
         let browser = format!("Open in browser  {}", icons::ARROW_SQUARE_OUT.as_str());
         if ui
             .add_enabled(on_disk.is_some(), egui::Button::new(browser))
             .clicked()
+            && let Some(path) = on_disk
         {
-            if let Some(path) = on_disk {
-                open_path(path);
-            }
+            open_path(path);
         }
     });
     ui.label(
@@ -554,10 +553,10 @@ impl Walker {
             "table" => self.flush(),
             "tr" => self.row = Some((false, Vec::new())),
             "td" | "th" => {
-                if name == "th" {
-                    if let Some(row) = &mut self.row {
-                        row.0 = true;
-                    }
+                if name == "th"
+                    && let Some(row) = &mut self.row
+                {
+                    row.0 = true;
                 }
                 self.cell = Some(Vec::new());
             }
@@ -594,10 +593,10 @@ impl Walker {
                 }
             }
             "tr" => {
-                if let Some((header, cells)) = self.row.take() {
-                    if !cells.is_empty() {
-                        self.blocks.push(Block::Row { header, cells });
-                    }
+                if let Some((header, cells)) = self.row.take()
+                    && !cells.is_empty()
+                {
+                    self.blocks.push(Block::Row { header, cells });
                 }
             }
             _ => {}
@@ -763,9 +762,11 @@ mod tests {
         assert!(matches!(spans.first(), Some(Span::Text(_))));
         assert!(spans.iter().any(|s| matches!(s, Span::Code(c) if c == "x")));
         assert!(spans.iter().any(|s| matches!(s, Span::Bold(b) if b == "b")));
-        assert!(spans
-            .iter()
-            .any(|s| matches!(s, Span::Link(t, u) if t == "t" && u == "u")));
+        assert!(
+            spans
+                .iter()
+                .any(|s| matches!(s, Span::Link(t, u) if t == "t" && u == "u"))
+        );
     }
 
     #[test]
@@ -789,9 +790,11 @@ mod tests {
             .count();
         assert_eq!(items, 2);
         // The script contents must not appear as text.
-        assert!(!blocks
-            .iter()
-            .any(|b| matches!(b, Block::Para(runs) if runs_to_text(runs).contains("ignore"))));
+        assert!(
+            !blocks
+                .iter()
+                .any(|b| matches!(b, Block::Para(runs) if runs_to_text(runs).contains("ignore")))
+        );
         // The link survived.
         assert!(blocks.iter().any(|b| matches!(b, Block::Para(runs)
             if runs.iter().any(|r| matches!(r, Run::Link(t, u) if t == "link" && u == "u")))));

@@ -8,8 +8,8 @@
 //! only in typed records.
 
 use forge_protocol::RunId;
-use rusqlite::{params, Connection};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use rusqlite::{Connection, params};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -284,9 +284,11 @@ mod tests {
             .write_artifact(Path::new("models/model.bin"), b"model")
             .unwrap();
         assert_eq!(fs::read(path).unwrap(), b"model");
-        assert!(store
-            .write_artifact(Path::new("../outside.bin"), b"bad")
-            .is_err());
+        assert!(
+            store
+                .write_artifact(Path::new("../outside.bin"), b"bad")
+                .is_err()
+        );
         drop(store);
         fs::remove_dir_all(root).unwrap();
     }

@@ -209,8 +209,14 @@ pub fn extra_builtin_themes() -> Vec<NamedTheme> {
         accent: [u8; 3],
         dark: bool,
     ) -> NamedTheme {
-        let [syn_keyword, syn_string, syn_comment, syn_function, syn_type, syn_number] =
-            derive_syntax(accent, muted, dark);
+        let [
+            syn_keyword,
+            syn_string,
+            syn_comment,
+            syn_function,
+            syn_type,
+            syn_number,
+        ] = derive_syntax(accent, muted, dark);
         NamedTheme {
             name: name.to_owned(),
             palette: Palette {

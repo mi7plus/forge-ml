@@ -14,7 +14,7 @@
 //! headlessly is out of scope. Knowing precisely whether — and why not — a run
 //! is reproducible is the valuable, buildable core.
 
-use crate::experiment::{capture_provenance, stable_digest, ExperimentRun, RunProvenance};
+use crate::experiment::{ExperimentRun, RunProvenance, capture_provenance, stable_digest};
 use forge_storage::WorkspaceStore;
 use std::collections::HashMap;
 use std::path::Path;

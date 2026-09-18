@@ -11,6 +11,16 @@ grouped under the **0.98.0** release below.
 
 ## [Unreleased]
 
+### Changed
+- **Upgraded all crates to Rust edition 2024** (workspace resolver `3`; toolchain
+  stays pinned at 1.98.0). Mechanical migration via `cargo fix --edition` +
+  `cargo clippy --fix`: `extern` blocks and `std::env::set_var`/`remove_var` are
+  now `unsafe` (documented with `// SAFETY:` notes, replacing cargo's auto-`FIXME`
+  markers), `expr` macro fragments pinned to `expr_2021` to preserve matching, and
+  ~55 nested `if` / `if let` blocks collapsed into 2024 let-chains. No behavior
+  change; fmt, clippy `--all-features -D warnings`, the full test suite, and the
+  `-D warnings` doc build all pass.
+
 ## [1.15.0] — 2026-09-15
 
 ### Fixed

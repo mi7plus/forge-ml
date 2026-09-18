@@ -18,7 +18,10 @@ fn main() {
         pts.push(format!("[{x:.3},{y:.3}]"));
     }
     pts.push("[80.0,80.0]".into()); // the outlier
-    println!("forge_plot:{{\"version\":1,\"name\":\"scatter with outlier\",\"kind\":\"scatter\",\"series\":[{{\"name\":\"samples\",\"points\":[{}]}}]}}", pts.join(","));
+    println!(
+        "forge_plot:{{\"version\":1,\"name\":\"scatter with outlier\",\"kind\":\"scatter\",\"series\":[{{\"name\":\"samples\",\"points\":[{}]}}]}}",
+        pts.join(",")
+    );
 
     let mut linear: Vec<String> = Vec::new();
     let mut exponential: Vec<String> = Vec::new();
@@ -27,11 +30,18 @@ fn main() {
         linear.push(format!("[{x},{}]", 2.0 * x + 5.0));
         exponential.push(format!("[{x},{:.4}]", (0.2 * x).exp()));
     }
-    println!("forge_plot:{{\"version\":1,\"name\":\"linear vs exponential (try log Y)\",\"kind\":\"line\",\"series\":[{{\"name\":\"linear\",\"points\":[{}]}},{{\"name\":\"exponential\",\"points\":[{}]}}]}}", linear.join(","), exponential.join(","));
+    println!(
+        "forge_plot:{{\"version\":1,\"name\":\"linear vs exponential (try log Y)\",\"kind\":\"line\",\"series\":[{{\"name\":\"linear\",\"points\":[{}]}},{{\"name\":\"exponential\",\"points\":[{}]}}]}}",
+        linear.join(","),
+        exponential.join(",")
+    );
 
     let importances = [0.34, 0.27, 0.18, 0.12, 0.09];
     let values: Vec<String> = importances.iter().map(|v| format!("{v}")).collect();
-    println!("forge_plot:{{\"version\":1,\"name\":\"feature importance\",\"kind\":\"feature_importance\",\"series\":[{{\"name\":\"importance\",\"values\":[{}]}}]}}", values.join(","));
+    println!(
+        "forge_plot:{{\"version\":1,\"name\":\"feature importance\",\"kind\":\"feature_importance\",\"series\":[{{\"name\":\"importance\",\"values\":[{}]}}]}}",
+        values.join(",")
+    );
 
     let mut values: Vec<String> = Vec::new();
     for i in 0..400 {
@@ -39,14 +49,20 @@ fn main() {
         let u = ((i as f64 * 12.9898).sin() * 43758.5453).fract().abs();
         values.push(format!("{:.4}", u * u * 10.0));
     }
-    println!("forge_plot:{{\"version\":1,\"name\":\"skewed histogram\",\"kind\":\"histogram\",\"series\":[{{\"name\":\"x\",\"values\":[{}]}}]}}", values.join(","));
+    println!(
+        "forge_plot:{{\"version\":1,\"name\":\"skewed histogram\",\"kind\":\"histogram\",\"series\":[{{\"name\":\"x\",\"values\":[{}]}}]}}",
+        values.join(",")
+    );
 
     let mut area: Vec<String> = Vec::new();
     for i in 0..80 {
         let x = i as f64 * 0.15;
         area.push(format!("[{x:.3},{:.4}]", x.sin().abs() * (1.0 + 0.05 * x)));
     }
-    println!("forge_plot:{{\"version\":1,\"name\":\"area under a curve\",\"kind\":\"area\",\"series\":[{{\"name\":\"signal\",\"points\":[{}]}}]}}", area.join(","));
+    println!(
+        "forge_plot:{{\"version\":1,\"name\":\"area under a curve\",\"kind\":\"area\",\"series\":[{{\"name\":\"signal\",\"points\":[{}]}}]}}",
+        area.join(",")
+    );
 
     let group = |center: f64, spread: f64| -> String {
         (0..60)
@@ -54,7 +70,12 @@ fn main() {
             .collect::<Vec<_>>()
             .join(",")
     };
-    println!("forge_plot:{{\"version\":1,\"name\":\"group spreads (box)\",\"kind\":\"box\",\"series\":[{{\"name\":\"A\",\"values\":[{}]}},{{\"name\":\"B\",\"values\":[{}]}},{{\"name\":\"C\",\"values\":[{}]}}]}}", group(3.0, 1.0), group(5.0, 1.6), group(7.0, 0.7));
+    println!(
+        "forge_plot:{{\"version\":1,\"name\":\"group spreads (box)\",\"kind\":\"box\",\"series\":[{{\"name\":\"A\",\"values\":[{}]}},{{\"name\":\"B\",\"values\":[{}]}},{{\"name\":\"C\",\"values\":[{}]}}]}}",
+        group(3.0, 1.0),
+        group(5.0, 1.6),
+        group(7.0, 0.7)
+    );
 
     let group = |center: f64, spread: f64| -> String {
         (0..80)
@@ -68,7 +89,11 @@ fn main() {
             .collect::<Vec<_>>()
             .join(",")
     };
-    println!("forge_plot:{{\"version\":1,\"name\":\"group distributions (violin)\",\"kind\":\"violin\",\"series\":[{{\"name\":\"A\",\"values\":[{}]}},{{\"name\":\"B\",\"values\":[{}]}}]}}", group(4.0, 1.2), group(7.0, 0.8));
+    println!(
+        "forge_plot:{{\"version\":1,\"name\":\"group distributions (violin)\",\"kind\":\"violin\",\"series\":[{{\"name\":\"A\",\"values\":[{}]}},{{\"name\":\"B\",\"values\":[{}]}}]}}",
+        group(4.0, 1.2),
+        group(7.0, 0.8)
+    );
 
     let values: Vec<String> = (0..150)
         .map(|i| {
@@ -78,7 +103,10 @@ fn main() {
             )
         })
         .collect();
-    println!("forge_plot:{{\"version\":1,\"name\":\"empirical CDF\",\"kind\":\"ecdf\",\"series\":[{{\"name\":\"x\",\"values\":[{}]}}]}}", values.join(","));
+    println!(
+        "forge_plot:{{\"version\":1,\"name\":\"empirical CDF\",\"kind\":\"ecdf\",\"series\":[{{\"name\":\"x\",\"values\":[{}]}}]}}",
+        values.join(",")
+    );
 
     let n = 8usize;
     let mut rows: Vec<String> = Vec::new();
@@ -93,14 +121,20 @@ fn main() {
             .collect();
         rows.push(format!("[{}]", cells.join(",")));
     }
-    println!("forge_plot:{{\"version\":1,\"name\":\"correlation heatmap\",\"kind\":\"heatmap\",\"matrix\":[{}]}}", rows.join(","));
+    println!(
+        "forge_plot:{{\"version\":1,\"name\":\"correlation heatmap\",\"kind\":\"heatmap\",\"matrix\":[{}]}}",
+        rows.join(",")
+    );
 
     let mut residuals: Vec<String> = Vec::new();
     for i in 0..100 {
         let x = i as f64;
         residuals.push(format!("[{x},{:.4}]", (x * 0.2).sin() * 0.5));
     }
-    println!("forge_plot:{{\"version\":1,\"name\":\"residuals\",\"kind\":\"residual\",\"series\":[{{\"name\":\"resid\",\"points\":[{}]}}]}}", residuals.join(","));
+    println!(
+        "forge_plot:{{\"version\":1,\"name\":\"residuals\",\"kind\":\"residual\",\"series\":[{{\"name\":\"resid\",\"points\":[{}]}}]}}",
+        residuals.join(",")
+    );
 
     {
         let rows: Vec<String> = (0..20)

@@ -188,10 +188,10 @@ impl crate::ForgeApp {
             return;
         }
         self.python.execution_id += 1;
-        if let Some(kernel) = &self.python.kernel {
-            if kernel.execute(self.python.execution_id, code).is_ok() {
-                self.python.console_input.clear();
-            }
+        if let Some(kernel) = &self.python.kernel
+            && kernel.execute(self.python.execution_id, code).is_ok()
+        {
+            self.python.console_input.clear();
         }
         if self.last_resource_poll.elapsed() >= Duration::from_secs(1) {
             self.resource_snapshot = deep_learning::resources(&mut self.resource_system);

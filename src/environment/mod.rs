@@ -23,15 +23,15 @@ mod status;
 mod system;
 
 pub use bundled::BundledRuntimeProvider;
-pub use cargo::{provide as cargo_provide, report as cargo_report, CrateProvider};
-pub use gpu::{report as gpu_report, GpuProvider};
-pub use lock::{sha256_hex, Lock};
+pub use cargo::{CrateProvider, provide as cargo_provide, report as cargo_report};
+pub use gpu::{GpuProvider, report as gpu_report};
+pub use lock::{Lock, sha256_hex};
 pub use manifest::Manifest;
 pub use native::{
-    pin as native_pin, provide as native_provide, report as native_report, NativeLibProvider,
+    NativeLibProvider, pin as native_pin, provide as native_provide, report as native_report,
 };
 pub use provider::{Activation, EnvironmentProvider, Probe};
-pub use python::{provide as python_provide, report as python_report, PythonProvider};
+pub use python::{PythonProvider, provide as python_provide, report as python_report};
 pub use status::status_json;
 pub use system::SystemToolchainProvider;
 

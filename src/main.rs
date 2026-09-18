@@ -63,7 +63,7 @@ use egui::{Color32, Frame, Margin, Panel, RichText, Stroke};
 use egui_code_editor::{CodeEditor, Syntax};
 use egui_plot::{Bar, BarChart, Line, Plot, PlotPoints, Points, Polygon};
 use egui_tiles::{Container, Linear, LinearDir, SimplificationOptions, Tile, TileId, Tiles, Tree};
-use experiment::{capture_provenance, ExperimentRun};
+use experiment::{ExperimentRun, capture_provenance};
 #[cfg(test)]
 use forge_protocol::RunId;
 use forge_protocol::TableData;
@@ -76,10 +76,10 @@ use millwright_studio::{
     TrainingEvent, TrainingObserver,
 };
 use notebook::{
-    cell_byte_ranges, is_notebook_document, lsp_document, notebook_lsp_prefix_chars,
-    prepare_runtime_code, CellKind, NotebookDocument, RichOutput,
+    CellKind, NotebookDocument, RichOutput, cell_byte_ranges, is_notebook_document, lsp_document,
+    notebook_lsp_prefix_chars, prepare_runtime_code,
 };
-use plot::{metric_line, metric_points, vector_bars, PlotKind, PlotSpec};
+use plot::{PlotKind, PlotSpec, metric_line, metric_points, vector_bars};
 use project::Project;
 use runtime::{CellResult, RuntimeHandle, VariableMeta};
 use service_monitor::{DriftEvent, ServiceEvent};
@@ -88,9 +88,9 @@ use std::collections::{HashMap, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::{
+    Arc,
     atomic::{AtomicU64, Ordering as AtomicOrdering},
     mpsc::{self, Receiver, Sender},
-    Arc,
 };
 use std::time::{Duration, Instant};
 use ui::editing::{
@@ -100,14 +100,14 @@ use ui::editing::{
     word_start_at,
 };
 use ui::grid::{
-    build_row_index, build_row_index_cancellable, selected_table, visible_column_window,
-    FilterMode, RowFilter, INDEX_SORT_COLUMN,
+    FilterMode, INDEX_SORT_COLUMN, RowFilter, build_row_index, build_row_index_cancellable,
+    selected_table, visible_column_window,
 };
 use ui::plotting::{
     box_stats, draw_box_summary, draw_heatmap, ecdf, histogram, kde, quartiles, transformed_points,
 };
 use ui::theme::{
-    accent, compact_icon_button, configure_style, theme_colors, EMBER, GREEN, MUTED, RED, TEXT,
+    EMBER, GREEN, MUTED, RED, TEXT, accent, compact_icon_button, configure_style, theme_colors,
 };
 
 const STORAGE_KEY: &str = "forge_ml_session_v1";
@@ -144,13 +144,13 @@ fn default_true() -> bool {
 fn tame_child_consoles() {
     use std::ffi::c_void;
     #[link(name = "kernel32")]
-    extern "system" {
+    unsafe extern "system" {
         fn AttachConsole(dw_process_id: u32) -> i32;
         fn AllocConsole() -> i32;
         fn GetConsoleWindow() -> *mut c_void;
     }
     #[link(name = "user32")]
-    extern "system" {
+    unsafe extern "system" {
         fn ShowWindow(h_wnd: *mut c_void, n_cmd_show: i32) -> i32;
     }
     const ATTACH_PARENT_PROCESS: u32 = 0xFFFF_FFFF;
@@ -1089,10 +1089,10 @@ impl ForgeApp {
         self.theme_draft = resolve_palette(&self.active_theme, &self.custom_themes, self.dark_mode);
         self.keymap = keymap::Keymap::from_dto(&snap.keymap);
 
-        if let Some(root) = snap.project_root.clone() {
-            if root.is_dir() {
-                self.open_project_path(root);
-            }
+        if let Some(root) = snap.project_root.clone()
+            && root.is_dir()
+        {
+            self.open_project_path(root);
         }
         // Snapshot connections take precedence over the project's stored set and
         // are persisted into the (now open) project's store.
@@ -1327,7 +1327,9 @@ impl ForgeApp {
             dataset_pane_height,
             inspector_tab: InspectorTab::Variables,
             diagnostics: DiagnosticsHandle::spawn(),
-            diagnostic_lines: vec!["Run diagnostics to check the current Cargo project.".to_owned()],
+            diagnostic_lines: vec![
+                "Run diagnostics to check the current Cargo project.".to_owned(),
+            ],
             diagnostics_running: false,
             execution_count: 0,
             console_input: String::new(),
@@ -1609,10 +1611,10 @@ impl ForgeApp {
         active.title.hash(&mut hasher);
         active.content.hash(&mut hasher);
         let key = hasher.finish();
-        if let Some((cached_key, cells)) = &*self.cells_cache.borrow() {
-            if *cached_key == key {
-                return cells.clone();
-            }
+        if let Some((cached_key, cells)) = &*self.cells_cache.borrow()
+            && *cached_key == key
+        {
+            return cells.clone();
         }
         let cells = self.compute_cells();
         *self.cells_cache.borrow_mut() = Some((key, cells.clone()));
@@ -1989,11 +1991,11 @@ impl ForgeApp {
         if let Some(store) = &self.workspace_store {
             let artifact = PathBuf::from("runs").join(run.id.as_str()).join("run.json");
             run.artifacts.push(artifact.display().to_string());
-            if let Ok(payload) = serde_json::to_vec_pretty(&run) {
-                if let Err(error) = store.write_artifact(&artifact, &payload) {
-                    self.console = format!("Could not persist run artifact: {error}");
-                    return;
-                }
+            if let Ok(payload) = serde_json::to_vec_pretty(&run)
+                && let Err(error) = store.write_artifact(&artifact, &payload)
+            {
+                self.console = format!("Could not persist run artifact: {error}");
+                return;
             }
             if let Err(error) = store.save_experiment(&run.id, &run.name, &run) {
                 self.console = format!("Could not persist experiment snapshot: {error}");
@@ -2576,10 +2578,10 @@ impl ForgeApp {
                     };
                     // Capture an inline variable inspect result (a console-cell
                     // snippet that pretty-prints a non-tabular value).
-                    if cell_id == CONSOLE_CELL_ID {
-                        if let Some(name) = self.pending_inspect.take() {
-                            self.variable_previews.insert(name, self.console.clone());
-                        }
+                    if cell_id == CONSOLE_CELL_ID
+                        && let Some(name) = self.pending_inspect.take()
+                    {
+                        self.variable_previews.insert(name, self.console.clone());
                     }
                     let (training_events, reports) =
                         millwright_studio::parse_runtime_output(&self.console);
@@ -3171,32 +3173,32 @@ fn expected_panes() -> Vec<PaneKind> {
 /// unparseable, or does not contain the panes this build expects. Any number of
 /// terminal panes is allowed; every other pane must be a known fixed pane.
 fn load_dock_tree(serialized: Option<&str>) -> Tree<PaneKind> {
-    if let Some(json) = serialized {
-        if let Ok(mut tree) = serde_json::from_str::<Tree<PaneKind>>(json) {
-            let present: Vec<PaneKind> = tree
-                .tiles
-                .iter()
-                .filter_map(|(_, tile)| match tile {
-                    Tile::Pane(pane) => Some(*pane),
-                    _ => None,
-                })
-                .collect();
-            let required = expected_panes();
-            let all_required = required.iter().all(|kind| present.contains(kind));
-            let no_strangers = present.iter().all(|kind| {
-                matches!(
-                    kind,
-                    PaneKind::Terminal(_) | PaneKind::RustConsole(_) | PaneKind::Notebook
-                ) || required.contains(kind)
-            });
-            if all_required && no_strangers {
-                // The Notebook pane was added after some layouts were saved; inject
-                // it rather than discarding the user's customized arrangement.
-                if !present.contains(&PaneKind::Notebook) {
-                    inject_notebook_pane(&mut tree);
-                }
-                return tree;
+    if let Some(json) = serialized
+        && let Ok(mut tree) = serde_json::from_str::<Tree<PaneKind>>(json)
+    {
+        let present: Vec<PaneKind> = tree
+            .tiles
+            .iter()
+            .filter_map(|(_, tile)| match tile {
+                Tile::Pane(pane) => Some(*pane),
+                _ => None,
+            })
+            .collect();
+        let required = expected_panes();
+        let all_required = required.iter().all(|kind| present.contains(kind));
+        let no_strangers = present.iter().all(|kind| {
+            matches!(
+                kind,
+                PaneKind::Terminal(_) | PaneKind::RustConsole(_) | PaneKind::Notebook
+            ) || required.contains(kind)
+        });
+        if all_required && no_strangers {
+            // The Notebook pane was added after some layouts were saved; inject
+            // it rather than discarding the user's customized arrangement.
+            if !present.contains(&PaneKind::Notebook) {
+                inject_notebook_pane(&mut tree);
             }
+            return tree;
         }
     }
     build_dock_tree()

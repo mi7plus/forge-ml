@@ -107,21 +107,24 @@ impl Activation {
                 new_path.push(sep);
                 new_path.push(existing);
             }
-            std::env::set_var("PATH", new_path);
+            // SAFETY: set during single-threaded env activation, before child processes are spawned.
+            unsafe { std::env::set_var("PATH", new_path) };
         }
         for (key, value) in &self.env {
-            std::env::set_var(key, value);
+            // SAFETY: set during single-threaded env activation, before child processes are spawned.
+            unsafe { std::env::set_var(key, value) };
         }
-        if let Some(config) = &self.cargo_config {
-            if std::fs::create_dir_all(&config.home).is_ok()
-                && std::fs::write(config.home.join("config.toml"), &config.contents).is_ok()
-            {
-                std::env::set_var("CARGO_HOME", &config.home);
-            }
+        if let Some(config) = &self.cargo_config
+            && std::fs::create_dir_all(&config.home).is_ok()
+            && std::fs::write(config.home.join("config.toml"), &config.contents).is_ok()
+        {
+            // SAFETY: set during single-threaded env activation, before child processes are spawned.
+            unsafe { std::env::set_var("CARGO_HOME", &config.home) };
         }
         if let Some(scratch) = &self.scratch {
             let _ = std::fs::create_dir_all(scratch);
-            std::env::set_var("EVCXR_TMPDIR", scratch);
+            // SAFETY: set during single-threaded env activation, before child processes are spawned.
+            unsafe { std::env::set_var("EVCXR_TMPDIR", scratch) };
         }
     }
 }

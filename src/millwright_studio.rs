@@ -1,4 +1,4 @@
-use crate::plot::{PlotKind, PlotSeries, PlotSpec, PLOT_SPEC_VERSION};
+use crate::plot::{PLOT_SPEC_VERSION, PlotKind, PlotSeries, PlotSpec};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
@@ -1027,24 +1027,24 @@ pub fn parse_runtime_output(output: &str) -> (Vec<TrainingEvent>, Vec<Evaluation
                 let context = TrainingEvent::RunContext {
                     run_id: run_id.to_owned(),
                 };
-                if validate_training_event(&context) {
-                    if let Ok(event) = serde_json::from_str(json.trim()) {
-                        record_training_event(&mut events, context);
-                        record_training_event(&mut events, event);
-                    }
+                if validate_training_event(&context)
+                    && let Ok(event) = serde_json::from_str(json.trim())
+                {
+                    record_training_event(&mut events, context);
+                    record_training_event(&mut events, event);
                 }
             }
             continue;
         }
-        if let Some(json) = line.strip_prefix("forge_training:") {
-            if let Ok(event) = serde_json::from_str(json.trim()) {
-                record_training_event(&mut events, event);
-            }
+        if let Some(json) = line.strip_prefix("forge_training:")
+            && let Ok(event) = serde_json::from_str(json.trim())
+        {
+            record_training_event(&mut events, event);
         }
-        if let Some(json) = line.strip_prefix("forge_evaluation:") {
-            if let Ok(report) = serde_json::from_str(json.trim()) {
-                reports.push(report);
-            }
+        if let Some(json) = line.strip_prefix("forge_evaluation:")
+            && let Ok(report) = serde_json::from_str(json.trim())
+        {
+            reports.push(report);
         }
     }
     (events, reports)
@@ -1191,9 +1191,11 @@ mod tests {
             events.first(),
             Some(TrainingEvent::TrialCompleted { trial: 1, .. })
         ));
-        assert!(String::from_utf8(training_json(&events[..2]).unwrap())
-            .unwrap()
-            .contains("TrialCompleted"));
+        assert!(
+            String::from_utf8(training_json(&events[..2]).unwrap())
+                .unwrap()
+                .contains("TrialCompleted")
+        );
         let csv = String::from_utf8(training_csv(&events[..2]).unwrap()).unwrap();
         assert!(csv.starts_with("index,event"));
         let encoded = training_json(&events[..2]).unwrap();

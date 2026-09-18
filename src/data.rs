@@ -11,8 +11,8 @@ use std::{
     ops::Deref,
     path::Path,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc, OnceLock,
+        atomic::{AtomicU64, Ordering},
     },
 };
 
@@ -158,10 +158,10 @@ fn profile_table(table: &TableData) -> Vec<ColumnProfile> {
                     continue;
                 }
                 unique.insert(value);
-                if let Ok(value) = value.parse::<f64>() {
-                    if value.is_finite() {
-                        numeric.push(value);
-                    }
+                if let Ok(value) = value.parse::<f64>()
+                    && value.is_finite()
+                {
+                    numeric.push(value);
                 }
             }
             let mean =
@@ -722,14 +722,18 @@ mod tests {
         )
         .unwrap();
         let quality = dataset.quality();
-        assert!(quality
-            .alerts
-            .iter()
-            .any(|alert| alert.contains("constant across")));
-        assert!(quality
-            .alerts
-            .iter()
-            .any(|alert| alert.contains("mixes numeric")));
+        assert!(
+            quality
+                .alerts
+                .iter()
+                .any(|alert| alert.contains("constant across"))
+        );
+        assert!(
+            quality
+                .alerts
+                .iter()
+                .any(|alert| alert.contains("mixes numeric"))
+        );
         assert_eq!(quality.correlations.len(), 1);
         assert_eq!(quality.correlations[0].left, "x");
         assert_eq!(quality.correlations[0].right, "y");
@@ -760,10 +764,12 @@ mod tests {
         assert!(rows.push(vec!["2".into()]).unwrap_err().contains("row"));
 
         let mut bytes = TableBuilder::new(vec!["x".into()], limits).unwrap();
-        assert!(bytes
-            .push(vec!["12345678".into()])
-            .unwrap_err()
-            .contains("decoded-data"));
+        assert!(
+            bytes
+                .push(vec!["12345678".into()])
+                .unwrap_err()
+                .contains("decoded-data")
+        );
     }
 
     #[test]

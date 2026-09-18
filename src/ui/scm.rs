@@ -423,10 +423,10 @@ impl crate::ForgeApp {
             if ui.button("Auth status").clicked() {
                 self.github.output = github::auth_status().text();
             }
-            if ui.button("Clone...").clicked() {
-                if let Some(destination) = rfd::FileDialog::new().pick_folder() {
-                    self.github.output = github::clone(&self.github.input, &destination).text();
-                }
+            if ui.button("Clone...").clicked()
+                && let Some(destination) = rfd::FileDialog::new().pick_folder()
+            {
+                self.github.output = github::clone(&self.github.input, &destination).text();
             }
         });
         ui.horizontal_wrapped(|ui| {

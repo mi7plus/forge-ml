@@ -312,9 +312,10 @@ mod tests {
         let bars = histogram(&[5.0, 5.0, 5.0], 8);
         let total: f64 = bars.iter().map(|b| b.value).sum();
         assert_eq!(total, 3.0);
-        assert!(bars
-            .iter()
-            .all(|b| b.value.is_finite() && b.bar_width.is_finite()));
+        assert!(
+            bars.iter()
+                .all(|b| b.value.is_finite() && b.bar_width.is_finite())
+        );
     }
 
     #[test]
@@ -344,9 +345,11 @@ mod tests {
         assert!(kde(&[1.0], 32).is_empty()); // needs at least two points
         let curve = kde(&[3.0, 3.0, 3.0], 16);
         assert_eq!(curve.len(), 16);
-        assert!(curve
-            .iter()
-            .all(|[y, d]| y.is_finite() && d.is_finite() && *d >= 0.0));
+        assert!(
+            curve
+                .iter()
+                .all(|[y, d]| y.is_finite() && d.is_finite() && *d >= 0.0)
+        );
     }
 
     #[test]

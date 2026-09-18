@@ -12,7 +12,7 @@
 //! Hugging Face is integrated first.)
 
 use super::diagnostics::tool_version;
-use super::lock::{sha256_hex, LockEntry};
+use super::lock::{LockEntry, sha256_hex};
 use super::manifest::{Manifest, PythonRequest};
 use super::provider::{Activation, Capabilities, EnvironmentProvider, Probe};
 use std::path::Path;
@@ -34,13 +34,13 @@ pub fn find_interpreter(root: &Path) -> Option<Interpreter> {
     } else {
         root.join(".venv").join("bin").join("python")
     };
-    if venv.is_file() {
-        if let Some(version) = interpreter_version(&venv.to_string_lossy()) {
-            return Some(Interpreter {
-                version,
-                source: ".venv".to_owned(),
-            });
-        }
+    if venv.is_file()
+        && let Some(version) = interpreter_version(&venv.to_string_lossy())
+    {
+        return Some(Interpreter {
+            version,
+            source: ".venv".to_owned(),
+        });
     }
     for program in ["python3", "python"] {
         if let Some(version) = interpreter_version(program) {
@@ -323,12 +323,13 @@ impl EnvironmentProvider for PythonProvider {
 fn evaluate(request: &PythonRequest, interpreter: Option<&str>, manager_present: bool) -> Probe {
     match interpreter {
         Some(version) => {
-            if let Some(want) = &request.version {
-                if !version_matches(version, want) && request.require {
-                    return Probe::Incompatible(format!(
-                        "[python] requires {want}, but the interpreter is `{version}`"
-                    ));
-                }
+            if let Some(want) = &request.version
+                && !version_matches(version, want)
+                && request.require
+            {
+                return Probe::Incompatible(format!(
+                    "[python] requires {want}, but the interpreter is `{version}`"
+                ));
             }
             if !manager_present && request.require {
                 return Probe::Incompatible(

@@ -1,7 +1,7 @@
 #[path = "support/model.rs"]
 mod model;
 
-use model::{mean_squared_error, LinearModel};
+use model::{LinearModel, mean_squared_error};
 
 // forge: expose-main
 fn main() {

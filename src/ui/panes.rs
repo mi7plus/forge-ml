@@ -157,29 +157,27 @@ impl crate::ForgeApp {
             if ui.button("Export CSV").clicked() {
                 self.export_telemetry_csv();
             }
-            if ui.button("HTML report").clicked() {
-                if let Some(path) = rfd::FileDialog::new()
+            if ui.button("HTML report").clicked()
+                && let Some(path) = rfd::FileDialog::new()
                     .set_file_name("experiment-comparison.html")
                     .save_file()
-                {
-                    self.console = std::fs::write(
-                        &path,
-                        export::experiment_report(&self.saved_runs, &self.comparison_metric),
-                    )
-                    .map(|()| format!("Exported experiment report to {}", path.display()))
-                    .unwrap_or_else(|e| format!("Experiment report failed: {e}"));
-                }
+            {
+                self.console = std::fs::write(
+                    &path,
+                    export::experiment_report(&self.saved_runs, &self.comparison_metric),
+                )
+                .map(|()| format!("Exported experiment report to {}", path.display()))
+                .unwrap_or_else(|e| format!("Experiment report failed: {e}"));
             }
-            if ui.button("PDF report").clicked() {
-                if let Some(path) = rfd::FileDialog::new()
+            if ui.button("PDF report").clicked()
+                && let Some(path) = rfd::FileDialog::new()
                     .set_file_name("experiment-comparison.pdf")
                     .save_file()
-                {
-                    self.console =
-                        export::experiment_pdf(&self.saved_runs, &self.comparison_metric, &path)
-                            .map(|()| format!("Exported experiment PDF to {}", path.display()))
-                            .unwrap_or_else(|error| format!("Experiment PDF failed: {error}"));
-                }
+            {
+                self.console =
+                    export::experiment_pdf(&self.saved_runs, &self.comparison_metric, &path)
+                        .map(|()| format!("Exported experiment PDF to {}", path.display()))
+                        .unwrap_or_else(|error| format!("Experiment PDF failed: {error}"));
             }
         });
         let colors = [
@@ -335,12 +333,11 @@ impl crate::ForgeApp {
         }
         if let Some(index) = run_to_delete {
             let run = self.saved_runs.remove(index);
-            if let Some(store) = &self.workspace_store {
-                if let Err(error) = store.delete_experiment(&run.id) {
-                    self.console =
-                        format!("Deleted run from the view, but storage failed: {error}");
-                    return;
-                }
+            if let Some(store) = &self.workspace_store
+                && let Err(error) = store.delete_experiment(&run.id)
+            {
+                self.console = format!("Deleted run from the view, but storage failed: {error}");
+                return;
             }
             self.console = format!("Deleted saved run `{}`.", run.name);
         }
@@ -362,44 +359,43 @@ impl crate::ForgeApp {
             if ui.button("Export").clicked() {
                 self.export_telemetry_csv();
             }
-            if ui.button("Import plot JSON").clicked() {
-                if let Some(path) = rfd::FileDialog::new()
+            if ui.button("Import plot JSON").clicked()
+                && let Some(path) = rfd::FileDialog::new()
                     .add_filter("Forge plot JSON", &["json"])
                     .pick_file()
+            {
+                self.console = match std::fs::read(&path)
+                    .map_err(|error| error.to_string())
+                    .and_then(|bytes| plot::parse_json(&bytes))
                 {
-                    self.console = match std::fs::read(&path)
-                        .map_err(|error| error.to_string())
-                        .and_then(|bytes| plot::parse_json(&bytes))
-                    {
-                        Ok(plots) => {
-                            let count = plots.len();
-                            for spec in plots {
-                                if let Some(existing) = self
-                                    .structured_plots
-                                    .iter_mut()
-                                    .find(|existing| existing.name == spec.name)
-                                {
-                                    *existing = spec;
-                                } else {
-                                    self.structured_plots.push(spec);
-                                }
+                    Ok(plots) => {
+                        let count = plots.len();
+                        for spec in plots {
+                            if let Some(existing) = self
+                                .structured_plots
+                                .iter_mut()
+                                .find(|existing| existing.name == spec.name)
+                            {
+                                *existing = spec;
+                            } else {
+                                self.structured_plots.push(spec);
                             }
-                            format!("Imported {count} plot(s) from {}", path.display())
                         }
-                        Err(error) => format!("Plot import failed: {error}"),
-                    };
-                }
+                        format!("Imported {count} plot(s) from {}", path.display())
+                    }
+                    Err(error) => format!("Plot import failed: {error}"),
+                };
             }
-            if !self.structured_plots.is_empty() && ui.button("Export plot history").clicked() {
-                if let Some(path) = rfd::FileDialog::new()
+            if !self.structured_plots.is_empty()
+                && ui.button("Export plot history").clicked()
+                && let Some(path) = rfd::FileDialog::new()
                     .set_file_name("forge-plot-history.json")
                     .save_file()
-                {
-                    self.console = plot::collection_json(&self.structured_plots)
-                        .and_then(|bytes| std::fs::write(&path, bytes).map_err(|e| e.to_string()))
-                        .map(|()| format!("Exported plot history to {}", path.display()))
-                        .unwrap_or_else(|error| format!("Plot history export failed: {error}"));
-                }
+            {
+                self.console = plot::collection_json(&self.structured_plots)
+                    .and_then(|bytes| std::fs::write(&path, bytes).map_err(|e| e.to_string()))
+                    .map(|()| format!("Exported plot history to {}", path.display()))
+                    .unwrap_or_else(|error| format!("Plot history export failed: {error}"));
             }
             if !self.structured_plots.is_empty()
                 && ui
@@ -572,80 +568,75 @@ impl crate::ForgeApp {
                         if ui.button("Duplicate").clicked() {
                             duplicate = Some(spec.clone());
                         }
-                        if ui.button("Export JSON").clicked() {
-                            if let Some(path) = rfd::FileDialog::new()
+                        if ui.button("Export JSON").clicked()
+                            && let Some(path) = rfd::FileDialog::new()
                                 .set_file_name(format!("{}.plot.json", safe_file_stem(&spec.name)))
                                 .save_file()
-                            {
-                                status = Some(
-                                    std::fs::write(
-                                        &path,
-                                        serde_json::to_vec_pretty(spec).unwrap_or_default(),
-                                    )
-                                    .map(|()| format!("Exported {}", path.display()))
-                                    .unwrap_or_else(|e| e.to_string()),
-                                );
-                            }
+                        {
+                            status = Some(
+                                std::fs::write(
+                                    &path,
+                                    serde_json::to_vec_pretty(spec).unwrap_or_default(),
+                                )
+                                .map(|()| format!("Exported {}", path.display()))
+                                .unwrap_or_else(|e| e.to_string()),
+                            );
                         }
-                        if ui.button("Export SVG").clicked() {
-                            if let Some(path) = rfd::FileDialog::new()
+                        if ui.button("Export SVG").clicked()
+                            && let Some(path) = rfd::FileDialog::new()
                                 .set_file_name(format!("{}.svg", safe_file_stem(&spec.name)))
                                 .save_file()
-                            {
-                                status = Some(
-                                    plot::svg(spec, 960, 540)
-                                        .and_then(|svg| {
-                                            std::fs::write(&path, svg).map_err(|e| e.to_string())
-                                        })
-                                        .map(|()| format!("Exported {}", path.display()))
-                                        .text(),
-                                );
-                            }
+                        {
+                            status = Some(
+                                plot::svg(spec, 960, 540)
+                                    .and_then(|svg| {
+                                        std::fs::write(&path, svg).map_err(|e| e.to_string())
+                                    })
+                                    .map(|()| format!("Exported {}", path.display()))
+                                    .text(),
+                            );
                         }
-                        if ui.button("Export PNG").clicked() {
-                            if let Some(path) = rfd::FileDialog::new()
+                        if ui.button("Export PNG").clicked()
+                            && let Some(path) = rfd::FileDialog::new()
                                 .set_file_name(format!("{}.png", safe_file_stem(&spec.name)))
                                 .save_file()
-                            {
-                                status = Some(
-                                    plot::png(spec, 960, 540)
-                                        .and_then(|png| {
-                                            std::fs::write(&path, png).map_err(|e| e.to_string())
-                                        })
-                                        .map(|()| format!("Exported {}", path.display()))
-                                        .text(),
-                                );
-                            }
+                        {
+                            status = Some(
+                                plot::png(spec, 960, 540)
+                                    .and_then(|png| {
+                                        std::fs::write(&path, png).map_err(|e| e.to_string())
+                                    })
+                                    .map(|()| format!("Exported {}", path.display()))
+                                    .text(),
+                            );
                         }
-                        if ui.button("Export HTML").clicked() {
-                            if let Some(path) = rfd::FileDialog::new()
+                        if ui.button("Export HTML").clicked()
+                            && let Some(path) = rfd::FileDialog::new()
                                 .set_file_name(format!("{}.html", safe_file_stem(&spec.name)))
                                 .save_file()
-                            {
-                                status = Some(
-                                    plot::html(spec, 960, 540)
-                                        .and_then(|html| {
-                                            std::fs::write(&path, html).map_err(|e| e.to_string())
-                                        })
-                                        .map(|()| format!("Exported {}", path.display()))
-                                        .text(),
-                                );
-                            }
+                        {
+                            status = Some(
+                                plot::html(spec, 960, 540)
+                                    .and_then(|html| {
+                                        std::fs::write(&path, html).map_err(|e| e.to_string())
+                                    })
+                                    .map(|()| format!("Exported {}", path.display()))
+                                    .text(),
+                            );
                         }
-                        if ui.button("Export PDF").clicked() {
-                            if let Some(path) = rfd::FileDialog::new()
+                        if ui.button("Export PDF").clicked()
+                            && let Some(path) = rfd::FileDialog::new()
                                 .set_file_name(format!("{}.pdf", safe_file_stem(&spec.name)))
                                 .save_file()
-                            {
-                                status = Some(
-                                    plot::pdf(spec, 960, 540)
-                                        .and_then(|pdf| {
-                                            std::fs::write(&path, pdf).map_err(|e| e.to_string())
-                                        })
-                                        .map(|()| format!("Exported {}", path.display()))
-                                        .text(),
-                                );
-                            }
+                        {
+                            status = Some(
+                                plot::pdf(spec, 960, 540)
+                                    .and_then(|pdf| {
+                                        std::fs::write(&path, pdf).map_err(|e| e.to_string())
+                                    })
+                                    .map(|()| format!("Exported {}", path.display()))
+                                    .text(),
+                            );
                         }
                         if ui.button("Delete").clicked() {
                             delete = Some(index);
@@ -758,29 +749,28 @@ impl crate::ForgeApp {
         } else {
             self.notebook_edit = edit;
         }
-        if let Some(index) = toggle_collapse {
-            if !self.notebook_collapsed.remove(&index) {
-                self.notebook_collapsed.insert(index);
-            }
+        if let Some(index) = toggle_collapse
+            && !self.notebook_collapsed.remove(&index)
+        {
+            self.notebook_collapsed.insert(index);
         }
         // Reorder: swap cell `first` with the one below it in the buffer. Cell
         // outputs are keyed by index, so clear them (and collapse state) rather
         // than mis-attribute; keep the selection pointed at the moved cell.
-        if let Some(first) = swap_first {
-            if let Some(updated) =
+        if let Some(first) = swap_first
+            && let Some(updated) =
                 crate::notebook::swap_adjacent_cells(&self.active().content, first)
-            {
-                self.active_mut().content = updated;
-                self.active_mut().dirty = true;
-                self.cell_records.clear();
-                self.notebook_collapsed.clear();
-                if self.selected_cell == first {
-                    self.selected_cell = first + 1;
-                } else if self.selected_cell == first + 1 {
-                    self.selected_cell = first;
-                }
-                self.console = "Reordered notebook cells.".to_owned();
+        {
+            self.active_mut().content = updated;
+            self.active_mut().dirty = true;
+            self.cell_records.clear();
+            self.notebook_collapsed.clear();
+            if self.selected_cell == first {
+                self.selected_cell = first + 1;
+            } else if self.selected_cell == first + 1 {
+                self.selected_cell = first;
             }
+            self.console = "Reordered notebook cells.".to_owned();
         }
         if let Some(index) = select {
             self.selected_cell = index;
@@ -1055,14 +1045,13 @@ impl crate::ForgeApp {
                 ConsoleTab::Python => ("PYTHON RUNTIME", "Clear Python runtime output"),
             };
             ui.label(RichText::new(title).size(10.0).strong().color(MUTED));
-            if tab == ConsoleTab::Console {
-                if let Some(ms) = self
+            if tab == ConsoleTab::Console
+                && let Some(ms) = self
                     .cell_records
                     .get(&self.selected_cell)
                     .and_then(|r| r.elapsed_ms)
-                {
-                    ui.label(RichText::new(format!("{ms} ms")).size(10.0).color(accent()));
-                }
+            {
+                ui.label(RichText::new(format!("{ms} ms")).size(10.0).color(accent()));
             }
             if compact_icon_button(ui, egui_phosphor_icons::icons::BROOM, clear_hint).clicked() {
                 match tab {
@@ -1097,18 +1086,18 @@ impl crate::ForgeApp {
                     .max_height((ui.available_height() - 34.0).max(30.0))
                     .stick_to_bottom(true)
                     .show(ui, |ui| {
-                        if let Some(record) = self.cell_records.get(&self.selected_cell) {
-                            if let Some(commit) = &record.git_commit {
-                                ui.label(
-                                    RichText::new(format!(
-                                        "Git: {commit}{} · {} MIME output(s)",
-                                        if record.git_dirty { " + dirty" } else { "" },
-                                        record.rich_outputs.len()
-                                    ))
-                                    .size(9.0)
-                                    .color(MUTED),
-                                );
-                            }
+                        if let Some(record) = self.cell_records.get(&self.selected_cell)
+                            && let Some(commit) = &record.git_commit
+                        {
+                            ui.label(
+                                RichText::new(format!(
+                                    "Git: {commit}{} · {} MIME output(s)",
+                                    if record.git_dirty { " + dirty" } else { "" },
+                                    record.rich_outputs.len()
+                                ))
+                                .size(9.0)
+                                .color(MUTED),
+                            );
                         }
                         ui.label(RichText::new(shown).monospace().color(
                             if self.run_state == RunState::Failed {
@@ -1193,16 +1182,16 @@ impl crate::ForgeApp {
                     if ui.button("Start/restart").clicked() {
                         self.start_python_kernel();
                     }
-                    if ui.button("Create .venv").clicked() {
-                        if let (Some(root), Some(runtime)) = (
+                    if ui.button("Create .venv").clicked()
+                        && let (Some(root), Some(runtime)) = (
                             self.project_root(),
                             self.python.runtimes.iter().find(|runtime| {
                                 Some(&runtime.executable) == self.selected_python.as_ref()
                             }),
-                        ) {
-                            self.python.console_output =
-                                python_runtime::create_venv(runtime, &root.join(".venv")).text();
-                        }
+                        )
+                    {
+                        self.python.console_output =
+                            python_runtime::create_venv(runtime, &root.join(".venv")).text();
                     }
                 });
                 ui.horizontal(|ui| {

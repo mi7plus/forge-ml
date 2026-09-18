@@ -33,10 +33,10 @@ impl crate::ForgeApp {
             {
                 self.pending_delete = selected_file;
             }
-            if compact_icon_button(ui, icons::ARROWS_CLOCKWISE, "Refresh the file tree").clicked() {
-                if let Some(project) = &mut self.project {
-                    let _ = project.refresh();
-                }
+            if compact_icon_button(ui, icons::ARROWS_CLOCKWISE, "Refresh the file tree").clicked()
+                && let Some(project) = &mut self.project
+            {
+                let _ = project.refresh();
             }
         });
         ui.add_space(5.0);
@@ -191,8 +191,8 @@ impl crate::ForgeApp {
                         )
                     })
                 });
-            if let Some(symbol) = symbol {
-                if ui
+            if let Some(symbol) = symbol
+                && ui
                     .add(
                         egui::Button::new(
                             RichText::new(format!("-  {symbol}  :{}", line_no + 1))
@@ -204,9 +204,8 @@ impl crate::ForgeApp {
                     )
                     .on_hover_text("Go to symbol")
                     .clicked()
-                {
-                    selected_line = Some(line_no);
-                }
+            {
+                selected_line = Some(line_no);
             }
         }
         if let Some(line) = selected_line {

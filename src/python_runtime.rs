@@ -151,12 +151,16 @@ mod tests {
             packages: "numpy==2.0".into(),
         };
         let notes = compatibility(&runtime);
-        assert!(notes
-            .iter()
-            .any(|line| line.ends_with(" numpy") && !line.contains("not installed")));
-        assert!(notes
-            .iter()
-            .any(|line| line.contains("scikit-learn not installed")));
+        assert!(
+            notes
+                .iter()
+                .any(|line| line.ends_with(" numpy") && !line.contains("not installed"))
+        );
+        assert!(
+            notes
+                .iter()
+                .any(|line| line.contains("scikit-learn not installed"))
+        );
     }
     #[test]
     fn rejects_insecure_python_registry() {

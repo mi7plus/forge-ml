@@ -1,7 +1,7 @@
 [package]
 name = "forge-webview"
 version = "1.15.0"
-edition = "2021"
+edition = "2024"
 description = "Forge's own WebView window — renders an HTML file (full CSS/JS) inside the app rather than an external browser."
 publish = false
 

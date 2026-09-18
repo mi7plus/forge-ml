@@ -15,7 +15,7 @@ impl crate::ForgeApp {
         // (egui keeps a single popup open, so this switches without a click).
         egui::MenuBar::new().ui(ui, |ui| {
             macro_rules! top {
-                ($label:expr, |$ui:ident| $body:block) => {{
+                ($label:expr_2021, |$ui:ident| $body:block) => {{
                     let resp = ui.menu_button($label, |$ui| $body).response;
                     let pid = resp.id.with("popup");
                     let ctx = resp.ctx.clone();
@@ -381,10 +381,10 @@ impl crate::ForgeApp {
                     PaneKind::RustConsole(n) => format!("Rust {n}"),
                     other => other.title().to_owned(),
                 };
-                if ui.checkbox(&mut visible, label).changed() {
-                    if let Some(tree) = self.dock_tree.as_mut() {
-                        tree.tiles.set_visible(id, visible);
-                    }
+                if ui.checkbox(&mut visible, label).changed()
+                    && let Some(tree) = self.dock_tree.as_mut()
+                {
+                    tree.tiles.set_visible(id, visible);
                 }
             }
         });
@@ -818,14 +818,13 @@ impl crate::ForgeApp {
             if changed {
                 configure_style(ui.ctx(), &self.theme_draft, self.high_contrast);
                 // Keep an active custom theme's stored palette in sync with edits.
-                if let Some(name) = self.active_theme.clone() {
-                    if let Some(theme) = self
+                if let Some(name) = self.active_theme.clone()
+                    && let Some(theme) = self
                         .custom_themes
                         .iter_mut()
                         .find(|theme| theme.name == name)
-                    {
-                        theme.palette = self.theme_draft.clone();
-                    }
+                {
+                    theme.palette = self.theme_draft.clone();
                 }
             }
 
@@ -861,21 +860,17 @@ impl crate::ForgeApp {
                         resolve_palette(&self.active_theme, &self.custom_themes, self.dark_mode);
                     self.apply_theme(ui.ctx());
                 }
-                if let Some(name) = self.active_theme.clone() {
-                    if ui
+                if let Some(name) = self.active_theme.clone()
+                    && ui
                         .button("Delete")
                         .on_hover_text(format!("Delete the '{name}' theme"))
                         .clicked()
-                    {
-                        self.custom_themes.retain(|theme| theme.name != name);
-                        self.active_theme = None;
-                        self.theme_draft = resolve_palette(
-                            &self.active_theme,
-                            &self.custom_themes,
-                            self.dark_mode,
-                        );
-                        self.apply_theme(ui.ctx());
-                    }
+                {
+                    self.custom_themes.retain(|theme| theme.name != name);
+                    self.active_theme = None;
+                    self.theme_draft =
+                        resolve_palette(&self.active_theme, &self.custom_themes, self.dark_mode);
+                    self.apply_theme(ui.ctx());
                 }
                 if ui.button("Export…").clicked() {
                     self.export_theme();
@@ -1113,8 +1108,8 @@ impl crate::ForgeApp {
                 if let Some(action) = self.rebinding {
                     if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
                         self.rebinding = None;
-                    } else if let Some(shortcut) = keymap::capture(ctx) {
-                        if shortcut.logical_key != egui::Key::Escape {
+                    } else if let Some(shortcut) = keymap::capture(ctx)
+                        && shortcut.logical_key != egui::Key::Escape {
                             match self.keymap.conflict(shortcut, action) {
                                 Some(other) => {
                                     self.status_announcement =
@@ -1124,7 +1119,6 @@ impl crate::ForgeApp {
                             }
                             self.rebinding = None;
                         }
-                    }
                 }
                 egui::ScrollArea::vertical()
                     .id_salt("keymap_scroll")

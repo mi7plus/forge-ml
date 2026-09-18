@@ -4,7 +4,7 @@
 
 use crate::lsp::{self, Diagnostic as LspDiagnostic};
 use crate::project::{self, FileNode};
-use crate::ui::theme::{accent, EMBER, MUTED, RED, TEXT};
+use crate::ui::theme::{EMBER, MUTED, RED, TEXT, accent};
 use crate::{EditorTab, ExplorerAction};
 use eframe::egui;
 use egui::{Color32, RichText, Stroke};
@@ -22,11 +22,7 @@ pub fn safe_file_stem(value: &str) -> String {
             }
         })
         .collect::<String>();
-    if stem.is_empty() {
-        "plot".into()
-    } else {
-        stem
-    }
+    if stem.is_empty() { "plot".into() } else { stem }
 }
 
 pub fn word_start_at(text: &str, offset: usize) -> Option<usize> {
@@ -542,7 +538,7 @@ mod tests {
     fn lsp_pos_to_offset_maps_lines_and_utf16() {
         assert_eq!(lsp_pos_to_offset("ab\ncd", 0, 0), 0);
         assert_eq!(lsp_pos_to_offset("ab\ncd", 1, 1), 4); // 'd'
-                                                          // '😀' is one char but two UTF-16 code units, so column 3 lands past it.
+        // '😀' is one char but two UTF-16 code units, so column 3 lands past it.
         assert_eq!(lsp_pos_to_offset("a😀b", 0, 3), 2);
     }
 
@@ -591,7 +587,7 @@ mod tests {
         let (out, cur) = toggle_line_comment("    let x = 1;", 4);
         assert_eq!(out, "    // let x = 1;");
         assert_eq!(cur, 7); // caret shifted by the inserted "// "
-                            // Uncommenting restores the original.
+        // Uncommenting restores the original.
         let (back, cur2) = toggle_line_comment(&out, cur);
         assert_eq!(back, "    let x = 1;");
         assert_eq!(cur2, 4);

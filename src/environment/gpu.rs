@@ -12,7 +12,7 @@
 //! what exists and let `require` turn a missing backend into a hard gap.
 
 use super::diagnostics::tool_version;
-use super::lock::{sha256_hex, LockEntry};
+use super::lock::{LockEntry, sha256_hex};
 use super::manifest::{GpuRequest, Manifest};
 use super::provider::{Activation, Capabilities, EnvironmentProvider, Probe};
 use std::path::Path;

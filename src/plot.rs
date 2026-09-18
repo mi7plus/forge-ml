@@ -154,8 +154,10 @@ pub fn parse_json(bytes: &[u8]) -> Result<Vec<PlotSpec>, String> {
         serde_json::from_value::<Vec<PlotSpec>>(value)
             .map_err(|error| format!("Invalid plot collection: {error}"))?
     } else {
-        vec![serde_json::from_value::<PlotSpec>(value)
-            .map_err(|error| format!("Invalid plot specification: {error}"))?]
+        vec![
+            serde_json::from_value::<PlotSpec>(value)
+                .map_err(|error| format!("Invalid plot specification: {error}"))?,
+        ]
     };
     if plots.is_empty() || plots.len() > MAX_IMPORTED_PLOTS {
         return Err(format!(
@@ -704,7 +706,14 @@ fn box_points(values: &[f64]) -> Vec<[f64; 2]> {
     ]
 }
 fn svg_document(spec: &PlotSpec, width: u32, height: u32, body: &str) -> String {
-    format!("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\"><rect width=\"100%\" height=\"100%\" fill=\"white\"/><text x=\"16\" y=\"20\" font-family=\"sans-serif\" font-weight=\"bold\">{}</text><line x1=\"45\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"#555\"/><line x1=\"45\" y1=\"30\" x2=\"45\" y2=\"{}\" stroke=\"#555\"/>{body}</svg>", xml_escape(&spec.name), height - 35, width - 20, height - 35, height - 35)
+    format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\"><rect width=\"100%\" height=\"100%\" fill=\"white\"/><text x=\"16\" y=\"20\" font-family=\"sans-serif\" font-weight=\"bold\">{}</text><line x1=\"45\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"#555\"/><line x1=\"45\" y1=\"30\" x2=\"45\" y2=\"{}\" stroke=\"#555\"/>{body}</svg>",
+        xml_escape(&spec.name),
+        height - 35,
+        width - 20,
+        height - 35,
+        height - 35
+    )
 }
 fn bounds(points: &[[f64; 2]]) -> (f64, f64, f64, f64) {
     if points.is_empty() {

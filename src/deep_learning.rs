@@ -360,7 +360,7 @@ impl RegressionDiagnostics {
     }
 
     pub fn plots(&self, dataset: &str) -> Vec<crate::plot::PlotSpec> {
-        use crate::plot::{PlotKind, PlotSeries, PlotSpec, PLOT_SPEC_VERSION};
+        use crate::plot::{PLOT_SPEC_VERSION, PlotKind, PlotSeries, PlotSpec};
         vec![
             PlotSpec {
                 version: PLOT_SPEC_VERSION,
@@ -945,7 +945,7 @@ pub struct DeepOutputs {
 pub fn parse_output(output: &str, state: &mut DeepOutputs) {
     for line in output.lines() {
         macro_rules! parse {
-            ($prefix:literal, $target:expr, $ty:ty) => {
+            ($prefix:literal, $target:expr_2021, $ty:ty) => {
                 if let Some(json) = line.strip_prefix($prefix) {
                     if let Ok(value) = serde_json::from_str::<$ty>(json.trim()) {
                         $target(value);
@@ -987,7 +987,10 @@ pub fn generate_burn_project(root: &Path, backend: Backend) -> Result<String, St
         return Err(format!("{} already exists.", project.display()));
     }
     std::fs::create_dir_all(project.join("src")).map_err(|e| e.to_string())?;
-    let cargo = format!("[package]\nname = \"burn-model\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nburn = {{ version = \"{BURN_VERSION}\", default-features = false, features = [\"std\", \"train\", \"{}\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nserde_json = \"1\"\n", backend.feature());
+    let cargo = format!(
+        "[package]\nname = \"burn-model\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nburn = {{ version = \"{BURN_VERSION}\", default-features = false, features = [\"std\", \"train\", \"{}\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nserde_json = \"1\"\n",
+        backend.feature()
+    );
     let main = r##"use burn::nn;
 use burn::prelude::*;
 
@@ -1071,9 +1074,11 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(losses.len(), 40);
         assert!(losses.last().unwrap() < losses.first().unwrap());
-        assert!(events
-            .iter()
-            .all(crate::millwright_studio::validate_training_event));
+        assert!(
+            events
+                .iter()
+                .all(crate::millwright_studio::validate_training_event)
+        );
         assert!(matches!(
             events.last(),
             Some(TrainingEvent::Completed { .. })
@@ -1094,9 +1099,11 @@ mod tests {
         );
         assert_eq!(result.unwrap_err(), "Embedded Burn training was cancelled");
         assert_eq!(emitted.len(), 2);
-        assert!(!emitted
-            .iter()
-            .any(|event| matches!(event, TrainingEvent::Completed { .. })));
+        assert!(
+            !emitted
+                .iter()
+                .any(|event| matches!(event, TrainingEvent::Completed { .. }))
+        );
     }
 
     #[test]
@@ -1134,13 +1141,15 @@ mod tests {
                 .count(),
             3
         );
-        assert!(events
-            .iter()
-            .filter_map(|event| match event {
-                TrainingEvent::Epoch { metric, .. } => Some(metric),
-                _ => None,
-            })
-            .all(Option::is_some));
+        assert!(
+            events
+                .iter()
+                .filter_map(|event| match event {
+                    TrainingEvent::Epoch { metric, .. } => Some(metric),
+                    _ => None,
+                })
+                .all(Option::is_some)
+        );
         assert!(matches!(
             &events[1],
             TrainingEvent::Started { job, .. }
@@ -1179,10 +1188,12 @@ mod tests {
         assert!(diagnostics.mae.is_finite());
         assert!(diagnostics.rmse.is_finite());
         assert_eq!(diagnostics.plots("sample").len(), 2);
-        assert!(diagnostics
-            .plots("sample")
-            .iter()
-            .all(|plot| plot.validate().is_ok()));
+        assert!(
+            diagnostics
+                .plots("sample")
+                .iter()
+                .all(|plot| plot.validate().is_ok())
+        );
         assert_eq!(predictions.drift.observed, 3);
         assert!(predictions.drift.standardized_mean_shift.is_finite());
         assert!(predictions.drift.scale_ratio.is_finite());
@@ -1199,16 +1210,18 @@ mod tests {
         )
         .unwrap();
         assert_eq!(custom.drift.policy.mean_shift_threshold, 2.0);
-        assert!(native_regression_predictions(
-            &outcome.artifact,
-            "sample",
-            &table,
-            DriftPolicy {
-                mean_shift_threshold: 0.0,
-                ..DriftPolicy::default()
-            },
-        )
-        .is_err());
+        assert!(
+            native_regression_predictions(
+                &outcome.artifact,
+                "sample",
+                &table,
+                DriftPolicy {
+                    mean_shift_threshold: 0.0,
+                    ..DriftPolicy::default()
+                },
+            )
+            .is_err()
+        );
         assert!(native_training_data("sample", &table, "feature", "feature").is_err());
         assert!(native_training_data("sample", &table, "missing", "target").is_err());
         for config in [
@@ -1236,14 +1249,16 @@ mod tests {
                 ..NativeTrainingConfig::default()
             },
         ] {
-            assert!(native_burn_training_demo_with_progress(
-                Backend::Cpu,
-                config,
-                None,
-                || false,
-                |_| {}
-            )
-            .is_err());
+            assert!(
+                native_burn_training_demo_with_progress(
+                    Backend::Cpu,
+                    config,
+                    None,
+                    || false,
+                    |_| {}
+                )
+                .is_err()
+            );
         }
     }
 

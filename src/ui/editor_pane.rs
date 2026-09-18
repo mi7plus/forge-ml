@@ -17,20 +17,20 @@ impl crate::ForgeApp {
         };
         let root = self.project.as_ref().map(|project| project.root.clone());
         let mut parts: Vec<String> = Vec::new();
-        if let Some(root) = &root {
-            if let Some(name) = root.file_name().and_then(|n| n.to_str()) {
-                parts.push(name.to_owned());
-            }
+        if let Some(root) = &root
+            && let Some(name) = root.file_name().and_then(|n| n.to_str())
+        {
+            parts.push(name.to_owned());
         }
         let tail = root
             .as_ref()
             .and_then(|root| path.strip_prefix(root).ok())
             .unwrap_or(path.as_path());
         for component in tail.components() {
-            if let std::path::Component::Normal(segment) = component {
-                if let Some(segment) = segment.to_str() {
-                    parts.push(segment.to_owned());
-                }
+            if let std::path::Component::Normal(segment) = component
+                && let Some(segment) = segment.to_str()
+            {
+                parts.push(segment.to_owned());
             }
         }
         ui.horizontal(|ui| {
@@ -116,10 +116,8 @@ impl crate::ForgeApp {
                     }
                 }
             });
-            if open_web {
-                if let Some(path) = &html_path {
-                    self.pending_open_web_preview = Some(crate::ui::cef_preview::file_url(path));
-                }
+            if open_web && let Some(path) = &html_path {
+                self.pending_open_web_preview = Some(crate::ui::cef_preview::file_url(path));
             }
             let source = self.active().content.clone();
             let path = self.active().path.clone();
@@ -369,28 +367,29 @@ impl crate::ForgeApp {
             self.navigable_hover_offset = None;
             self.dock_pending_definition_probe = hovered_offset;
         }
-        if let Some(offset) = hovered_offset {
-            if self.navigable_hover_offset == Some(offset) {
-                if ctrl_held {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                }
-                paint_navigable_word(ui, &output, &self.tabs[self.active_tab].content, offset);
+        if let Some(offset) = hovered_offset
+            && self.navigable_hover_offset == Some(offset)
+        {
+            if ctrl_held {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
+            paint_navigable_word(ui, &output, &self.tabs[self.active_tab].content, offset);
         }
         // Ctrl+click jumps to definition at the pointer even if the async
         // probe hasn't underlined the word yet (avoids a timing race).
-        if ctrl_held && output.response.clicked_by(egui::PointerButton::Primary) {
-            if let Some(offset) = hovered_offset {
-                self.cursor_offset = offset;
-                self.dock_pending_ctrl_definition = true;
-            }
+        if ctrl_held
+            && output.response.clicked_by(egui::PointerButton::Primary)
+            && let Some(offset) = hovered_offset
+        {
+            self.cursor_offset = offset;
+            self.dock_pending_ctrl_definition = true;
         }
         // Right-click moves the caret to the pointer, then offers the
         // source-navigation actions there.
-        if output.response.secondary_clicked() {
-            if let Some(offset) = hovered_offset {
-                self.cursor_offset = offset;
-            }
+        if output.response.secondary_clicked()
+            && let Some(offset) = hovered_offset
+        {
+            self.cursor_offset = offset;
         }
         output.response.context_menu(|ui| {
             if ui.button("Go to definition   (Ctrl+click)").clicked() {
@@ -408,77 +407,77 @@ impl crate::ForgeApp {
             }
         });
         // Signature help popup above the caret.
-        if !self.lsp.signature.is_empty() {
-            if let Some(range) = output.cursor_range {
-                let caret = output.galley.pos_from_cursor(range.primary);
-                let pos = output.galley_pos + egui::vec2(caret.min.x, caret.min.y - 24.0);
-                egui::Area::new(egui::Id::new("editor_signature_popup"))
-                    .order(egui::Order::Foreground)
-                    .fixed_pos(pos)
-                    .show(ui.ctx(), |ui| {
-                        egui::Frame::popup(ui.style()).show(ui, |ui| {
-                            ui.label(
-                                RichText::new(&self.lsp.signature)
-                                    .monospace()
-                                    .size(11.0)
-                                    .color(accent()),
-                            );
-                        });
+        if !self.lsp.signature.is_empty()
+            && let Some(range) = output.cursor_range
+        {
+            let caret = output.galley.pos_from_cursor(range.primary);
+            let pos = output.galley_pos + egui::vec2(caret.min.x, caret.min.y - 24.0);
+            egui::Area::new(egui::Id::new("editor_signature_popup"))
+                .order(egui::Order::Foreground)
+                .fixed_pos(pos)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.label(
+                            RichText::new(&self.lsp.signature)
+                                .monospace()
+                                .size(11.0)
+                                .color(accent()),
+                        );
                     });
-                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                    self.lsp.signature.clear();
-                }
+                });
+            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.lsp.signature.clear();
             }
         }
-        if self.completion_popup_open {
-            if let Some(range) = output.cursor_range {
-                let caret = output.galley.pos_from_cursor(range.primary);
-                let popup_position = output.galley_pos + egui::vec2(caret.min.x, caret.max.y + 3.0);
-                let completions = self
-                    .completions
-                    .iter()
-                    .take(12)
-                    .cloned()
-                    .collect::<Vec<_>>();
-                let mut selected = None;
-                let popup = egui::Area::new(egui::Id::new("editor_completion_popup"))
-                    .order(egui::Order::Foreground)
-                    .fixed_pos(popup_position)
-                    .show(ui.ctx(), |ui| {
-                        egui::Frame::popup(ui.style()).show(ui, |ui| {
-                            ui.set_min_width(240.0);
-                            ui.label(
-                                RichText::new("RUST-ANALYZER COMPLETIONS")
-                                    .size(9.0)
-                                    .strong()
-                                    .color(MUTED),
-                            );
-                            egui::ScrollArea::vertical()
-                                .id_salt("editor_completion_popup_list")
-                                .max_height(240.0)
-                                .show(ui, |ui| {
-                                    for (label, insert) in completions {
-                                        if ui
-                                            .selectable_label(
-                                                false,
-                                                RichText::new(&label).monospace().size(11.0),
-                                            )
-                                            .clicked()
-                                        {
-                                            selected = Some(insert);
-                                        }
+        if self.completion_popup_open
+            && let Some(range) = output.cursor_range
+        {
+            let caret = output.galley.pos_from_cursor(range.primary);
+            let popup_position = output.galley_pos + egui::vec2(caret.min.x, caret.max.y + 3.0);
+            let completions = self
+                .completions
+                .iter()
+                .take(12)
+                .cloned()
+                .collect::<Vec<_>>();
+            let mut selected = None;
+            let popup = egui::Area::new(egui::Id::new("editor_completion_popup"))
+                .order(egui::Order::Foreground)
+                .fixed_pos(popup_position)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.set_min_width(240.0);
+                        ui.label(
+                            RichText::new("RUST-ANALYZER COMPLETIONS")
+                                .size(9.0)
+                                .strong()
+                                .color(MUTED),
+                        );
+                        egui::ScrollArea::vertical()
+                            .id_salt("editor_completion_popup_list")
+                            .max_height(240.0)
+                            .show(ui, |ui| {
+                                for (label, insert) in completions {
+                                    if ui
+                                        .selectable_label(
+                                            false,
+                                            RichText::new(&label).monospace().size(11.0),
+                                        )
+                                        .clicked()
+                                    {
+                                        selected = Some(insert);
                                     }
-                                });
-                        });
+                                }
+                            });
                     });
-                if let Some(completion) = selected {
-                    self.apply_completion(&completion);
-                } else if ui.input(|input| input.pointer.any_pressed())
-                    && !popup.response.contains_pointer()
-                    && !output.response.contains_pointer()
-                {
-                    self.completion_popup_open = false;
-                }
+                });
+            if let Some(completion) = selected {
+                self.apply_completion(&completion);
+            } else if ui.input(|input| input.pointer.any_pressed())
+                && !popup.response.contains_pointer()
+                && !output.response.contains_pointer()
+            {
+                self.completion_popup_open = false;
             }
         }
         if let Some((start, end)) = self.pending_editor_selection.take() {

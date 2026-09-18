@@ -11,7 +11,7 @@
 //! because that toolchain is already on `PATH`.
 
 use super::diagnostics::tool_version;
-use super::lock::{sha256_hex, LockEntry};
+use super::lock::{LockEntry, sha256_hex};
 use super::manifest::Manifest;
 use super::provider::{Activation, Capabilities, EnvironmentProvider, Probe};
 
@@ -45,12 +45,12 @@ impl EnvironmentProvider for SystemToolchainProvider {
             return Probe::Missing("`rustc` found but no `cargo` on PATH".to_owned());
         }
         // Respect a manifest toolchain pin rather than silently using another.
-        if let Some(pinned) = &manifest.toolchain.rust {
-            if !rustc.contains(pinned.as_str()) {
-                return Probe::Incompatible(format!(
-                    "manifest pins Rust {pinned}, but the system toolchain is `{rustc}`"
-                ));
-            }
+        if let Some(pinned) = &manifest.toolchain.rust
+            && !rustc.contains(pinned.as_str())
+        {
+            return Probe::Incompatible(format!(
+                "manifest pins Rust {pinned}, but the system toolchain is `{rustc}`"
+            ));
         }
         Probe::Available
     }

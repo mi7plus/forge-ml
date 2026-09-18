@@ -137,7 +137,7 @@ fn cmd_env(args: &[String]) -> Result<(), String> {
         other => {
             return Err(format!(
                 "unknown env subcommand `{other}` (sync | doctor | provide)"
-            ))
+            ));
         }
     };
     forwarded.extend(rest.iter().cloned());
@@ -297,10 +297,10 @@ fn parse_native_env(text: &str) -> (Vec<String>, Vec<(String, String)>) {
     for line in text.lines() {
         if let Some(dir) = line.strip_prefix("path\t") {
             paths.push(dir.to_owned());
-        } else if let Some(kv) = line.strip_prefix("env\t") {
-            if let Some((key, value)) = kv.split_once('=') {
-                vars.push((key.to_owned(), value.to_owned()));
-            }
+        } else if let Some(kv) = line.strip_prefix("env\t")
+            && let Some((key, value)) = kv.split_once('=')
+        {
+            vars.push((key.to_owned(), value.to_owned()));
         }
     }
     (paths, vars)
@@ -387,12 +387,12 @@ fn sibling_binary(stem: &str) -> PathBuf {
     } else {
         stem.to_owned()
     };
-    if let Ok(here) = std::env::current_exe() {
-        if let Some(dir) = here.parent() {
-            let sibling = dir.join(&exe_name);
-            if sibling.is_file() {
-                return sibling;
-            }
+    if let Ok(here) = std::env::current_exe()
+        && let Some(dir) = here.parent()
+    {
+        let sibling = dir.join(&exe_name);
+        if sibling.is_file() {
+            return sibling;
         }
     }
     PathBuf::from(exe_name)
@@ -448,14 +448,18 @@ mod tests {
     #[test]
     fn profiles_are_known_and_deep_learning_is_curated() {
         assert!(Profile::find("data").is_some());
-        assert!(Profile::find("classical-ml")
-            .unwrap()
-            .crates
-            .contains(&"millwright"));
-        assert!(Profile::find("deep-learning")
-            .unwrap()
-            .crates
-            .contains(&"burn"));
+        assert!(
+            Profile::find("classical-ml")
+                .unwrap()
+                .crates
+                .contains(&"millwright")
+        );
+        assert!(
+            Profile::find("deep-learning")
+                .unwrap()
+                .crates
+                .contains(&"burn")
+        );
         assert!(Profile::find("bogus").is_none());
     }
 

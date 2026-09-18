@@ -210,10 +210,10 @@ impl crate::ForgeApp {
             ui.add(
                 egui::TextEdit::singleline(&mut self.registry.artifact).hint_text("artifact path"),
             );
-            if ui.button("Browse").clicked() {
-                if let Some(path) = rfd::FileDialog::new().pick_file() {
-                    self.registry.artifact = path.display().to_string();
-                }
+            if ui.button("Browse").clicked()
+                && let Some(path) = rfd::FileDialog::new().pick_file()
+            {
+                self.registry.artifact = path.display().to_string();
             }
             if ui.button("Register").clicked() {
                 self.registry.output = model_registry::ModelRegistry::open(&root)
@@ -275,31 +275,31 @@ impl crate::ForgeApp {
                     .text();
             }
         });
-        if let Ok(registry) = model_registry::ModelRegistry::open(&root) {
-            if let Ok(versions) = registry.versions(&self.registry.model) {
-                egui::Grid::new("model_versions")
-                    .striped(true)
-                    .show(ui, |ui| {
-                        ui.strong("Version");
-                        ui.strong("Format");
-                        ui.strong("Size");
-                        ui.strong("SHA-256");
-                        ui.strong("Artifact");
+        if let Ok(registry) = model_registry::ModelRegistry::open(&root)
+            && let Ok(versions) = registry.versions(&self.registry.model)
+        {
+            egui::Grid::new("model_versions")
+                .striped(true)
+                .show(ui, |ui| {
+                    ui.strong("Version");
+                    ui.strong("Format");
+                    ui.strong("Size");
+                    ui.strong("SHA-256");
+                    ui.strong("Artifact");
+                    ui.end_row();
+                    for version in versions {
+                        ui.label(version.version);
+                        ui.label(version.format);
+                        ui.label(format!("{} B", version.size_bytes));
+                        ui.label(if version.sha256.is_empty() {
+                            "legacy".into()
+                        } else {
+                            version.sha256.chars().take(12).collect::<String>()
+                        });
+                        ui.label(version.artifact);
                         ui.end_row();
-                        for version in versions {
-                            ui.label(version.version);
-                            ui.label(version.format);
-                            ui.label(format!("{} B", version.size_bytes));
-                            ui.label(if version.sha256.is_empty() {
-                                "legacy".into()
-                            } else {
-                                version.sha256.chars().take(12).collect::<String>()
-                            });
-                            ui.label(version.artifact);
-                            ui.end_row();
-                        }
-                    });
-            }
+                    }
+                });
         }
     }
 
@@ -315,8 +315,7 @@ impl crate::ForgeApp {
             ));
             if (!self.service_events.is_empty() || !self.drift.events.is_empty())
                 && ui.button("Export snapshot").clicked()
-            {
-                if let Some(path) = rfd::FileDialog::new()
+                && let Some(path) = rfd::FileDialog::new()
                     .set_file_name("forge-monitoring-snapshot.json")
                     .save_file()
                 {
@@ -328,11 +327,9 @@ impl crate::ForgeApp {
                             .map(|()| format!("Exported monitoring snapshot to {}", path.display()))
                             .unwrap_or_else(|error| format!("Monitoring export failed: {error}"));
                 }
-            }
             if (!self.service_events.is_empty() || !self.drift.events.is_empty())
                 && ui.button("Export CSV").clicked()
-            {
-                if let Some(path) = rfd::FileDialog::new()
+                && let Some(path) = rfd::FileDialog::new()
                     .set_file_name("forge-deployment-monitoring.csv")
                     .save_file()
                 {
@@ -345,9 +342,8 @@ impl crate::ForgeApp {
                                 format!("Monitoring CSV export failed: {error}")
                             });
                 }
-            }
-            if ui.button("Import snapshot").clicked() {
-                if let Some(path) = rfd::FileDialog::new()
+            if ui.button("Import snapshot").clicked()
+                && let Some(path) = rfd::FileDialog::new()
                     .add_filter("Forge monitoring JSON", &["json"])
                     .pick_file()
                 {
@@ -361,7 +357,6 @@ impl crate::ForgeApp {
                         })
                         .unwrap_or_else(|error| format!("Monitoring import failed: {error}"));
                 }
-            }
             if (!self.service_events.is_empty() || !self.drift.events.is_empty())
                 && ui.button("Open monitoring plots").clicked()
             {
@@ -384,8 +379,7 @@ impl crate::ForgeApp {
             }
             if (!self.service_events.is_empty() || !self.drift.events.is_empty())
                 && ui.button("HTML report").clicked()
-            {
-                if let Some(path) = rfd::FileDialog::new()
+                && let Some(path) = rfd::FileDialog::new()
                     .set_file_name("forge-deployment-monitoring.html")
                     .save_file()
                 {
@@ -399,11 +393,9 @@ impl crate::ForgeApp {
                     .map(|()| format!("Exported monitoring report to {}", path.display()))
                     .unwrap_or_else(|error| format!("Monitoring report failed: {error}"));
                 }
-            }
             if (!self.service_events.is_empty() || !self.drift.events.is_empty())
                 && ui.button("PDF report").clicked()
-            {
-                if let Some(path) = rfd::FileDialog::new()
+                && let Some(path) = rfd::FileDialog::new()
                     .set_file_name("forge-deployment-monitoring.pdf")
                     .save_file()
                 {
@@ -415,11 +407,9 @@ impl crate::ForgeApp {
                     .map(|()| format!("Exported monitoring PDF report to {}", path.display()))
                     .unwrap_or_else(|error| format!("Monitoring PDF report failed: {error}"));
                 }
-            }
             if (!self.service_events.is_empty() || !self.drift.events.is_empty())
                 && ui.button("Monitoring bundle").clicked()
-            {
-                if let Some(path) = rfd::FileDialog::new()
+                && let Some(path) = rfd::FileDialog::new()
                     .set_file_name("forge-deployment-monitoring.zip")
                     .save_file()
                 {
@@ -428,9 +418,8 @@ impl crate::ForgeApp {
                             .map(|()| format!("Exported monitoring bundle to {}", path.display()))
                             .unwrap_or_else(|error| format!("Monitoring bundle failed: {error}"));
                 }
-            }
-            if ui.button("Import bundle").clicked() {
-                if let Some(path) = rfd::FileDialog::new()
+            if ui.button("Import bundle").clicked()
+                && let Some(path) = rfd::FileDialog::new()
                     .add_filter("Forge monitoring bundle", &["zip"])
                     .pick_file()
                 {
@@ -461,7 +450,6 @@ impl crate::ForgeApp {
                             format!("Monitoring bundle import failed: {error}")
                         });
                 }
-            }
             if (!self.service_events.is_empty() || !self.drift.events.is_empty())
                 && ui.button("Clear monitoring").clicked()
             {
@@ -636,43 +624,41 @@ impl crate::ForgeApp {
             if ui
                 .add_enabled(available, egui::Button::new("Test"))
                 .clicked()
+                && let Some(profile) = self.database.profiles.get(self.database.selected)
             {
-                if let Some(profile) = self.database.profiles.get(self.database.selected) {
-                    self.sql.output =
-                        match self
-                            .integration_worker
-                            .submit(IntegrationRequest::DatabaseTest {
-                                profile: profile.clone(),
-                                root: root.clone(),
-                            }) {
-                            Ok(()) => {
-                                self.integration_pending += 1;
-                                "Testing database connection…".into()
-                            }
-                            Err(error) => error,
-                        };
-                }
+                self.sql.output =
+                    match self
+                        .integration_worker
+                        .submit(IntegrationRequest::DatabaseTest {
+                            profile: profile.clone(),
+                            root: root.clone(),
+                        }) {
+                        Ok(()) => {
+                            self.integration_pending += 1;
+                            "Testing database connection…".into()
+                        }
+                        Err(error) => error,
+                    };
             }
             if ui
                 .add_enabled(available, egui::Button::new("Schema"))
                 .clicked()
+                && let Some(profile) = self.database.profiles.get(self.database.selected)
             {
-                if let Some(profile) = self.database.profiles.get(self.database.selected) {
-                    self.sql.output =
-                        match self
-                            .integration_worker
-                            .submit(IntegrationRequest::DatabaseSchema {
-                                profile: profile.clone(),
-                                root: root.clone(),
-                                dataset_name: format!("{}_schema", profile.name),
-                            }) {
-                            Ok(()) => {
-                                self.integration_pending += 1;
-                                "Loading database schema…".into()
-                            }
-                            Err(error) => error,
-                        };
-                }
+                self.sql.output =
+                    match self
+                        .integration_worker
+                        .submit(IntegrationRequest::DatabaseSchema {
+                            profile: profile.clone(),
+                            root: root.clone(),
+                            dataset_name: format!("{}_schema", profile.name),
+                        }) {
+                        Ok(()) => {
+                            self.integration_pending += 1;
+                            "Loading database schema…".into()
+                        }
+                        Err(error) => error,
+                    };
             }
             if ui
                 .add_enabled(
@@ -686,33 +672,32 @@ impl crate::ForgeApp {
             }
             ui.label(format!("ADBC core: {}", database::adbc_marker()));
         });
-        if remove_profile {
-            if let Some(profile) =
+        if remove_profile
+            && let Some(profile) =
                 database::remove_profile(&mut self.database.profiles, &mut self.database.selected)
+        {
+            self.sql.output = match self
+                .workspace_store
+                .as_ref()
+                .ok_or_else(|| "Workspace storage unavailable".to_owned())
+                .and_then(|store| store.save_connections(&self.database.profiles))
             {
-                self.sql.output = match self
-                    .workspace_store
-                    .as_ref()
-                    .ok_or_else(|| "Workspace storage unavailable".to_owned())
-                    .and_then(|store| store.save_connections(&self.database.profiles))
-                {
-                    Ok(()) => match database::delete_secret(&profile.credential_key) {
-                        Ok(()) => format!(
-                            "Removed connection profile `{}` and its stored credential.",
-                            profile.name
-                        ),
-                        Err(error) => format!(
-                            "Removed profile `{}`, but OS credential cleanup failed: {error}",
-                            profile.name
-                        ),
-                    },
-                    Err(error) => {
-                        self.database.profiles.push(profile);
-                        self.database.selected = self.database.profiles.len() - 1;
-                        format!("Could not remove connection profile: {error}")
-                    }
-                };
-            }
+                Ok(()) => match database::delete_secret(&profile.credential_key) {
+                    Ok(()) => format!(
+                        "Removed connection profile `{}` and its stored credential.",
+                        profile.name
+                    ),
+                    Err(error) => format!(
+                        "Removed profile `{}`, but OS credential cleanup failed: {error}",
+                        profile.name
+                    ),
+                },
+                Err(error) => {
+                    self.database.profiles.push(profile);
+                    self.database.selected = self.database.profiles.len() - 1;
+                    format!("Could not remove connection profile: {error}")
+                }
+            };
         }
         ui.add(
             egui::TextEdit::multiline(&mut self.sql.editor)
@@ -726,46 +711,45 @@ impl crate::ForgeApp {
                 egui::Button::new("Run query into data viewer"),
             )
             .clicked()
+            && let Some(profile) = self.database.profiles.get(self.database.selected)
         {
-            if let Some(profile) = self.database.profiles.get(self.database.selected) {
-                if let Err(error) = database::validate_query(&self.sql.editor) {
-                    self.sql.output = error;
-                    return;
-                }
-                let name = format!("{}_query_{}", profile.name, self.sql.history.len() + 1);
-                self.sql.output =
-                    match self
-                        .integration_worker
-                        .submit(IntegrationRequest::DatabaseQuery {
-                            profile: profile.clone(),
-                            root: root.clone(),
-                            dataset_name: name,
-                            sql: self.sql.editor.clone(),
-                        }) {
-                        Ok(()) => {
-                            self.integration_pending += 1;
-                            "Running query in background…".into()
-                        }
-                        Err(error) => error,
-                    };
+            if let Err(error) = database::validate_query(&self.sql.editor) {
+                self.sql.output = error;
+                return;
             }
+            let name = format!("{}_query_{}", profile.name, self.sql.history.len() + 1);
+            self.sql.output =
+                match self
+                    .integration_worker
+                    .submit(IntegrationRequest::DatabaseQuery {
+                        profile: profile.clone(),
+                        root: root.clone(),
+                        dataset_name: name,
+                        sql: self.sql.editor.clone(),
+                    }) {
+                    Ok(()) => {
+                        self.integration_pending += 1;
+                        "Running query in background…".into()
+                    }
+                    Err(error) => error,
+                };
         }
         ui.label(&self.sql.output);
         ui.horizontal(|ui| {
             ui.strong(format!("Query history ({})", self.sql.history.len()));
-            if !self.sql.history.is_empty() && ui.button("Export JSON").clicked() {
-                if let Some(path) = rfd::FileDialog::new()
+            if !self.sql.history.is_empty()
+                && ui.button("Export JSON").clicked()
+                && let Some(path) = rfd::FileDialog::new()
                     .set_file_name("forge-query-history.json")
                     .save_file()
-                {
-                    self.sql.output = serde_json::to_vec_pretty(&self.sql.history)
-                        .map_err(|error| error.to_string())
-                        .and_then(|bytes| {
-                            std::fs::write(&path, bytes).map_err(|error| error.to_string())
-                        })
-                        .map(|()| format!("Exported query history to {}", path.display()))
-                        .unwrap_or_else(|error| format!("Query history export failed: {error}"));
-                }
+            {
+                self.sql.output = serde_json::to_vec_pretty(&self.sql.history)
+                    .map_err(|error| error.to_string())
+                    .and_then(|bytes| {
+                        std::fs::write(&path, bytes).map_err(|error| error.to_string())
+                    })
+                    .map(|()| format!("Exported query history to {}", path.display()))
+                    .unwrap_or_else(|error| format!("Query history export failed: {error}"));
             }
             if !self.sql.history.is_empty() && ui.button("Clear").clicked() {
                 self.sql.history.clear();
@@ -928,12 +912,12 @@ impl crate::ForgeApp {
                 egui::TextEdit::singleline(&mut self.job_command)
                     .hint_text("background training command"),
             );
-            if ui.button("Queue job").clicked() {
-                if let Some(root) = self.project_root() {
-                    match self.job_queue.enqueue(self.job_command.clone(), root) {
-                        Ok(id) => self.console = format!("Queued training job {id}."),
-                        Err(error) => self.console = error,
-                    }
+            if ui.button("Queue job").clicked()
+                && let Some(root) = self.project_root()
+            {
+                match self.job_queue.enqueue(self.job_command.clone(), root) {
+                    Ok(id) => self.console = format!("Queued training job {id}."),
+                    Err(error) => self.console = error,
                 }
             }
         });
@@ -983,115 +967,111 @@ impl crate::ForgeApp {
                 millwright_studio::MAX_TRAINING_EVENTS
             ));
             for (label, extension) in [("Export JSON", "json"), ("Export CSV", "csv")] {
-                if !self.training_events.is_empty() && ui.button(label).clicked() {
-                    if let Some(path) = rfd::FileDialog::new()
+                if !self.training_events.is_empty()
+                    && ui.button(label).clicked()
+                    && let Some(path) = rfd::FileDialog::new()
                         .set_file_name(format!("forge-training-events.{extension}"))
                         .save_file()
-                    {
-                        let output = if extension == "json" {
-                            millwright_studio::training_json(&self.training_events)
-                        } else {
-                            millwright_studio::training_csv(&self.training_events)
-                        };
-                        self.console = output
-                            .and_then(|bytes| {
-                                std::fs::write(&path, bytes).map_err(|error| error.to_string())
-                            })
-                            .map(|()| format!("Exported training events to {}", path.display()))
-                            .unwrap_or_else(|error| format!("Training export failed: {error}"));
-                    }
+                {
+                    let output = if extension == "json" {
+                        millwright_studio::training_json(&self.training_events)
+                    } else {
+                        millwright_studio::training_csv(&self.training_events)
+                    };
+                    self.console = output
+                        .and_then(|bytes| {
+                            std::fs::write(&path, bytes).map_err(|error| error.to_string())
+                        })
+                        .map(|()| format!("Exported training events to {}", path.display()))
+                        .unwrap_or_else(|error| format!("Training export failed: {error}"));
                 }
             }
-            if !self.training_events.is_empty() && ui.button("Run summary CSV").clicked() {
-                if let Some(path) = rfd::FileDialog::new()
+            if !self.training_events.is_empty()
+                && ui.button("Run summary CSV").clicked()
+                && let Some(path) = rfd::FileDialog::new()
                     .set_file_name("forge-training-runs.csv")
                     .save_file()
-                {
-                    self.console = export::training_run_csv(&self.training_events, &path)
-                        .map(|()| format!("Exported training run summary to {}", path.display()))
-                        .unwrap_or_else(|error| {
-                            format!("Training run-summary export failed: {error}")
-                        });
-                }
+            {
+                self.console = export::training_run_csv(&self.training_events, &path)
+                    .map(|()| format!("Exported training run summary to {}", path.display()))
+                    .unwrap_or_else(|error| format!("Training run-summary export failed: {error}"));
             }
-            if ui.button("Import JSON").clicked() {
-                if let Some(path) = rfd::FileDialog::new()
+            if ui.button("Import JSON").clicked()
+                && let Some(path) = rfd::FileDialog::new()
                     .add_filter("Forge training JSON", &["json"])
                     .pick_file()
-                {
-                    self.console = std::fs::read(&path)
-                        .map_err(|error| error.to_string())
-                        .and_then(|bytes| millwright_studio::parse_training_json(&bytes))
-                        .map(|events| {
-                            let count = events.len();
-                            self.training_events = events;
-                            format!("Imported {count} training event(s) from {}", path.display())
-                        })
-                        .unwrap_or_else(|error| format!("Training import failed: {error}"));
-                }
+            {
+                self.console = std::fs::read(&path)
+                    .map_err(|error| error.to_string())
+                    .and_then(|bytes| millwright_studio::parse_training_json(&bytes))
+                    .map(|events| {
+                        let count = events.len();
+                        self.training_events = events;
+                        format!("Imported {count} training event(s) from {}", path.display())
+                    })
+                    .unwrap_or_else(|error| format!("Training import failed: {error}"));
             }
-            if !self.training_events.is_empty() && ui.button("HTML report").clicked() {
-                if let Some(path) = rfd::FileDialog::new()
+            if !self.training_events.is_empty()
+                && ui.button("HTML report").clicked()
+                && let Some(path) = rfd::FileDialog::new()
                     .set_file_name("forge-training-report.html")
                     .save_file()
-                {
-                    self.console = millwright_studio::training_report(&self.training_events)
-                        .and_then(|report| {
-                            std::fs::write(&path, report).map_err(|error| error.to_string())
-                        })
-                        .map(|()| format!("Exported training report to {}", path.display()))
-                        .unwrap_or_else(|error| format!("Training report failed: {error}"));
-                }
+            {
+                self.console = millwright_studio::training_report(&self.training_events)
+                    .and_then(|report| {
+                        std::fs::write(&path, report).map_err(|error| error.to_string())
+                    })
+                    .map(|()| format!("Exported training report to {}", path.display()))
+                    .unwrap_or_else(|error| format!("Training report failed: {error}"));
             }
-            if !self.training_events.is_empty() && ui.button("PDF report").clicked() {
-                if let Some(path) = rfd::FileDialog::new()
+            if !self.training_events.is_empty()
+                && ui.button("PDF report").clicked()
+                && let Some(path) = rfd::FileDialog::new()
                     .set_file_name("forge-training-report.pdf")
                     .save_file()
-                {
-                    self.console = millwright_studio::training_pdf_lines(&self.training_events)
-                        .and_then(|lines| export::write_text_pdf(&path, &lines))
-                        .map(|()| format!("Exported training PDF to {}", path.display()))
-                        .unwrap_or_else(|error| format!("Training PDF failed: {error}"));
-                }
+            {
+                self.console = millwright_studio::training_pdf_lines(&self.training_events)
+                    .and_then(|lines| export::write_text_pdf(&path, &lines))
+                    .map(|()| format!("Exported training PDF to {}", path.display()))
+                    .unwrap_or_else(|error| format!("Training PDF failed: {error}"));
             }
-            if !self.training_events.is_empty() && ui.button("Training bundle").clicked() {
-                if let Some(path) = rfd::FileDialog::new()
+            if !self.training_events.is_empty()
+                && ui.button("Training bundle").clicked()
+                && let Some(path) = rfd::FileDialog::new()
                     .set_file_name("forge-training-bundle.zip")
                     .save_file()
-                {
-                    self.console = export::training_bundle(&self.training_events, &path)
-                        .map(|()| format!("Exported training bundle to {}", path.display()))
-                        .unwrap_or_else(|error| format!("Training bundle failed: {error}"));
-                }
+            {
+                self.console = export::training_bundle(&self.training_events, &path)
+                    .map(|()| format!("Exported training bundle to {}", path.display()))
+                    .unwrap_or_else(|error| format!("Training bundle failed: {error}"));
             }
-            if ui.button("Import bundle").clicked() {
-                if let Some(path) = rfd::FileDialog::new()
+            if ui.button("Import bundle").clicked()
+                && let Some(path) = rfd::FileDialog::new()
                     .add_filter("Forge training bundle", &["zip"])
                     .pick_file()
-                {
-                    self.console = export::import_training_bundle(&path)
-                        .map(|bundle| {
-                            let events = bundle.events.len();
-                            let plots = bundle.plots.len();
-                            self.training_events = bundle.events;
-                            for spec in bundle.plots {
-                                if let Some(existing) = self
-                                    .structured_plots
-                                    .iter_mut()
-                                    .find(|existing| existing.name == spec.name)
-                                {
-                                    *existing = spec;
-                                } else {
-                                    self.structured_plots.push(spec);
-                                }
+            {
+                self.console = export::import_training_bundle(&path)
+                    .map(|bundle| {
+                        let events = bundle.events.len();
+                        let plots = bundle.plots.len();
+                        self.training_events = bundle.events;
+                        for spec in bundle.plots {
+                            if let Some(existing) = self
+                                .structured_plots
+                                .iter_mut()
+                                .find(|existing| existing.name == spec.name)
+                            {
+                                *existing = spec;
+                            } else {
+                                self.structured_plots.push(spec);
                             }
-                            format!(
-                                "Imported {events} training event(s) and {plots} plot(s) from {}",
-                                path.display()
-                            )
-                        })
-                        .unwrap_or_else(|error| format!("Training bundle import failed: {error}"));
-                }
+                        }
+                        format!(
+                            "Imported {events} training event(s) and {plots} plot(s) from {}",
+                            path.display()
+                        )
+                    })
+                    .unwrap_or_else(|error| format!("Training bundle import failed: {error}"));
             }
             if !self.training_events.is_empty() && ui.button("Open metric plots").clicked() {
                 let plots = millwright_studio::training_plots(&self.training_events);

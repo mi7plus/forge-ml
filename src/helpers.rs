@@ -20,31 +20,31 @@ pub fn locate(name: &str) -> PathBuf {
     } else {
         name.to_string()
     };
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            let candidates = [
-                // Dev build / Windows NSIS: alongside the running exe.
-                parent.join(&file),
-                // Packaged resource dir, next to the exe (Windows) …
-                parent.join("helpers").join(&file),
-                parent.join("resources").join("helpers").join(&file),
-                // … macOS app bundle Resources …
-                parent
-                    .join("..")
-                    .join("Resources")
-                    .join("helpers")
-                    .join(&file),
-                // … deb / AppImage prefix.
-                parent
-                    .join("..")
-                    .join("lib")
-                    .join("forge_ide")
-                    .join("helpers")
-                    .join(&file),
-            ];
-            if let Some(found) = candidates.into_iter().find(|c| c.is_file()) {
-                return found;
-            }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(parent) = exe.parent()
+    {
+        let candidates = [
+            // Dev build / Windows NSIS: alongside the running exe.
+            parent.join(&file),
+            // Packaged resource dir, next to the exe (Windows) …
+            parent.join("helpers").join(&file),
+            parent.join("resources").join("helpers").join(&file),
+            // … macOS app bundle Resources …
+            parent
+                .join("..")
+                .join("Resources")
+                .join("helpers")
+                .join(&file),
+            // … deb / AppImage prefix.
+            parent
+                .join("..")
+                .join("lib")
+                .join("forge_ide")
+                .join("helpers")
+                .join(&file),
+        ];
+        if let Some(found) = candidates.into_iter().find(|c| c.is_file()) {
+            return found;
         }
     }
     PathBuf::from(file)

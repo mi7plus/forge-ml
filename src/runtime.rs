@@ -1,7 +1,7 @@
-use forge_protocol::{parse_stdout_events, EventEnvelope};
+use forge_protocol::{EventEnvelope, parse_stdout_events};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -170,8 +170,10 @@ fn runtime_loop(
     // waiting for a job token the parent never releases — a nested-cargo
     // deadlock (two idle cargo processes, no rustc). Drop it so evcxr's cargo
     // manages its own jobserver.
-    std::env::remove_var("CARGO_MAKEFLAGS");
-    std::env::remove_var("MAKEFLAGS");
+    // SAFETY: runs once at runtime-worker startup, before evcxr spawns any cargo/rustc child.
+    unsafe { std::env::remove_var("CARGO_MAKEFLAGS") };
+    // SAFETY: runs once at runtime-worker startup, before evcxr spawns any cargo/rustc child.
+    unsafe { std::env::remove_var("MAKEFLAGS") };
 
     // If this build ships an offline runtime bundle, point cargo/rustc (and thus
     // evcxr) at it before starting the kernel, so notebook `:dep` cells for

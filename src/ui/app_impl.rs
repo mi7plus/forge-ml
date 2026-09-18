@@ -249,11 +249,11 @@ impl eframe::App for ForgeApp {
                 // Take the tree out so both it and `self` (the Behavior) can be
                 // borrowed mutably during layout; restore it immediately after.
                 let mut tree = self.dock_tree.take().unwrap_or_else(build_dock_tree);
-                if let Some(kind) = self.dock_focus.take() {
-                    if let Some(id) = Self::dock_tile_of(&tree, kind) {
-                        tree.tiles.set_visible(id, true);
-                        tree.make_active(|_, tile| matches!(tile, Tile::Pane(p) if *p == kind));
-                    }
+                if let Some(kind) = self.dock_focus.take()
+                    && let Some(id) = Self::dock_tile_of(&tree, kind)
+                {
+                    tree.tiles.set_visible(id, true);
+                    tree.make_active(|_, tile| matches!(tile, Tile::Pane(p) if *p == kind));
                 }
                 tree.ui(self, ui);
                 // Apply a tab context-menu action now that the full tree is in hand.
@@ -308,10 +308,10 @@ impl eframe::App for ForgeApp {
             dataset_pane_height: Some(self.dataset_pane_height),
             dataset_viewer_docked: Some(self.dataset_viewer_docked),
         };
-        if let Some(store) = &self.workspace_store {
-            if let Err(error) = store.save_recovery(&recovery) {
-                self.console = format!("Could not save workspace recovery state: {error}");
-            }
+        if let Some(store) = &self.workspace_store
+            && let Err(error) = store.save_recovery(&recovery)
+        {
+            self.console = format!("Could not save workspace recovery state: {error}");
         }
         let state = SessionState {
             project_root: self.project.as_ref().map(|p| p.root.clone()),

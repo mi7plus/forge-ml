@@ -9,7 +9,7 @@
 //! Forge never re-implements Cargo's resolver; it invokes Cargo.
 
 use super::diagnostics::tool_version;
-use super::lock::{sha256_hex, LockEntry};
+use super::lock::{LockEntry, sha256_hex};
 use super::manifest::{CargoRequest, Manifest};
 use super::provider::{Activation, Capabilities, EnvironmentProvider, Probe};
 use std::path::Path;

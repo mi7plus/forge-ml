@@ -8,7 +8,7 @@
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 
 use alacritty_terminal::event::{Event, EventListener};
@@ -20,7 +20,7 @@ use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor, Processor, Rgb};
 use eframe::egui;
 use egui::{Color32, FontId, Stroke};
-use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 /// Grid dimensions passed to the emulator. Scrollback size comes from `Config`,
 /// so `total_lines` need only match the visible screen here.
@@ -225,13 +225,12 @@ impl Terminal {
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(&message).italics());
-                if ui.button("Restart").clicked() {
-                    if let Ok(fresh) =
+                if ui.button("Restart").clicked()
+                    && let Ok(fresh) =
                         Terminal::spawn(None, self.font_size).map_err(|e| self.exited = Some(e))
-                    {
-                        *self = fresh;
-                        changed = true;
-                    }
+                {
+                    *self = fresh;
+                    changed = true;
                 }
             });
         }
@@ -281,11 +280,7 @@ impl Terminal {
         };
         let side_at = |pos: egui::Pos2| -> Side {
             let frac = ((pos.x - rect.left()) / char_w).fract();
-            if frac < 0.5 {
-                Side::Left
-            } else {
-                Side::Right
-            }
+            if frac < 0.5 { Side::Left } else { Side::Right }
         };
         if response.drag_started() {
             if let Some(pos) = response.interact_pointer_pos() {
@@ -294,13 +289,12 @@ impl Terminal {
                     Some(Selection::new(SelectionType::Simple, point, side_at(pos)));
                 changed = true;
             }
-        } else if response.dragged() {
-            if let Some(pos) = response.interact_pointer_pos() {
-                if let Some(sel) = self.term.selection.as_mut() {
-                    sel.update(point_at(pos), side_at(pos));
-                    changed = true;
-                }
-            }
+        } else if response.dragged()
+            && let Some(pos) = response.interact_pointer_pos()
+            && let Some(sel) = self.term.selection.as_mut()
+        {
+            sel.update(point_at(pos), side_at(pos));
+            changed = true;
         }
 
         // Keyboard input and clipboard shortcuts (only while focused).
@@ -347,10 +341,10 @@ impl Terminal {
                     }
                 }
             });
-            if let Some(text) = copy {
-                if !text.is_empty() {
-                    ui.ctx().copy_text(text);
-                }
+            if let Some(text) = copy
+                && !text.is_empty()
+            {
+                ui.ctx().copy_text(text);
             }
             if !input.is_empty() {
                 self.write_input(&input);
@@ -528,10 +522,11 @@ fn encode_key(
     let tilde = |n: u8| vec![0x1b, b'[', b'0' + n, b'~'];
 
     // Ctrl + letter / symbol -> C0 control code.
-    if mods.ctrl && !mods.shift {
-        if let Some(byte) = ctrl_byte(key) {
-            return Some(vec![byte]);
-        }
+    if mods.ctrl
+        && !mods.shift
+        && let Some(byte) = ctrl_byte(key)
+    {
+        return Some(vec![byte]);
     }
 
     let base: Vec<u8> = match key {

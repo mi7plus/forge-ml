@@ -90,10 +90,10 @@ pub fn test_jupyter(profile: &RemoteProfile) -> Result<(String, Vec<String>), St
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| format!("Could not start curl: {error}"))?;
-    if let Some(mut stdin) = child.stdin.take() {
-        if !token.is_empty() {
-            writeln!(stdin, "Authorization: token {token}").map_err(|e| e.to_string())?;
-        }
+    if let Some(mut stdin) = child.stdin.take()
+        && !token.is_empty()
+    {
+        writeln!(stdin, "Authorization: token {token}").map_err(|e| e.to_string())?;
     }
     let output = child.wait_with_output().map_err(|e| e.to_string())?;
     if !output.status.success() {
@@ -220,7 +220,7 @@ pub fn execute(
         let text = match frame {
             tungstenite::Message::Text(text) => text.to_string(),
             tungstenite::Message::Close(_) => {
-                return Err("Remote kernel channel closed before execution completed.".into())
+                return Err("Remote kernel channel closed before execution completed.".into());
             }
             _ => continue,
         };

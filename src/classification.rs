@@ -6,7 +6,7 @@
 // scales, …) by the same counter; an iterator rewrite would obscure the maths.
 #![allow(clippy::needless_range_loop)]
 
-use crate::plot::{PlotKind, PlotSpec, PLOT_SPEC_VERSION};
+use crate::plot::{PLOT_SPEC_VERSION, PlotKind, PlotSpec};
 use forge_protocol::TableData;
 
 const MAX_ROWS: usize = 100_000;

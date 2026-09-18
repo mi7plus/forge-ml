@@ -89,7 +89,9 @@ pub fn validate_packaging(root: &Path) -> Result<String, String> {
             return Err(format!("Release workflow is missing `{required}`"));
         }
     }
-    Ok(format!("Packaging preflight passed for {cargo_version}\nWindows: NSIS\nmacOS: DMG (Apple Silicon)\nLinux: DEB + AppImage\nUpdate manifests: attested stable/beta channels"))
+    Ok(format!(
+        "Packaging preflight passed for {cargo_version}\nWindows: NSIS\nmacOS: DMG (Apple Silicon)\nLinux: DEB + AppImage\nUpdate manifests: attested stable/beta channels"
+    ))
 }
 
 fn manifest_version(text: &str) -> Option<String> {
@@ -107,8 +109,10 @@ mod tests {
     #[test]
     fn reports_manifest_version() {
         // Assert against the live package version so a version bump never breaks this.
-        assert!(version_report(Path::new(env!("CARGO_MANIFEST_DIR")))
-            .contains(env!("CARGO_PKG_VERSION")));
+        assert!(
+            version_report(Path::new(env!("CARGO_MANIFEST_DIR")))
+                .contains(env!("CARGO_PKG_VERSION"))
+        );
     }
     #[test]
     fn workflow_generation_refuses_overwrite() {

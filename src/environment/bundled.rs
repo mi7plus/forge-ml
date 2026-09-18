@@ -5,7 +5,7 @@
 //! Adding a `SystemToolchainProvider`, `GpuProvider`, etc. later touches nothing
 //! here or in the resolver.
 
-use super::lock::{sha256_hex, LockEntry};
+use super::lock::{LockEntry, sha256_hex};
 use super::manifest::Manifest;
 use super::provider::{Activation, Capabilities, CargoConfig, EnvironmentProvider, Probe};
 use std::ffi::OsString;
@@ -36,13 +36,13 @@ impl EnvironmentProvider for BundledRuntimeProvider {
         };
         // If the manifest pins a toolchain the bundle doesn't provide, say so
         // rather than silently activating a different one.
-        if let Some(pinned) = &manifest.toolchain.rust {
-            if !runtime.version.contains(pinned.as_str()) {
-                return Probe::Incompatible(format!(
-                    "manifest pins Rust {pinned}, but the bundled runtime is {}",
-                    runtime.version
-                ));
-            }
+        if let Some(pinned) = &manifest.toolchain.rust
+            && !runtime.version.contains(pinned.as_str())
+        {
+            return Probe::Incompatible(format!(
+                "manifest pins Rust {pinned}, but the bundled runtime is {}",
+                runtime.version
+            ));
         }
         Probe::Available
     }

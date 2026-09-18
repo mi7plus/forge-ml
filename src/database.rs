@@ -121,7 +121,20 @@ impl DatabaseConnector for ProfileConnector<'_> {
         }
     }
     fn schema(&self) -> Result<TableData, String> {
-        let sql = match self.profile.kind { ConnectionKind::SQLite | ConnectionKind::DuckDb => "SELECT table_name, table_type FROM information_schema.tables ORDER BY table_name", ConnectionKind::PostgreSql => "SELECT table_schema, table_name, table_type FROM information_schema.tables ORDER BY table_schema, table_name", ConnectionKind::MySql => "SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_schema = DATABASE() ORDER BY table_name", ConnectionKind::Adbc => return Err("ADBC schema discovery requires a configured driver.".into()) };
+        let sql = match self.profile.kind {
+            ConnectionKind::SQLite | ConnectionKind::DuckDb => {
+                "SELECT table_name, table_type FROM information_schema.tables ORDER BY table_name"
+            }
+            ConnectionKind::PostgreSql => {
+                "SELECT table_schema, table_name, table_type FROM information_schema.tables ORDER BY table_schema, table_name"
+            }
+            ConnectionKind::MySql => {
+                "SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_schema = DATABASE() ORDER BY table_name"
+            }
+            ConnectionKind::Adbc => {
+                return Err("ADBC schema discovery requires a configured driver.".into());
+            }
+        };
         self.query(sql).or_else(|_| if self.profile.kind == ConnectionKind::SQLite { self.query("SELECT name, type FROM sqlite_master WHERE type IN ('table','view') ORDER BY name") } else { Err("Schema discovery failed.".into()) })
     }
 }
@@ -141,7 +154,7 @@ pub fn test_connection(profile: &ConnectionProfile, project_root: &Path) -> Resu
             return Err(format!(
                 "ADBC core is available as `{}`; install a concrete driver manager to test this profile.",
                 adbc_marker()
-            ))
+            ));
         }
     };
     let result = connector.query(sql)?;
@@ -745,9 +758,11 @@ mod tests {
             username: String::new(),
             credential_key: "probe".into(),
         };
-        assert!(test_connection(&profile, Path::new("."))
-            .unwrap()
-            .contains("succeeded"));
+        assert!(
+            test_connection(&profile, Path::new("."))
+                .unwrap()
+                .contains("succeeded")
+        );
         let _ = std::fs::remove_file(path);
     }
 }

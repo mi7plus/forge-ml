@@ -24,8 +24,9 @@
 //! CREATE_NO_WINDOW so no console flashes.
 
 use std::sync::{
+    Arc,
     atomic::{AtomicU32, Ordering},
-    mpsc, Arc,
+    mpsc,
 };
 
 use cef::args::Args;
@@ -188,10 +189,10 @@ fn main() {
         for line in stdin.lock().lines() {
             match line {
                 Ok(line) => {
-                    if let Some(cmd) = Command::parse(&line) {
-                        if tx.send(cmd).is_err() {
-                            break;
-                        }
+                    if let Some(cmd) = Command::parse(&line)
+                        && tx.send(cmd).is_err()
+                    {
+                        break;
                     }
                 }
                 Err(_) => break, // stdin closed → IDE gone
