@@ -27,6 +27,7 @@ paths. The first cell is a `:dep` line that pulls in only the features it needs
 - `notebooks/millwright_classification.rs` — `RandomForest` on iris (`smartcore-backend`).
 - `notebooks/millwright_clustering.rs` — `KMeans` on iris (`linfa-backend`).
 - `notebooks/burn_regression.rs` — single-layer linear model, SGD (`std,train,flex`).
+- `notebooks/burn_automl.rs` — AutoML **in a script**: `automl-core` searches Burn's learning rate + epochs on the real `tips` dataset (`:dep automl-core` + `:dep burn`), mirroring the IDE's built-in AutoML button.
 - `notebooks/burn_classification.rs` — MLP 4→16→3, cross-entropy (`std,train,flex`).
 - `notebooks/burn_clustering.rs` — k-means from Burn tensor ops (`std,flex`).
 - `notebooks/millwright_timeseries.rs` — univariate forecasting as lag regression
