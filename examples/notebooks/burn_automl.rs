@@ -38,15 +38,19 @@ let tips: &[(f32, f32)] = &[
 ];
 let xs: Vec<f32> = tips.iter().map(|(bill, _)| *bill).collect();
 let ys: Vec<f32> = tips.iter().map(|(_, tip)| *tip).collect();
-let n = xs.len();
+let n: usize = xs.len();
 let mean = |v: &[f32]| v.iter().sum::<f32>() / v.len() as f32;
 let std = |v: &[f32], m: f32| {
     (v.iter().map(|x| (x - m).powi(2)).sum::<f32>() / v.len() as f32)
         .sqrt()
         .max(1e-6)
 };
-let (mx, my) = (mean(&xs), mean(&ys));
-let (sx, sy) = (std(&xs, mx), std(&ys, my));
+// Explicit types: these persist into the next cell, and Evcxr needs a concrete
+// type for each cross-cell variable (it cannot infer the closure's return here).
+let mx: f32 = mean(&xs);
+let my: f32 = mean(&ys);
+let sx: f32 = std(&xs, mx);
+let sy: f32 = std(&ys, my);
 let x_std: Vec<f32> = xs.iter().map(|v| (v - mx) / sx).collect();
 let y_std: Vec<f32> = ys.iter().map(|v| (v - my) / sy).collect();
 println!("Loaded {n} rows (predict tip from total_bill)");
