@@ -262,17 +262,26 @@ for line in tips_csv.lines().skip(1) {
     let cell = |i: usize| c[i].trim().trim_matches('"').parse::<f32>();
     if let (Ok(bill), Ok(tip)) = (cell(0), cell(1)) { xs.push(bill); ys.push(tip); }
 }
-// Standardize both columns for stable training.
-let n = xs.len();
-let mean = |v: &[f32]| v.iter().sum::<f32>() / v.len() as f32;
-let std = |v: &[f32], m: f32| (v.iter().map(|x| (x - m).powi(2)).sum::<f32>() / v.len() as f32).sqrt().max(1e-6);
-let (mx, my) = (mean(&xs), mean(&ys));
-let (sx, sy) = (std(&xs, mx), std(&ys, my));
+// Standardize both columns for stable training. Inline (no closures) with
+// explicit types: Evcxr persists a cell's top-level bindings between cells and
+// cannot persist a closure, and needs a concrete type for each cross-cell one.
+let n: usize = xs.len();
+let mx: f32 = xs.iter().sum::<f32>() / n as f32;
+let my: f32 = ys.iter().sum::<f32>() / n as f32;
+let sx: f32 = (xs.iter().map(|x| (x - mx).powi(2)).sum::<f32>() / n as f32)
+    .sqrt()
+    .max(1e-6);
+let sy: f32 = (ys.iter().map(|y| (y - my).powi(2)).sum::<f32>() / n as f32)
+    .sqrt()
+    .max(1e-6);
 let x_std: Vec<f32> = xs.iter().map(|v| (v - mx) / sx).collect();
 let y_std: Vec<f32> = ys.iter().map(|v| (v - my) / sy).collect();
 println!("Loaded {n} rows (predict tip from total_bill)");
 
 //# %% train
+// Wrapped in a block so the opaque Burn locals (device, model, optimizer) are
+// not persisted across cells — Evcxr cannot persist some of them.
+{
 let device = Device::flex().autodiff();
 device.seed(7);
 let input = Tensor::<1>::from_floats(&x_std[..], &device).reshape([n, 1]);
@@ -296,6 +305,7 @@ println!("forge_metric:rmse={}", mse.sqrt());
 let probe = Tensor::<1>::from_floats(&[(25.0 - mx) / sx][..], &device).reshape([1, 1]);
 let pred = model.forward(probe).into_scalar::<f32>() * sy + my;
 println!("predicted tip for a $25 bill: ${pred:.2}");
+}
 
 //# %% explore — send the tips dataset to the Data viewer
 {
