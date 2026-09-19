@@ -15,7 +15,10 @@
 use burn::nn::LinearConfig;
 use burn::optim::{GradientsParams, SgdConfig};
 use burn::tensor::{Device, Tensor};
-use automl_core::prelude::*;
+// Import specifics, NOT `automl_core::prelude::*` — the prelude re-exports a
+// 1-arg `Result` alias that would shadow `std::Result` and break Evcxr's own
+// generated cell wrapper (`-> Result<(), EvcxrUserCodeError>`).
+use automl_core::prelude::{Distribution, NamedMetrics, ParamSet, ReportSink, SearchSpace, Study};
 // Trigger the one-time Burn build here (not mid-search):
 let _ = Tensor::<1>::from_floats(&[0.0f32][..], &Device::flex());
 println!("Burn + automl-core ready.");
