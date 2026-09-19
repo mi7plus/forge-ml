@@ -24,7 +24,7 @@ let _ = Tensor::<1>::from_floats(&[0.0f32][..], &Device::flex());
 println!("Burn + automl-core ready.");
 
 //# %% data — 50 real (total_bill, tip) rows, standardized for stable training
-let tips: &[(f32, f32)] = &[
+let tips: Vec<(f32, f32)> = vec![
     (16.99, 1.01), (10.34, 1.66), (21.01, 3.50), (23.68, 3.31), (24.59, 3.61),
     (25.29, 4.71), (8.77, 2.00), (26.88, 3.12), (15.04, 1.96), (14.78, 3.23),
     (10.27, 1.71), (35.26, 5.00), (15.42, 1.57), (18.43, 3.00), (14.83, 3.02),
@@ -39,18 +39,17 @@ let tips: &[(f32, f32)] = &[
 let xs: Vec<f32> = tips.iter().map(|(bill, _)| *bill).collect();
 let ys: Vec<f32> = tips.iter().map(|(_, tip)| *tip).collect();
 let n: usize = xs.len();
-let mean = |v: &[f32]| v.iter().sum::<f32>() / v.len() as f32;
-let std = |v: &[f32], m: f32| {
-    (v.iter().map(|x| (x - m).powi(2)).sum::<f32>() / v.len() as f32)
-        .sqrt()
-        .max(1e-6)
-};
-// Explicit types: these persist into the next cell, and Evcxr needs a concrete
-// type for each cross-cell variable (it cannot infer the closure's return here).
-let mx: f32 = mean(&xs);
-let my: f32 = mean(&ys);
-let sx: f32 = std(&xs, mx);
-let sy: f32 = std(&ys, my);
+// Standardize inline (no closures): Evcxr persists a cell's top-level bindings
+// between cells and cannot persist a closure, and it needs a concrete type for
+// each cross-cell variable — so these are plain, explicitly-typed `f32`s.
+let mx: f32 = xs.iter().sum::<f32>() / n as f32;
+let my: f32 = ys.iter().sum::<f32>() / n as f32;
+let sx: f32 = (xs.iter().map(|x| (x - mx).powi(2)).sum::<f32>() / n as f32)
+    .sqrt()
+    .max(1e-6);
+let sy: f32 = (ys.iter().map(|y| (y - my).powi(2)).sum::<f32>() / n as f32)
+    .sqrt()
+    .max(1e-6);
 let x_std: Vec<f32> = xs.iter().map(|v| (v - mx) / sx).collect();
 let y_std: Vec<f32> = ys.iter().map(|v| (v - my) / sy).collect();
 println!("Loaded {n} rows (predict tip from total_bill)");
@@ -58,6 +57,9 @@ println!("Loaded {n} rows (predict tip from total_bill)");
 //# %% search — automl-core drives Burn: tune learning rate + epochs
 // The search space and a seeded study (identical primitives to Forge's built-in
 // AutoML). Each trial trains the Burn linear regressor and reports its MSE.
+// Wrapped in a block so none of these locals (the Study, the best trial) are
+// persisted into later cells — Evcxr only needs to persist simple data.
+{
 let space = SearchSpace::new()
     .add("lr", Distribution::log_float(1e-3, 3e-1))
     .add("epochs", Distribution::int(50, 400));
@@ -99,6 +101,7 @@ let best_lr = best.params.float("lr").expect("lr");
 let best_epochs = best.params.int("epochs").expect("epochs");
 let best_mse = best.final_value("mse").expect("mse");
 println!("\nBest: lr {best_lr:.4}, {best_epochs} epochs -> mse {best_mse:.4} (rmse ${:.3})", best_mse.sqrt());
+}
 
 //# %% explore — send tips to the Data viewer (and the built-in UI alternative)
 let rows: Vec<String> = xs.iter().zip(&ys).map(|(x, y)| format!("[{x},{y}]")).collect();
