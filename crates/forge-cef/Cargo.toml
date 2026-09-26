@@ -13,6 +13,6 @@ name = "forge_cef"
 path = "src/main.rs"
 
 [dependencies]
-cef = "152.1.0"
+cef = "154.0.0"
 forge-cef-ipc = { path = "../forge-cef-ipc" }
 memmap2 = "0.9"
